@@ -1,0 +1,3 @@
+# 统一换行符，避免 Windows 上提交后整仓库变成 CRLF
+* text=auto eol=lf
+*.png binary
