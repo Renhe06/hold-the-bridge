@@ -1,3 +1,2 @@
-﻿build 2026-10-11 00:48:27
-msg   deploy.ps1：版本戳只记时间戳（去掉 --amend，改哈希的坑）
-
+build 2026-10-11 00:50:24
+msg   版本戳写进 index.html 注释（纯文本 version.txt 会被抓取器判为低质量拒掉）
