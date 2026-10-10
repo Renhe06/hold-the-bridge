@@ -273,6 +273,14 @@ html, body {
 }
 
 .tiny { margin-top: 14px; font-size: 11px; color: #6d7684; line-height: 1.5; }
+/* 开始界面底部的「使用说明」链接：要能被点中（给足触摸高度），但别抢主按钮的视线 */
+.tiny a {
+  color: #9fc4e8;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(159, 196, 232, 0.45);
+  padding: 6px 2px;
+  display: inline-block;
+}
 
 /* ---------------- 吃到奖励的提示条 ---------------- */
 

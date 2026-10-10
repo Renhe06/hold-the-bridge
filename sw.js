@@ -15,6 +15,7 @@ const ASSETS = [
   './index.html',
   './styles.css',
   './manifest.webmanifest',
+  './guide.html',
   './js/main.js',
   './js/config.js',
   './js/util.js',
@@ -69,7 +70,14 @@ self.addEventListener('fetch', (e) => {
         return res;
       })
       .catch(() =>
-        caches.match(req).then((hit) => hit || caches.match('./index.html'))
+        // 断网兜底：请求说明页就给说明页，其余一律给游戏本体
+        caches
+          .match(req)
+          .then(
+            (hit) =>
+              hit ||
+              caches.match(url.pathname.endsWith('/guide.html') ? './guide.html' : './index.html')
+          )
       )
   );
 });

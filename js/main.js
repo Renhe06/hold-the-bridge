@@ -151,6 +151,10 @@ function onTap(node, fn) {
   // 初始值若为 0 会把加载后 300ms 内的第一次点击吞掉
   let last = -Infinity;
   node.addEventListener('pointerdown', (e) => {
+    // 遮罩里放了 <a>（开始界面底部的「使用说明」）。这里的 preventDefault
+    // 会把链接的跳转一起吞掉，所以命中链接时直接放行给浏览器。
+    const t = e.target;
+    if (t && typeof t.closest === 'function' && t.closest('a')) return;
     const now = performance.now();
     if (now - last < 300) return;
     last = now;
