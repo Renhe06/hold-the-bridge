@@ -62,7 +62,8 @@ html, body {
 .hud-top {
   position: absolute;
   top: calc(var(--safe-t) + 8px);
-  left: calc(var(--safe-l) + 14px);
+  /* 左边留出静音按钮的位置（按钮 38px + 间距），分数才不会压在它下面 */
+  left: calc(var(--safe-l) + 62px);
   right: calc(var(--safe-r) + 14px);
   display: flex;
   align-items: flex-start;
@@ -144,25 +145,27 @@ html, body {
 }
 .prep.on { opacity: 0.95; }
 
-/* ---------------- 静音 ---------------- */
+/* ---------------- 静音 ----------------
+   放在左上角：右下角是「空袭」按钮，两个挤在一起会点错（用户实测反馈） */
 
 .mute {
   position: absolute;
-  right: calc(var(--safe-r) + 14px);
-  bottom: calc(var(--safe-b) + 14px);
-  width: 42px;
-  height: 42px;
+  left: calc(var(--safe-l) + 14px);
+  top: calc(var(--safe-t) + 8px);
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(12, 16, 24, 0.55);
   color: var(--ink);
-  font-size: 17px;
+  font-size: 16px;
   line-height: 1;
   display: grid;
   place-items: center;
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   cursor: pointer;
+  z-index: 5;
 }
 .mute:active { transform: scale(0.92); }
 
@@ -280,6 +283,69 @@ html, body {
   border-bottom: 1px solid rgba(159, 196, 232, 0.45);
   padding: 6px 2px;
   display: inline-block;
+}
+
+/* ---------------- 次级按钮 ---------------- */
+
+.btn.ghost {
+  margin-top: 10px;
+  color: #bcd4ea;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(160, 200, 240, 0.22);
+  font-size: 15px;
+  letter-spacing: 2px;
+  text-indent: 2px;
+  padding: 12px 16px;
+}
+.btn.ghost:active { background: rgba(255, 255, 255, 0.12); }
+
+/* ---------------- 使用说明弹窗 ---------------- */
+
+/* 说明要盖在开始界面之上：第一次自动弹出时底下就是开始界面 */
+.overlay.guide { z-index: 20; }
+
+.title.sm {
+  font-size: 26px;
+  letter-spacing: 4px;
+  text-indent: 4px;
+  background: linear-gradient(180deg, #fff, #ffcd7a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: none;
+}
+
+.guide-body { text-align: left; }
+
+.guide-body h3 {
+  margin: 18px 0 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--gold);
+  letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-body h3::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 209, 102, 0.4), rgba(255, 209, 102, 0));
+}
+
+/* 说明里的列表比首页紧凑：这里条目多，得塞得下 */
+.guide-body .howto {
+  margin: 8px auto 0;
+  gap: 7px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.guide-body .howto li::before {
+  top: 7px;
+  width: 5px;
+  height: 5px;
 }
 
 /* ---------------- 吃到奖励的提示条 ---------------- */

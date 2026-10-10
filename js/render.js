@@ -231,14 +231,17 @@ export class Renderer {
     ctx.translate(ox, oy);
 
     this._drawBackdrop(ctx, w, h);
+    this._drawPlane(ctx, game);
     this._drawWater(ctx, w, h);
     this._drawDeck(ctx);
     this._drawGround(ctx, game);
     this._drawHaze(ctx, w);
     this._drawEntities(ctx, game);
+    this._drawMissiles(ctx, game);
     this._drawFog(ctx, w);
     this._drawRings(ctx, game);
     this._drawHero(ctx, game);
+    this._drawShout(ctx, game);
     this._drawScreenFx(ctx, game, w, h);
     ctx.translate(-ox, -oy);
     this._drawPopups(ctx, game);
@@ -505,9 +508,11 @@ export class Renderer {
     }
 
     // 空袭落点预警：白热圈 + 中心亮点，越接近落地越亮
+    // （导弹的 t 是"发射后经过的时间"，所以还剩多久落地 = delay + dur - t）
     for (const s of game.strikes) {
       const p = cam.project(s.x, s.z);
-      const k = clamp(1 - s.t / 0.5, 0.15, 1);
+      const left = s.delay + s.dur - s.t;
+      const k = clamp(1 - left / 0.9, 0.12, 1);
       const r = CFG.strike.radius * p.s * (0.35 + k * 0.65);
       this._drawGlow(p.x, p.y, r * 0.9, '#ff9f45', 0.35 + k * 0.4);
       ctx.strokeStyle = `rgba(255,220,150,${0.35 + k * 0.5})`;
@@ -516,6 +521,248 @@ export class Renderer {
       ctx.ellipse(p.x, p.y, r, r * 0.38, 0, 0, TAU);
       ctx.stroke();
     }
+  }
+
+  /**
+   * 空袭的轰炸机：横穿夜空。
+   * 画在背景之后、桥面之前——天上的东西不该被桥挡住。
+   * 注意配色：第一版用了接近夜空的深蓝，结果整架飞机"看不见"，
+   * 所以机身要有月光渐变 + 亮描边 + 引擎火光，才在夜空里立得住。
+   */
+  _drawPlane(ctx, game) {
+    const p = game.plane;
+    if (!p) return;
+    const w = this.w;
+    const h = this.h;
+    const k = clamp(p.t / p.dur, 0, 1);
+    // 从画面外进场，飞到画面外为止
+    const x = (p.dir > 0 ? -0.18 + 1.36 * k : 1.18 - 1.36 * k) * w;
+    // 高度按"地平线的比例"算，不按整屏高度：地平线只在屏幕上方约 1/5 处，
+    // 按整屏高度算会把飞机放到水面以下，直接被后面的水/桥面盖掉（踩过的坑）
+    const y = Math.max(24, this.cam.horizonY * p.y);
+    const S = Math.max(20, w * 0.082); // 半个机身长
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(p.dir, 1); // 机头永远朝 +x，靠镜像决定往哪边飞
+
+    const pulse = 0.8 + Math.sin(p.t * 26) * 0.2;
+
+    // ---- 尾迹：两道细细的、往后拖的白烟（不要画成大椭圆，会变成一块板子）----
+    ctx.strokeStyle = 'rgba(200,218,240,0.22)';
+    ctx.lineWidth = Math.max(1.5, S * 0.07);
+    ctx.lineCap = 'round';
+    for (const ey of [S * 0.3, S * 0.62]) {
+      ctx.beginPath();
+      ctx.moveTo(-S * 1.2, ey);
+      ctx.lineTo(-S * (2.6 + 0.3 * pulse), ey + S * 0.12);
+      ctx.stroke();
+    }
+
+    // ---- 远侧机翼 + 平尾 + 垂直尾（先画，压在机身下面，颜色更暗）----
+    ctx.fillStyle = '#182534';
+    ctx.beginPath(); // 远侧主翼（往上掠）
+    ctx.moveTo(S * 0.2, -S * 0.14);
+    ctx.lineTo(-S * 0.5, -S * 1.0);
+    ctx.lineTo(-S * 0.16, -S * 1.0);
+    ctx.lineTo(S * 0.52, -S * 0.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath(); // 垂直尾翼
+    ctx.moveTo(-S * 0.62, -S * 0.12);
+    ctx.lineTo(-S * 1.12, -S * 0.92);
+    ctx.lineTo(-S * 0.82, -S * 0.92);
+    ctx.lineTo(-S * 0.44, -S * 0.12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath(); // 平尾
+    ctx.moveTo(-S * 0.88, -S * 0.05);
+    ctx.lineTo(-S * 1.24, -S * 0.34);
+    ctx.lineTo(-S * 0.94, -S * 0.34);
+    ctx.lineTo(-S * 0.66, -S * 0.05);
+    ctx.closePath();
+    ctx.fill();
+
+    // ---- 机身：上沿被月光照亮，下沿沉进夜色 ----
+    const body = ctx.createLinearGradient(0, -S * 0.17, 0, S * 0.17);
+    body.addColorStop(0, '#6f8cae');
+    body.addColorStop(0.42, '#33465e');
+    body.addColorStop(1, '#0e1622');
+    ctx.fillStyle = body;
+    roundRect(ctx, -S * 0.96, -S * 0.17, S * 1.85, S * 0.34, S * 0.17);
+    ctx.fill();
+    ctx.beginPath(); // 机头收成锥形
+    ctx.moveTo(S * 0.86, -S * 0.17);
+    ctx.lineTo(S * 1.26, S * 0.0);
+    ctx.lineTo(S * 0.86, S * 0.17);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath(); // 机尾收细
+    ctx.moveTo(-S * 0.9, -S * 0.15);
+    ctx.lineTo(-S * 1.3, -S * 0.12);
+    ctx.lineTo(-S * 1.3, S * 0.12);
+    ctx.lineTo(-S * 0.9, S * 0.15);
+    ctx.closePath();
+    ctx.fill();
+
+    // ---- 座舱玻璃：几点暖黄，飞机有了"驾驶舱"就一眼认得出 ----
+    ctx.fillStyle = 'rgba(255,226,150,0.92)';
+    roundRect(ctx, S * 0.34, -S * 0.15, S * 0.2, S * 0.15, S * 0.05);
+    ctx.fill();
+    roundRect(ctx, S * 0.58, -S * 0.14, S * 0.16, S * 0.13, S * 0.04);
+    ctx.fill();
+
+    // ---- 近侧主翼（往下掠，压在最上层）----
+    ctx.fillStyle = '#2f4459';
+    ctx.beginPath();
+    ctx.moveTo(S * 0.24, S * 0.12);
+    ctx.lineTo(-S * 0.44, S * 1.0);
+    ctx.lineTo(-S * 0.06, S * 1.0);
+    ctx.lineTo(S * 0.58, S * 0.1);
+    ctx.closePath();
+    ctx.fill();
+    // 机翼前缘冷光
+    ctx.strokeStyle = 'rgba(175,210,245,0.5)';
+    ctx.lineWidth = Math.max(1, S * 0.035);
+    ctx.beginPath();
+    ctx.moveTo(S * 0.24, S * 0.12);
+    ctx.lineTo(-S * 0.44, S * 1.0);
+    ctx.stroke();
+
+    // ---- 发动机短舱 + 喷口火光（夜空里最亮的东西）----
+    for (const [nx, ny] of [[-S * 0.08, S * 0.3], [-S * 0.3, S * 0.66]]) {
+      ctx.fillStyle = '#1c2836';
+      roundRect(ctx, nx - S * 0.16, ny - S * 0.12, S * 0.32, S * 0.24, S * 0.1);
+      ctx.fill();
+      this._drawGlow(nx - S * 0.1, ny, S * 0.5 * pulse, '#ffb066', 0.55);
+      ctx.fillStyle = `rgba(255,168,70,${0.42 * pulse})`;
+      ctx.beginPath();
+      ctx.moveTo(nx - S * 0.16, ny - S * 0.07);
+      ctx.lineTo(nx - S * (0.6 + 0.24 * pulse), ny);
+      ctx.lineTo(nx - S * 0.16, ny + S * 0.07);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // ---- 机身上沿轮廓光 ----
+    ctx.strokeStyle = 'rgba(200,232,255,0.75)';
+    ctx.lineWidth = Math.max(1.2, S * 0.05);
+    roundRect(ctx, -S * 0.96, -S * 0.17, S * 1.85, S * 0.34, S * 0.17);
+    ctx.stroke();
+
+    // ---- 翼尖航行灯 + 尾部闪灯 ----
+    ctx.fillStyle = 'rgba(255,90,90,0.95)';
+    ctx.beginPath();
+    ctx.arc(-S * 0.5, S * 0.98, Math.max(1.4, S * 0.055), 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(130,255,150,0.95)';
+    ctx.beginPath();
+    ctx.arc(-S * 0.16, -S * 0.98, Math.max(1.4, S * 0.055), 0, TAU);
+    ctx.fill();
+    if (Math.sin(p.t * 7) > 0) {
+      ctx.fillStyle = 'rgba(255,220,140,0.95)';
+      ctx.beginPath();
+      ctx.arc(-S * 1.14, -S * 0.86, Math.max(1.2, S * 0.045), 0, TAU);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  /** 空袭的导弹：从天而降，带尾焰与弹道偏移 */
+  _drawMissiles(ctx, game) {
+    for (const m of game.strikes) {
+      const fly = m.t - m.delay;
+      if (fly < 0) continue; // 还没投下来
+      const k = clamp(fly / m.dur, 0, 1);
+      const p = this.cam.project(m.x, m.z);
+      // 从画面顶端之外加速落下，末端带一点横向漂移：弹道不是一条条垂直线
+      const easeIn = k * k * 0.6 + k * 0.4;
+      const y = -40 + (p.y + 40) * easeIn;
+      const x = p.x + m.lean * this.w * 0.1 * (1 - k);
+      const len = 24 + 44 * k;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(m.lean * 0.35 * (1 - k));
+      // 尾焰（在上方，因为导弹头朝下）
+      const flame = len * (1.25 + Math.sin(this.time * 42 + m.z) * 0.12);
+      const g = ctx.createLinearGradient(0, -flame - len * 0.3, 0, 0);
+      g.addColorStop(0, 'rgba(255,150,60,0)');
+      g.addColorStop(0.55, 'rgba(255,170,80,0.35)');
+      g.addColorStop(1, 'rgba(255,224,160,0.7)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(-len * 0.13, 0);
+      ctx.lineTo(0, -flame - len * 0.3);
+      ctx.lineTo(len * 0.13, 0);
+      ctx.closePath();
+      ctx.fill();
+      // 弹体
+      ctx.fillStyle = '#dfe6ef';
+      roundRect(ctx, -len * 0.07, -len * 0.45, len * 0.14, len * 0.95, len * 0.07);
+      ctx.fill();
+      // 弹头 + 高光（越接近落地越亮）
+      ctx.fillStyle = '#ffce7a';
+      ctx.beginPath();
+      ctx.moveTo(-len * 0.07, len * 0.5);
+      ctx.lineTo(0, len * 0.72);
+      ctx.lineTo(len * 0.07, len * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      this._drawGlow(0, len * 0.4, len * 0.42, '#ff8a3c', 0.4 + k * 0.5);
+      ctx.restore();
+    }
+  }
+
+  /** 角色台词：英雄头顶一个对话气泡（连杀里程碑时冒出来） */
+  _drawShout(ctx, game) {
+    const s = game.shout;
+    if (!s) return;
+    const pl = game.player;
+    const p = this.cam.project(pl.x, pl.z);
+    const H = CFG.hero.size * p.s;
+    const pop = clamp(s.t / 0.16, 0, 1);
+    const ease = 1 - Math.pow(1 - pop, 3);
+    const fade = clamp((s.life - s.t) / 0.32, 0, 1);
+    if (fade <= 0.01) return;
+
+    const size = Math.max(15, Math.min(30, this.w * 0.058)) * (0.62 + 0.38 * ease);
+    ctx.save();
+    ctx.globalAlpha = fade;
+    ctx.font = `900 ${size}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(s.text).width;
+    const bw = tw + size * 1.2;
+    const bh = size * 1.55;
+    const bx = clamp(p.x, bw / 2 + 8, this.w - bw / 2 - 8);
+    const by = p.y - H * 1.3 - bh * 0.6 - (1 - ease) * 12;
+
+    // 气泡
+    ctx.beginPath();
+    ctx.fillStyle = 'rgba(8,12,20,0.84)';
+    roundRect(ctx, bx - bw / 2, by - bh / 2, bw, bh, bh * 0.34);
+    ctx.fill();
+    // 指向英雄的小尖角
+    ctx.beginPath();
+    ctx.moveTo(bx - size * 0.4, by + bh / 2 - 1);
+    ctx.lineTo(bx, by + bh / 2 + size * 0.42);
+    ctx.lineTo(bx + size * 0.4, by + bh / 2 - 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = Math.max(1.4, size * 0.085);
+    roundRect(ctx, bx - bw / 2, by - bh / 2, bw, bh, bh * 0.34);
+    ctx.stroke();
+
+    // 台词：黑描边 + 彩色字
+    ctx.lineWidth = Math.max(2, size * 0.16);
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText(s.text, bx, by);
+    ctx.fillStyle = s.color;
+    ctx.fillText(s.text, bx, by);
+    ctx.restore();
   }
 
   _drawSpit(ctx, s) {

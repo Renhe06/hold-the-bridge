@@ -23,6 +23,10 @@ const el = {
   muteBtn: $('muteBtn'),
   startOverlay: $('startOverlay'),
   startBest: $('startBest'),
+  guideOverlay: $('guideOverlay'),
+  guideBtn: $('guideBtn'),
+  guideClose: $('guideClose'),
+  guidePlay: $('guidePlay'),
   overOverlay: $('overOverlay'),
   newBest: $('newBest'),
   overScore: $('overScore'),
@@ -165,11 +169,37 @@ function onTap(node, fn) {
 }
 
 // 开始：整块遮罩都能点，手指落在哪都能开局
-onTap(el.startOverlay, () => {
+function startGame() {
   sfx.unlock();
   sfx.uiClick();
+  hideGuide();
   game.newRun();
+}
+onTap(el.startOverlay, startGame);
+
+// ---- 使用说明弹窗 ----
+// 第一次进来自动弹一次（本地记一笔），之后只能从首页的「使用说明」按钮打开
+const GUIDE_KEY = 'hold-the-bridge:guide';
+
+function showGuide() {
+  el.guideOverlay.classList.add('show');
+  try { localStorage.setItem(GUIDE_KEY, '1'); } catch (_) {}
+}
+
+function hideGuide() {
+  el.guideOverlay.classList.remove('show');
+}
+
+onTap(el.guideBtn, () => {
+  sfx.unlock();
+  sfx.uiClick();
+  showGuide();
 });
+onTap(el.guideClose, () => {
+  sfx.uiClick();
+  hideGuide();
+});
+onTap(el.guidePlay, startGame);
 
 // 三条命没了不能一点就重开（玩家可能正在猛戳屏幕走位）
 let overAt = 0;
@@ -314,6 +344,13 @@ try {
   }
 } catch (_) {}
 
+// 使用说明：只有第一次打开才自动弹（之后点首页的「使用说明」按钮才显示）
+try {
+  if (localStorage.getItem(GUIDE_KEY) !== '1') showGuide();
+} catch (_) {
+  showGuide();
+}
+
 window.addEventListener('resize', scheduleFit);
 window.addEventListener('orientationchange', scheduleFit);
 if (window.visualViewport) {
@@ -339,4 +376,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 requestAnimationFrame(frame);
 
 // 调试/自测钩子：给自动化冒烟测试留一个入口（对玩家无副作用）
-window.__HBT = { game, cam, sfx, renderer, fit, frame, STATE };
+window.__HBT = { game, cam, sfx, renderer, fit, frame, STATE, showGuide, hideGuide };

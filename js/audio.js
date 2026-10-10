@@ -100,10 +100,13 @@ export class Sound {
   // ---------------- 具体音效 ----------------
 
   shoot(tier = 0) {
-    const detune = 1 + (Math.random() - 0.5) * 0.14;
-    const base = [660, 720, 820, 940][Math.min(tier, 3)] * detune;
-    this.tone({ freq: base, freq2: base * 0.42, type: 'square', dur: 0.07, vol: 0.075 });
-    this.burst({ dur: 0.035, vol: 0.05, type: 'highpass', freq: 2400 });
+    // 老版本是一声 660~940Hz 的方波，听着像玩具激光枪（用户反馈"没有爽感"）。
+    // 真枪的听感是三层叠出来的：低频推力 + 中频炸裂 + 高频尖啸。
+    const det = 1 + (Math.random() - 0.5) * 0.12;
+    const base = [210, 190, 172, 156][Math.min(tier, 3)] * det;
+    this.tone({ freq: base, freq2: base * 0.22, type: 'triangle', dur: 0.085, vol: 0.16 });
+    this.burst({ dur: 0.06, vol: 0.17, type: 'bandpass', freq: 2800 * det, q: 0.7, sweepTo: 420 });
+    this.burst({ dur: 0.022, vol: 0.08, type: 'highpass', freq: 5200 });
   }
 
   hit() {
@@ -195,14 +198,31 @@ export class Sound {
     this.tone({ freq: 1320, type: 'triangle', dur: 0.22, vol: 0.12, delay: 0.2 });
   }
 
-  /** 空袭：呼叫 + 一串落地炸响 */
+  /**
+   * 空袭：轰炸机轰鸣着横穿夜空。
+   * 老版本是"呼叫音 + 六声落地炸响"，现在落地炸响由真正的爆炸（explode → bomb）
+   * 负责，这里只留飞机本身：两层错开的低频锯齿出"多引擎"的拍频轰鸣，
+   * 加一层气流噪声，听感上就是"飞机从头顶压过去"。
+   */
   strike() {
-    this.tone({ freq: 190, freq2: 60, type: 'sawtooth', dur: 0.9, vol: 0.22 });
-    this.burst({ dur: 0.7, vol: 0.2, type: 'lowpass', freq: 1200, sweepTo: 90 });
-    for (let i = 0; i < 6; i++) {
-      const d = 0.25 + i * 0.13;
-      this.tone({ freq: 150 + (i % 2) * 40, freq2: 36, type: 'sawtooth', dur: 0.42, vol: 0.24, delay: d });
-      this.burst({ dur: 0.36, vol: 0.22, type: 'lowpass', freq: 1500, sweepTo: 110, delay: d });
-    }
+    const dur = 2.3;
+    this.tone({ freq: 96, freq2: 72, type: 'sawtooth', dur, vol: 0.11, attack: 0.35 });
+    this.tone({ freq: 88, freq2: 66, type: 'sawtooth', dur, vol: 0.09, attack: 0.42, delay: 0.05 });
+    this.burst({ dur, vol: 0.1, type: 'lowpass', freq: 520, q: 0.8, sweepTo: 240 });
+    this.burst({ dur: 0.9, vol: 0.07, type: 'bandpass', freq: 1500, q: 0.6, sweepTo: 700, delay: 1.05 });
+  }
+
+  /** 导弹下落：由高到低的呼啸 */
+  whoosh() {
+    this.burst({ dur: 0.5, vol: 0.1, type: 'bandpass', freq: 2600, q: 1.1, sweepTo: 380 });
+    this.tone({ freq: 1200, freq2: 180, type: 'sine', dur: 0.46, vol: 0.045 });
+  }
+
+  /** 角色喊话：一小段上扬的"喊"音型，跟屏幕上那句台词配合 */
+  voice(pitch = 0) {
+    const base = 320 + Math.min(pitch, 8) * 26;
+    this.tone({ freq: base, freq2: base * 1.85, type: 'sawtooth', dur: 0.13, vol: 0.09 });
+    this.tone({ freq: base * 1.4, freq2: base * 2.5, type: 'square', dur: 0.17, vol: 0.055, delay: 0.06 });
+    this.burst({ dur: 0.14, vol: 0.05, type: 'bandpass', freq: 1300, q: 1.5, sweepTo: 2400 });
   }
 }

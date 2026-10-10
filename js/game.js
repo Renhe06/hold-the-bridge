@@ -79,7 +79,9 @@ export class Game {
     this.corpses = []; // 刚死的尸体（会倒下并淡出）
     this.stains = []; // 桥面上的血泊（这一波留下的痕迹）
     this.spits = []; // 吐酸者的酸液
-    this.strikes = []; // 空袭中还在天上飞的炮弹
+    this.strikes = []; // 空袭中还在天上飞的导弹
+    this.plane = null; // 空袭时横穿夜空的轰炸机
+    this.shout = null; // 角色当前喊的那句话（连杀里程碑等）
     this.mod = null; // 本波词条
     this.lastMod = null;
     this.fogMul = 1;
@@ -213,6 +215,10 @@ export class Game {
       if (this.comboT <= 0) this.combo = 0;
     }
     this.comboPunch = Math.max(0, this.comboPunch - dt / CFG.combo.punch);
+    if (this.shout) {
+      this.shout.t += dt;
+      if (this.shout.t >= this.shout.life) this.shout = null;
+    }
 
     this.updateBullets(dt);
     this.updateOrbs(dt);
@@ -299,7 +305,10 @@ export class Game {
     this.waveBanner = isBossWave ? 2.6 : M ? 2.4 : 2.2;
     this.pulseT = CFG.weapon.pulseInterval;
     this.sfx.waveStart(w);
-    if (isBossWave) this.sfx.bossSpawn();
+    if (isBossWave) {
+      this.sfx.bossSpawn();
+      this.say('BRING IT ON!', '#ff6b4a');
+    }
   }
 
   updateSpawning(dt) {
@@ -725,6 +734,12 @@ export class Game {
         this.sfx.combo(this.combo);
         this.addPopup(e.x, e.z, `${this.combo} 连杀！`, '#ffd166', 1.5);
         this.shake = Math.max(this.shake, 6);
+        // 英雄喊一句（配置在 CFG.shouts，越往上越亢奋）
+        const line = CFG.shouts.find((s) => s.combo === this.combo);
+        if (line) {
+          this.say(line.text, line.color);
+          this.sfx.voice(this.combo / 5);
+        }
       }
     }
 
@@ -780,7 +795,7 @@ export class Game {
     return this.energy >= CFG.charge.max && (this.state === STATE.FIGHT || this.state === STATE.PREP);
   }
 
-  /** 呼叫空袭：一串炮弹从远处一路砸到桥头 */
+  /** 呼叫空袭：轰炸机横穿夜空，一串导弹从天上砸下来，从远处一路犁到桥头 */
   triggerStrike() {
     if (!this.canStrike()) return false;
     this.energy = 0;
@@ -795,8 +810,16 @@ export class Game {
     }
     const dmg = (S.damage + this.wave * S.damagePerWave) * this.strikeMul;
 
+    // 飞机朝哪边飞由这一发随机决定，航线高度也抖一下，免得每次一样
+    this.plane = {
+      t: 0,
+      dur: S.planeDur,
+      dir: Math.random() < 0.5 ? -1 : 1,
+      y: S.planeY * (0.86 + Math.random() * 0.3),
+    };
+
     // 落点从远处一路铺到桥头（不是只在最远端炸）：这样无论丧尸挤在哪一段
-    // 都会被这一串炮弹犁一遍，最后一发正好落在玩家眼前，爽感才到位
+    // 都会被这一串导弹犁一遍，最后一发正好落在玩家眼前，爽感才到位
     const z0 = CFG.zFar - 3;
     const z1 = this.player.z + 1.6;
     const n = Math.max(2, S.count - 1);
@@ -806,28 +829,52 @@ export class Game {
         // 横向散开一点：否则只是一条细线，人站偏一点就打不到
         x: clamp(ax + rand(-0.34, 0.34), -this.cam.roadHalf, this.cam.roadHalf),
         z: zz,
-        t: S.firstDelay + i * S.interval,
+        t: 0,
+        delay: S.firstDelay + i * S.interval,
+        dur: S.missileDur,
+        lean: rand(-0.5, 0.5), // 下落时的横向偏移量（屏幕比例），让弹道不是一条条垂直线
         dmg,
+        launched: false,
         dead: false,
       });
     }
     this.sfx.strike();
     this.shake = Math.max(this.shake, 7);
     this.flash = Math.max(this.flash, 0.25);
+    this.say('FIRE!', '#8bf58b');
     this.addPopup(this.player.x, this.player.z + 5, '空 袭', '#8bf58b', 1.7);
     return true;
   }
 
   updateStrikes(dt) {
+    // 飞机：横穿完就消失
+    if (this.plane) {
+      this.plane.t += dt;
+      if (this.plane.t >= this.plane.dur) this.plane = null;
+    }
+
     for (const s of this.strikes) {
       if (s.dead) continue;
-      s.t -= dt;
-      if (s.t <= 0) {
+      s.t += dt;
+      const fly = s.t - s.delay;
+      if (fly < 0) continue;
+      if (!s.launched) {
+        // 第一枚导弹离机时补一声呼啸，玩家才知道"天上有东西下来了"
+        s.launched = true;
+        this.sfx.whoosh();
+      }
+      if (fly >= s.dur) {
         s.dead = true;
         this.explode(s.x, s.z, CFG.strike.radius, s.dmg);
       }
     }
     this.strikes = this.strikes.filter((s) => !s.dead);
+  }
+
+  /** 角色喊话（屏幕上冒一个对话气泡）。同一条话不会连着刷两遍 */
+  say(text, color = '#ffd166', life = 1.7) {
+    if (this.shout && this.shout.text === text && this.shout.t < 0.35) return;
+    this.shout = { text, color, t: 0, life };
   }
 
   explode(x, z, r, dmg) {

@@ -164,7 +164,26 @@ export const CFG = {
     zRadius: 1.5,
     damage: 4, // 基础伤害（再按波次和升级加成）——目标是"砸残一片"，不是"一键清屏"
     damagePerWave: 0.45,
+    // 飞机掠过 + 导弹从天而降（视觉重做：以前是"炮弹贴着桥面飞"，现在改成
+    // 轰炸机从夜空横穿、导弹带着尾迹从画面顶端砸下来，冲击感强得多）
+    planeDur: 2.1, // 飞机横穿屏幕用的秒数
+    planeY: 0.3, // 航线高度 = 地平线高度的这个比例
+    missileDur: 0.62, // 单发导弹从出场到落地
+    missileFrom: 0.34, // 出场时间占 missileDur 的比例（先"在高空"待一下再砸）
   },
+
+  // ---- 角色台词 ----
+  // 连杀到这些节点，英雄喊一句（英文、短、有鼓动性）。
+  // 参考用户给的例子：十连击 = "PERFECT!"
+  shouts: [
+    { combo: 5, text: 'NICE!', color: '#ffd166' },
+    { combo: 10, text: 'PERFECT!', color: '#7df9ff' },
+    { combo: 15, text: 'INCREDIBLE!', color: '#8bf58b' },
+    { combo: 20, text: 'UNSTOPPABLE!', color: '#ff7df2' },
+    { combo: 25, text: 'GODLIKE!', color: '#ff9f45' },
+    { combo: 30, text: 'LEGENDARY!', color: '#ff3b2f' },
+    { combo: 40, text: 'HOLD THE BRIDGE!', color: '#ffd166' },
+  ],
 
   // ---- 波次词条 ----
   // 每 modEvery 波给这一波加一个随机词条，让每一局的中段节奏都不一样

@@ -141,6 +141,30 @@ try {
   notes.push(`  ✗ 开始界面空转抛异常: ${err && err.message}`);
 }
 
+// -- 1b. 使用说明弹窗：第一次自动弹、之后只能手动开 --
+try {
+  const gEl = ELS.get('guideOverlay');
+  ok(gEl.classList.contains('show'), '第一次进来，使用说明弹窗自动弹出');
+  ok(localStorage.getItem('hold-the-bridge:guide') === '1', '弹过之后写下了「已看过」标记');
+  tap('guideClose');
+  step();
+  ok(!gEl.classList.contains('show') && game.state === STATE.START, '点「知道了」收起说明，而且不会顺手开局');
+  tap('guideBtn');
+  step();
+  ok(gEl.classList.contains('show'), '首页的「使用说明」按钮能再打开');
+  // 弹窗是盖在开始界面之上的（z-index 由 CSS 保证，这里至少确认两层同时显示）
+  ok(ELS.get('startOverlay').classList.contains('show'), '说明弹窗背后仍留着开始界面');
+  tap('guidePlay');
+  step();
+  ok(!gEl.classList.contains('show') && game.state === STATE.PREP, '点「开始守桥」收起说明并直接开局');
+  // 回到开始界面，给下一段用
+  game.state = STATE.START;
+  step();
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ 使用说明弹窗抛异常: ${err && err.message}`);
+}
+
 // -- 2. 点开始 --
 try {
   // 开始界面底部挂了一个「使用说明」链接。遮罩整体是"按下即开局"的，
@@ -362,6 +386,18 @@ try {
   ok(game.corpses.length >= 5 && game.stains.length >= 5, `留下 ${game.corpses.length} 具尸体 / ${game.stains.length} 摊血泊`);
   ok(game.energy > 0, `击杀充能 energy=${Math.round(game.energy)}`);
 
+  // (a2) 角色台词：每 5 连喊一句英文，10 连是 "PERFECT!"（用户点名要的）
+  ok(game.shout && game.shout.text === 'NICE!', `5 连时英雄喊了一句：${game.shout && game.shout.text}`);
+  for (let i = 0; i < 5; i++) game.killEnemy(mk('walker'));
+  ok(game.combo === 10 && !!game.shout && game.shout.text === 'PERFECT!',
+    `10 连喊的是 ${game.shout && game.shout.text}`);
+  ok(CFG.shouts.length >= 5 && CFG.shouts.every((s) => /^[A-Z! ]+$/.test(s.text)),
+    `台词表 ${CFG.shouts.length} 条，全是英文短句`);
+  // 台词会自己到期消失（不能一直挂在头上）
+  game.shout.t = game.shout.life;
+  game.update(0.05);
+  ok(!game.shout, '台词到时自动消失');
+
   // (b) 被咬一口断连杀
   const hp0 = game.player.hp;
   game.bite({ x: game.player.x, z: game.player.z });
@@ -418,12 +454,18 @@ try {
   game.energy = CFG.charge.max;
   ok(game.canStrike(), '能量满时可以呼叫空袭');
   ok(game.triggerStrike(), 'triggerStrike() 被接受');
-  ok(game.energy === 0 && game.strikes.length === CFG.strike.count, `能量清零、${game.strikes.length} 发炮弹在空中`);
+  ok(game.energy === 0 && game.strikes.length === CFG.strike.count, `能量清零、${game.strikes.length} 发导弹在空中`);
+  ok(!!game.plane, `轰炸机已起飞（方向 ${game.plane.dir > 0 ? '左→右' : '右→左'}，航线 y=${game.plane.y.toFixed(2)}）`);
+  ok(game.strikes.every((s) => !s.launched), '导弹先挂在机上（还没投下来）');
   const zs = game.strikes.map((s) => s.z);
   ok(Math.min(...zs) < game.player.z + 3, `最后一发落在桥头附近（最近 ${Math.min(...zs).toFixed(1)}，最远 ${Math.max(...zs).toFixed(1)}）`);
   const aliveBefore = game.enemies.filter((e) => !e.dead).length;
   for (let i = 0; i < 60; i++) { game.updateStrikes(0.05); game.updateEnemies(0.05); }
-  ok(game.strikes.length === 0, '炮弹全部落地');
+  ok(game.strikes.length === 0, '导弹全部落地');
+  // 飞机横穿完会自己消失（不能一直停在画面上）
+  let planeSteps = 0;
+  while (game.plane && planeSteps++ < 120) game.updateStrikes(0.05);
+  ok(!game.plane, `飞机横穿完自动消失（约 ${(planeSteps * 0.05).toFixed(1)}s）`);
   const aliveAfter = game.enemies.filter((e) => !e.dead).length;
   const damaged = game.enemies.filter((e) => !e.dead && e.hp < e.maxHp).length;
   ok(aliveAfter < aliveBefore || damaged > 0, `空袭犁到人堆：炸死 ${aliveBefore - aliveAfter} 只、另有 ${damaged} 只残血`);
