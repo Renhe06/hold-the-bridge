@@ -406,12 +406,43 @@ try {
   game.player.iframe = 0;
   game.player.hp = 50;
 
-  // (c) 分裂者：死后原地裂成两只
+  // (c) 分裂者：死后裂成两只
   const nBefore = game.enemies.length;
   const sp = mk('splitter');
   ok(sp.split === CFG.kinds.splitter.split, `分裂者 split=${sp.split}`);
   game.killEnemy(sp);
   ok(game.enemies.length >= nBefore + 2, `分裂者死后裂出 ${game.enemies.length - nBefore} 只（含它自己那具）`);
+
+  // (c1) 用户反馈"僵尸会突然出现在面前"：分裂小兵不能原地冒出来。
+  //      必须在后方出生 + 有孵化期（孵化期内不咬人）。
+  const kids = game.enemies.slice(-2);
+  ok(
+    kids.length === 2 && kids.every((k) => k.birth > 0),
+    `分裂小兵有孵化期（birth=${kids[0] && kids[0].birth}）`
+  );
+  ok(
+    kids.every((k) => k.z > sp.z + 1),
+    `分裂小兵在后方出生（z=${kids.map((k) => k.z.toFixed(1)).join('/')} > 本体 ${sp.z.toFixed(1)}+1）`
+  );
+  step(1); // 走一帧，让渲染器真的画一次"孵化中"的小兵（配色/缩放写错会在这里炸）
+  for (const k of kids) game.enemies.splice(game.enemies.indexOf(k), 1);
+
+  // (c2) 停下线必须跟着英雄：英雄压到最前时，怪不能在身后站定
+  const zFwdAbs = CFG.zNear + CFG.hero.zFwd;
+  game.player.z = zFwdAbs;
+  game.player.targetZ = zFwdAbs;
+  const appr = mk('walker', 6);
+  appr.state = 'approach';
+  appr.z = zFwdAbs + 0.2; // 摆在"英雄前方一点点"，模拟它正走过来
+  step(1);
+  ok(
+    appr.stopZ >= game.player.z + CFG.wave.stopGap - 1e-6,
+    `停下线跟着英雄走（stopZ=${appr.stopZ.toFixed(2)} ≥ 英雄 ${game.player.z.toFixed(2)}+${CFG.wave.stopGap}）`
+  );
+  game.enemies.splice(game.enemies.indexOf(appr), 1);
+  game.player.z = CFG.zNear;
+  game.player.targetZ = CFG.zNear;
+  step(1);
 
   // (d) 铁盾兵：正面吃三下才破盾，破盾前伤害减半
   const sh = mk('shielded');

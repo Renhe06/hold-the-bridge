@@ -866,6 +866,14 @@ export class Renderer {
       return;
     }
 
+    // 孵化中（分裂者裂出的小兵）：从半截高度长起来 + 一圈紫光，
+    // 让"它出现了"看得见，而不是凭空糊在脸上
+    const hatch = e.birth > 0 && e.birthDur > 0 ? clamp(1 - e.birth / e.birthDur, 0, 1) : 1;
+    if (hatch < 1) {
+      // 光晕别太大：太强会把刚出生的小兵糊成一团紫，看不清它们是"人"
+      this._drawGlow(p.x, p.y - H * 0.45, H * (0.3 + 0.22 * hatch), '#c89bff', 0.2 + 0.18 * hatch);
+    }
+
     // 颜色叠加：冰冻 / 燃烧 / 受击白闪
     let col = e.color;
     if (e.slowT > 0) col = mix(col, '#5ec8ff', 0.42);
@@ -873,7 +881,7 @@ export class Renderer {
     if (e.hurtT > 0) col = mix(col, '#ffffff', 0.75);
     const dark = mix(e.dark, col, 0.25);
 
-    const v = 0.9 + ((e.id * 37) % 21) / 105; // 每只体型略有差异
+    const v = (0.9 + ((e.id * 37) % 21) / 105) * (0.42 + 0.58 * hatch); // 每只体型略有差异；孵化期更小
     const isWind = e.atk === 'wind';
     const isLunge = e.atk === 'lunge';
 

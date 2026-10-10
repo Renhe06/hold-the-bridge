@@ -322,10 +322,10 @@ export class Game {
   }
 
   /**
-   * 敌人出场。atX/atZ/hpScale 给分裂者用（在原地裂出小兵）。
+   * 敌人出场。atX/atZ/hpScale 给分裂者用（在原地裂出小兵），birth 是"孵化"时间。
    * 词条（mod）在这里统一作用到血量/速度/分数上。
    */
-  spawnEnemy(kind, atX, atZ, hpScale) {
+  spawnEnemy(kind, atX, atZ, hpScale, birth) {
     const K = CFG.kinds[kind] || CFG.kinds.walker;
     const W = CFG.wave;
     const w = this.wave;
@@ -335,8 +335,11 @@ export class Game {
     let speed = (W.zombieSpeed + Math.min(W.speedPerWaveMax, (w - 1) * W.speedPerWave)) * K.speedMul;
     if (M && M.speedMul) speed *= M.speedMul;
 
-    // 吐酸者停在很远的地方；其它敌人停在英雄面前
-    const stopBase = K.spit ? CFG.zNear + CFG.spitter.gap : CFG.zNear + W.stopGap + rand(0, W.stopJitter);
+    // 每只怪自己的错位（错开站位，免得叠成一坨）。注意：**停下来的那条线
+    // 必须是"英雄当前所在位置"往前一点，不能按固定基准位 zNear 算** ——
+    // 英雄能前后走 ±(zBack/zFwd)，按 zNear 算的话，你往前走时丧尸就会从你
+    // 身边（甚至身后）穿过去，看起来像"凭空出现在面前"（用户实测反馈）。
+    const stopJit = K.spit ? 0 : rand(0, W.stopJitter);
 
     this.enemies.push({
       id: this.nextId++,
@@ -353,7 +356,10 @@ export class Game {
       halfW: K.size * 0.32,
       zdepth: K.size * 0.45,
       score: Math.round(K.score * ((M && M.scoreMul) || 1)),
-      stopZ: stopBase,
+      stopJit,
+      stopZ: CFG.zNear + (K.spit ? CFG.spitter.gap : W.stopGap + stopJit),
+      birth: birth || 0,
+      birthDur: birth || 1,
       spit: !!K.spit,
       split: K.split || 0,
       shield: K.shield || 0,
@@ -597,6 +603,11 @@ export class Game {
       if (e.hurtT > 0) e.hurtT -= dt;
 
       let spd = 1;
+      if (e.birth > 0) {
+        // "孵化"期：分裂出来 / 刚冒出来的小兵有一小段爬起来的时间，
+        // 这段时间里不咬人，配合渲染的放大动画，玩家看得见它是怎么出现的
+        e.birth -= dt;
+      }
       if (e.slowT > 0) {
         e.slowT -= dt;
         spd = e.slowMulValue;
@@ -624,6 +635,8 @@ export class Game {
 
       if (e.state === 'approach') {
         e.z -= e.speed * spd * dt;
+        // 停下线跟着英雄走：英雄往前压，怪就在更前面停下，绝不会从身边穿过去
+        e.stopZ = e.spit ? pl.z + CFG.spitter.gap : pl.z + W.stopGap + e.stopJit;
         if (e.z <= e.stopZ) {
           e.z = e.stopZ;
           e.state = 'attack';
@@ -687,6 +700,7 @@ export class Game {
 
           e.biteCd -= dt;
           if (
+            e.birth <= 0 &&
             e.biteCd <= 0 &&
             Math.abs(pl.x - e.x) < CFG.hero.halfWidth + e.halfW &&
             Math.abs(pl.z - e.z) < W.stopGap + 0.6
@@ -764,11 +778,21 @@ export class Game {
     this.sfx.zombieDie(big);
     this.shake = Math.max(this.shake, e.kind === 'boss' ? 26 : big ? 8 : 4.5);
 
-    // 分裂者：死了裂成两只小兵（血量和体型都打折），当场把压力还给你
+    // 分裂者：死了裂成两只小兵（血量和体型都打折）。
+    // 注意：**小兵不能原地冒出来** —— 分裂者是在贴脸距离被杀的，原地生成等于
+    // 僵尸凭空糊在玩家脸上（用户实测反馈"僵尸突然出现在面前"）。改成往后退
+    // 1.9 个单位出生 + 0.5s 孵化期（不咬人）+ 一圈紫环提示，玩家能看清它怎么来的。
     if (alive && e.split > 0) {
       for (let i = 0; i < e.split; i++) {
-        this.spawnEnemy('walker', clamp(e.x + (i ? 0.09 : -0.09), -0.9, 0.9) * this.cam.roadHalf, e.z, 0.5);
+        this.spawnEnemy(
+          'walker',
+          clamp(e.x + (i ? 0.09 : -0.09), -0.9, 0.9) * this.cam.roadHalf,
+          Math.min(CFG.zFar, e.z + 1.9),
+          0.5,
+          0.5
+        );
       }
+      this.rings.push({ x: e.x, z: e.z + 1.9, t: 0, life: 0.5, maxR: 0.62, color: '#c89bff' });
       this.spawnParticles(e.x, e.z, 14, 'spark', '#c89bff');
     }
 

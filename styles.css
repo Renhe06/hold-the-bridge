@@ -175,14 +175,19 @@ html, body {
   position: absolute;
   inset: 0;
   display: none;
-  align-items: center;
+  /* 别用 align-items:center：内容比屏幕高时，flex 居中会把面板顶部推出可视区、
+     而且滚不回去（iOS 上特别明显）。改成顶对齐 + 面板 margin:auto，
+     内容短时照样居中，内容长时从顶部开始并能滚到底。 */
+  align-items: flex-start;
   justify-content: center;
-  padding: calc(var(--safe-t) + 16px) 18px calc(var(--safe-b) + 16px);
-  background: radial-gradient(120% 80% at 50% 40%, rgba(8, 11, 18, 0.72), rgba(3, 4, 8, 0.94));
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  padding: calc(var(--safe-t) + 20px) 18px calc(var(--safe-b) + 20px);
+  background: radial-gradient(120% 80% at 50% 40%, rgba(8, 11, 18, 0.78), rgba(3, 4, 8, 0.95));
+  backdrop-filter: blur(10px) saturate(0.85);
+  -webkit-backdrop-filter: blur(10px) saturate(0.85);
   z-index: 10;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .overlay.show { display: flex; animation: fade 0.22s ease both; }
@@ -193,6 +198,7 @@ html, body {
   width: 100%;
   max-width: 360px;
   text-align: center;
+  margin: auto; /* 配合 .overlay 的 align-items:flex-start 做"能居中也能滚" */
   animation: rise 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
 }
 .panel.wide { max-width: 420px; }
@@ -302,7 +308,22 @@ html, body {
 /* ---------------- 使用说明弹窗 ---------------- */
 
 /* 说明要盖在开始界面之上：第一次自动弹出时底下就是开始界面 */
-.overlay.guide { z-index: 20; }
+.overlay.guide {
+  z-index: 20;
+  /* 顶部多留一截：躲开刘海/状态栏，标题不再贴着屏幕边（用户反馈） */
+  padding-top: calc(var(--safe-t) + 40px);
+  background: radial-gradient(120% 80% at 50% 40%, rgba(6, 9, 15, 0.88), rgba(2, 3, 6, 0.97));
+}
+
+/* 说明面板给自己一块不透明的深色底：文字不再直接压在游戏画面上。
+   原来面板是透明的，亮月/爆炸经过时字就看不清了（用户反馈"模糊看不清文字"）。 */
+.overlay.guide .panel {
+  background: rgba(9, 13, 21, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  padding: 20px 16px 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
 
 .title.sm {
   font-size: 26px;
