@@ -262,6 +262,7 @@ const modsSeen = new Set();
 try {
   let held = false;
   let frames = 0;
+  let clearedLogged = false;
   for (let i = 0; i < 9000; i++) {
     frames++;
 
@@ -313,6 +314,19 @@ try {
         died: true,
       });
       break;
+    }
+
+    // 最后一波（BOSS 波）打完不会再有"下一波"，所以上面按波次递增记的那段日志抓不到它。
+    // 这里单独补一条，用来量"BOSS 消耗战"到底打了多久（翻倍血量之后尤其要看这个数）。
+    if (!clearedLogged && game.state === STATE.CLEAR && prevWave > 0) {
+      clearedLogged = true;
+      waveLog.push({
+        wave: prevWave,
+        t: +((frames - waveStartFrame) * 0.05).toFixed(1),
+        bites: bites - bitesAtWave,
+        hp: game.player.hp,
+        cleared: true,
+      });
     }
 
     // 按住不放，每帧用真实输入通道算出想要的手指位置
@@ -789,12 +803,16 @@ if (botStats) {
       `击杀 ${botStats.kills} | 分数 ${botStats.score} | 被咬 ${botStats.bites} 次 | ` +
       `最高 ${botStats.maxCombo} 连杀 | 空袭 ${botStats.strikesFired} 次 | ` +
       `词条 ${botStats.mods.join('/') || '无'} | ` +
-      (botStats.diedAt === null ? '没被咬死' : `撑了 ${botStats.diedAt.toFixed(1)}s 后阵亡（剩余 ${botStats.hp} 血）`)
+      (botStats.diedAt === null
+        ? botStats.waveLog.some((r) => r.cleared)
+          ? `打完第 ${botStats.waveLog.find((r) => r.cleared).wave} 波通关（BOSS 战 ${botStats.waveLog.find((r) => r.cleared).t}s）`
+          : '没被咬死（跑满 450s 没打完）'
+        : `撑了 ${botStats.diedAt.toFixed(1)}s 后阵亡（剩余 ${botStats.hp} 血）`)
   );
   console.log('  每波明细：');
   for (const r of botStats.waveLog) {
     console.log(
-      `    第 ${r.wave} 波  耗时 ${r.t}s  本波被咬 ${r.bites}  打完剩 ${r.hp} 血${r.died ? '  ← 死在这' : ''}`
+      `    第 ${r.wave} 波  耗时 ${r.t}s  本波被咬 ${r.bites}  打完剩 ${r.hp} 血${r.died ? '  ← 死在这' : ''}${r.cleared ? '  ← 通关' : ''}`
     );
   }
   console.log('  吃到的奖励：');
