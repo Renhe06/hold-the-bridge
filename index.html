@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>守桥 · 丧尸围城</title>
+
+<!-- iOS 全屏与安全区：viewport-fit=cover 让画布铺到刘海/灵动岛下面，
+     再用 env(safe-area-inset-*) 把 UI 躲回来 -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="守桥" />
+<meta name="theme-color" content="#05070c" />
+<meta name="description" content="单指走位、自动射击的竖屏塔防小游戏。守住这座桥，别让丧尸潮过去。" />
+<meta name="format-detection" content="telephone=no" />
+
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="apple-touch-icon" href="./icons/icon-180.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <!-- ============ 顶部 HUD ============ -->
+  <div class="hud-top" id="hudTop">
+    <div class="hud-score">
+      <span class="hud-num" id="score">0</span>
+      <span class="hud-cap">分</span>
+    </div>
+    <div class="hud-right">
+      <div class="hud-pill"><i>波次</i><b id="waveLabel">—</b></div>
+      <div class="hud-pill"><i>最高</i><b id="bestLabel">0</b></div>
+    </div>
+  </div>
+
+  <!-- ============ 中部状态（武器质变 / 备战倒计时 / 吃到奖励的提示） ============ -->
+  <div class="hud-mid" id="hudMid">
+    <div class="tier" id="tierLabel">制式弹</div>
+    <div class="prep" id="prepLabel"></div>
+    <div class="gain" id="gainToast"></div>
+  </div>
+
+  <!-- ============ 静音按钮 ============ -->
+  <button class="mute" id="muteBtn" aria-label="声音开关">🔊</button>
+
+  <!-- ============ 开始界面 ============ -->
+  <div class="overlay show" id="startOverlay">
+    <div class="panel">
+      <h1 class="title">守 桥</h1>
+      <p class="subtitle">丧尸围城 · 你身后是最后一道防线</p>
+      <ul class="howto">
+        <li><b>单指拖动</b>屏幕任意位置：左右是走位，<b>上下能前进/后退</b></li>
+        <li><b>自动射击</b>，你只需要走位，不用瞄；<b>越靠前打得越疼</b></li>
+        <li>丧尸挤到桥头后会<b>蓄力扑击</b>——看到它下蹲发光就闪开</li>
+        <li>每清一波，桥面左右滑来两块奖励门，<b>你站在哪半边就吃哪一块</b></li>
+        <li>连续击杀攒<b>连杀</b>，分数越滚越高；<b>被咬一口连杀就断</b></li>
+        <li>击杀充能，满了点<b>右下角的「空袭」</b>把整条桥炸一遍</li>
+        <li>提防远处的<b>吐酸者</b>、举盾的<b>铁盾兵</b>和死后分裂的<b>分裂者</b></li>
+      </ul>
+      <div class="best-line">历史最高 <b id="startBest">0</b></div>
+      <button class="btn primary" id="startBtn">开 始 守 桥</button>
+      <p class="tiny">提示：在 Safari 里点「分享 → 添加到主屏幕」，就能全屏离线玩</p>
+    </div>
+  </div>
+
+  <!-- ============ 结束界面 ============ -->
+  <div class="overlay" id="overOverlay">
+    <div class="panel">
+      <h2 class="over-title">桥 头 失 守</h2>
+      <div class="newbest" id="newBest">新 纪 录</div>
+      <div class="stats">
+        <div class="stat"><i>得分</i><b id="overScore">0</b></div>
+        <div class="stat"><i>最高分</i><b id="overBest">0</b></div>
+        <div class="stat"><i>撑到第</i><b id="overWave">0</b></div>
+        <div class="stat"><i>击杀</i><b id="overKills">0</b></div>
+      </div>
+      <div class="stat wide-stat"><i>最终武器</i><b id="overTier">制式弹</b></div>
+      <button class="btn primary" id="againBtn">再 来 一 局</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>

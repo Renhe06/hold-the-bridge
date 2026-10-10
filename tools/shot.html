@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<base href="/" />
+<title>shot harness</title>
+<style>html,body{margin:0;background:#000}</style>
+</head>
+<body>
+<!--
+  ============================================================
+   截图夹具（只在开发时用，不参与线上）
+   目的：headless Edge 里拍真实画面。本环境没有交互式浏览器，
+        之前只能靠冒烟断言 + 图标 PNG 猜画面，这个夹具补上"看"的能力。
+
+   做法：
+   1) 先把 requestAnimationFrame 换成"收集回调不执行"，主循环就完全由
+      脚本用虚拟时钟驱动 → 同一场景每次拍出来一模一样，能对比改前改后。
+   2) 把真 index.html 的 head/body 注入进来（去掉 <script>），
+      保证夹具的 DOM 与线上完全一致，不会出现"夹具里好好的、线上白屏"。
+   3) 再用脚本摆场景，最后走两帧真 RAF 让合成器提交一次，然后截图。
+
+   用法（workdir = hold-the-bridge）：
+     msedge --headless=new --disable-gpu --virtual-time-budget=15000 ^
+       --window-size=390,844 --screenshot=shots/demo.png ^
+       "http://127.0.0.1:8123/tools/shot.html?scene=demo&frames=90"
+   场景见下方 SCENES。
+  ============================================================
+-->
+<script type="module">
+const Q = new URLSearchParams(location.search);
+const rafQ = [];
+const realRAF = window.requestAnimationFrame.bind(window);
+window.requestAnimationFrame = (cb) => { rafQ.push(cb); return rafQ.length; };
+
+// ---- 1. 注入真 DOM（去掉脚本标签，否则会二次初始化）----
+const html = await (await fetch('/index.html')).text();
+const doc = new DOMParser().parseFromString(html, 'text/html');
+const strip = (s) => s.replace(/<script[\s\S]*?<\/script>/gi, '');
+document.head.insertAdjacentHTML('beforeend', strip(doc.head.innerHTML));
+document.body.insertAdjacentHTML('beforeend', strip(doc.body.innerHTML));
+
+// ---- 2. 起游戏（main.js 一加载就 fit() 并把 frame 挂进 rafQ）----
+await import('/js/main.js');
+const H = window.__HBT;
+const { game, cam, renderer, frame, STATE } = H;
+
+// ---- 3. 虚拟时钟 ----
+let t = 1000;
+function step(n, dtMs = 16.7) {
+  for (let i = 0; i < n; i++) {
+    const cb = rafQ.shift();
+    t += dtMs;
+    if (cb) cb(t);
+  }
+}
+function clearEnemies() {
+  game.enemies.length = 0;
+  game.spawnQueue.length = 0;
+  game.bullets.length = 0;
+}
+/** 摆一只指定敌人，返回它的投影尺寸（用来量化"太小了"到底多小）*/
+function put(kind, x, z, hpMul = 1) {
+  game.spawnEnemy(kind);
+  const e = game.enemies[game.enemies.length - 1];
+  e.x = x; e.z = z; e.hp *= hpMul; e.maxHp = e.hp;
+  e.state = 'rest';
+  return e;
+}
+
+const SCENES = {
+  start: () => { step(4); },
+
+  play: () => { game.newRun(); step(+(Q.get('frames') || 300)); },
+
+  // 手工摆一排敌人，专门量体型和辨识度
+  demo: () => {
+    game.newRun();
+    game.state = STATE.FIGHT;
+    clearEnemies();
+    put('walker', -0.20, 13);
+    put('walker', 0.22, 16);
+    put('runner', -0.06, 19);
+    put('brute', 0.18, 22);
+    put('boss', 0, 30);
+    step(+(Q.get('frames') || 40));
+  },
+
+  // 打到第 n 波：直方图式看难度手感（敌人从雾里走出来）
+  wave: () => {
+    game.newRun();
+    const n = +(Q.get('n') || 3);
+    game.wave = n - 1;
+    game.state = STATE.FIGHT;
+    game.startWave();
+    step(+(Q.get('frames') || 360));
+  },
+
+  // 贴脸肉搏：敌人已经在桥头，看扑击动作和血条区
+  melee: () => {
+    game.newRun();
+    game.state = STATE.FIGHT;
+    clearEnemies();
+    put('walker', -0.16, 10.6);
+    put('walker', 0.14, 10.7);
+    put('walker', 0.0, 11.0);
+    put('brute', -0.2, 11.3);
+    step(+(Q.get('frames') || 30));
+  },
+
+  over: () => {
+    game.newRun();
+    game.score = 1280; game.wave = 9; game.kills = 137;
+    game.gameOver();
+    step(4);
+  },
+};
+
+(Q.get('scene') in SCENES ? SCENES[Q.get('scene')] : SCENES.play)();
+
+// ---- 4. 报告：写成表格挂进 DOM，配 --dump-dom 就能数字复核 ----
+const rows = [];
+for (const e of game.enemies) {
+  const s = cam.scaleAt(e.z);
+  rows.push(`${e.kind.padEnd(6)} z=${e.z.toFixed(1)} x=${e.x.toFixed(2)} ` +
+    `世界=${e.size} 屏幕高=${(e.size * s).toFixed(0)}px 半宽=${(e.halfW * s).toFixed(1)}px`);
+}
+const px = cam.scaleAt(10);
+rows.push(`-- 桥头处 1 世界单位 = ${px.toFixed(0)}px，桥面全宽 = ${(2 * cam.roadHalf * px).toFixed(0)}px（画布宽 ${cam.w}）`);
+rows.push(`-- 画布 ${cam.w}x${cam.h} dpr=${renderer.dpr} roadHalf=${cam.roadHalf.toFixed(3)} scaleNear=${cam.scaleNear.toFixed(0)}`);
+const pre = document.createElement('pre');
+pre.id = 'report';
+pre.style.cssText = 'position:fixed;left:0;top:0;z-index:-1;color:#0f0;font:11px monospace;white-space:pre';
+pre.textContent = rows.join('\n');
+document.body.appendChild(pre);
+
+// 让合成器提交一帧（真实 RAF），截图才有内容
+await new Promise((r) => realRAF(() => realRAF(r)));
+document.title = 'ready';
+</script>
+</body>
+</html>

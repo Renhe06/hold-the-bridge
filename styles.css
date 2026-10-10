@@ -1,0 +1,363 @@
+/* ============================================================
+   《守桥》样式
+   iOS 关键点：
+    - body 固定定位 + overscroll-behavior:none，避免橡皮筋和下拉刷新
+    - 高度用 100dvh（100vh 在 Safari 地址栏伸缩时会跳）
+    - 用 env(safe-area-inset-*) 躲开刘海和底部指示条
+    - canvas 用 touch-action:none 接管手势
+   ============================================================ */
+
+:root {
+  --bg: #05070c;
+  --ink: #e8edf5;
+  --dim: #8b93a3;
+  --accent: #ff5a4a;
+  --gold: #ffd166;
+  --cyan: #7df9ff;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --font: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100vh; /* 老 Safari 不认 dvh 时的兜底；其实 inset:0 已经撑满了 */
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+#game {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+/* ---------------- 顶部 HUD ---------------- */
+
+.hud-top {
+  position: absolute;
+  top: calc(var(--safe-t) + 8px);
+  left: calc(var(--safe-l) + 14px);
+  right: calc(var(--safe-r) + 14px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.hud-score {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+}
+
+.hud-num {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-cap { font-size: 13px; color: var(--dim); font-weight: 600; }
+
+.hud-right { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+
+.hud-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(12, 16, 24, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.hud-pill i { font-style: normal; font-size: 11px; color: var(--dim); }
+.hud-pill b { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ---------------- 中部状态 ---------------- */
+
+.hud-mid {
+  position: absolute;
+  top: calc(var(--safe-t) + 104px);
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.tier {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  color: #0a0d12;
+  background: linear-gradient(180deg, #ffe6a8, #ffc44d);
+  box-shadow: 0 2px 14px rgba(255, 190, 70, 0.35);
+  transition: background 0.25s, box-shadow 0.25s;
+}
+
+.tier.t2 { background: linear-gradient(180deg, #ffd0a0, #ff8a2b); box-shadow: 0 2px 16px rgba(255, 130, 40, 0.45); }
+.tier.t3 { background: linear-gradient(180deg, #c9fbff, #35d8ff); box-shadow: 0 2px 18px rgba(60, 210, 255, 0.5); }
+.tier.t4 { background: linear-gradient(180deg, #ffd6fb, #ff42e0); box-shadow: 0 2px 22px rgba(255, 60, 220, 0.55); }
+
+.prep {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  opacity: 0;
+  transition: opacity 0.2s;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+}
+.prep.on { opacity: 0.95; }
+
+/* ---------------- 静音 ---------------- */
+
+.mute {
+  position: absolute;
+  right: calc(var(--safe-r) + 14px);
+  bottom: calc(var(--safe-b) + 14px);
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(12, 16, 24, 0.55);
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+.mute:active { transform: scale(0.92); }
+
+/* ---------------- 遮罩与面板 ---------------- */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--safe-t) + 16px) 18px calc(var(--safe-b) + 16px);
+  background: radial-gradient(120% 80% at 50% 40%, rgba(8, 11, 18, 0.72), rgba(3, 4, 8, 0.94));
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 10;
+  overflow-y: auto;
+}
+
+.overlay.show { display: flex; animation: fade 0.22s ease both; }
+
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+.panel {
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+  animation: rise 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.panel.wide { max-width: 420px; }
+
+@keyframes rise { from { transform: translateY(14px) scale(0.98); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.title {
+  font-size: 52px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  text-indent: 10px;
+  background: linear-gradient(180deg, #fff, #ffcd7a 55%, #ff5a4a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 4px 18px rgba(255, 90, 74, 0.35));
+}
+
+.subtitle {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--dim);
+  letter-spacing: 0.5px;
+}
+
+.howto {
+  margin: 22px auto 4px;
+  text-align: left;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #c3cad6;
+}
+
+.howto li {
+  position: relative;
+  padding-left: 18px;
+}
+
+.howto li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.howto b { color: #fff; font-weight: 700; }
+
+.best-line { margin: 20px 0 14px; font-size: 13px; color: var(--dim); }
+.best-line b { color: var(--gold); font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 15px 18px;
+  border: 0;
+  border-radius: 14px;
+  font-family: var(--font);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-indent: 3px;
+  cursor: pointer;
+  transition: transform 0.08s;
+}
+
+.btn:active { transform: scale(0.97); }
+
+.btn.primary {
+  color: #2a0d06;
+  background: linear-gradient(180deg, #ffd06a, #ff8a3d 60%, #f2562f);
+  box-shadow: 0 8px 26px rgba(255, 110, 60, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.tiny { margin-top: 14px; font-size: 11px; color: #6d7684; line-height: 1.5; }
+
+/* ---------------- 吃到奖励的提示条 ---------------- */
+
+/* v1 这里是三选一卡片弹窗。用户反馈不要弹窗（参考视频里是撞上桥边的
+   物件直接吃加成），改成桥面左右两块奖励门之后，这里只留一条飘过的
+   提示，告诉玩家刚才吃到了什么。 */
+
+.gain {
+  margin-top: 10px;
+  padding: 6px 15px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #fff6e4;
+  background: linear-gradient(180deg, rgba(28,34,46,0.92), rgba(12,16,24,0.92));
+  border: 1px solid color-mix(in srgb, var(--c, #ffd166) 62%, transparent);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.45), 0 0 22px color-mix(in srgb, var(--c, #ffd166) 30%, transparent);
+  opacity: 0;
+  transform: translateY(-6px) scale(0.94);
+  transition: opacity 0.16s, transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+  pointer-events: none;
+}
+
+.gain.show { opacity: 1; transform: none; }
+
+/* ---------------- 结束界面 ---------------- */
+
+.over-title {
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  text-indent: 8px;
+  color: #ff6b5b;
+  filter: drop-shadow(0 3px 14px rgba(255, 60, 40, 0.4));
+}
+
+.newbest {
+  display: none;
+  margin: 12px auto 0;
+  width: fit-content;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-indent: 3px;
+  color: #2a0d06;
+  background: linear-gradient(180deg, #ffe6a8, #ffc44d);
+  animation: pop 0.5s ease both;
+}
+.newbest.show { display: block; }
+
+@keyframes pop { 0% { transform: scale(0.7); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin: 20px 0 18px;
+}
+
+.stat {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  text-align: left;
+}
+
+.stat i { display: block; font-style: normal; font-size: 11px; color: var(--dim); margin-bottom: 3px; }
+.stat b { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.stat.wide-stat { grid-column: 1 / -1; }
+.stat.wide-stat b { font-size: 16px; }
+
+/* 矮屏兜底：iPhone SE 这类 667 高的机器，说明文字排到第 7 条就把按钮挤出屏幕了 */
+@media (max-height: 720px) {
+  .title { font-size: 40px; }
+  .howto { margin-top: 14px; gap: 7px; font-size: 12px; }
+  .best-line { margin: 12px 0 10px; }
+  .btn { padding: 12px 16px; font-size: 16px; }
+  .stats { margin: 12px 0 12px; }
+}
+@media (max-height: 620px) {
+  .title { font-size: 34px; }
+  .howto { gap: 5px; font-size: 11px; }
+  .best-line { margin: 8px 0 6px; }
+}

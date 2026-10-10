@@ -1,0 +1,40 @@
+name: Deploy to GitHub Pages
+
+# 推到 main 就自动发布；也可以在 Actions 页面手动点一下
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同时只跑一个发布，新的推上来就把旧的排队任务取消
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # enablement: true —— 仓库里还没打开 Pages 的话，这一步会顺手打开，
+      # 省掉「去 Settings → Pages 点一下」的人工步骤
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      # 整个仓库就是一个静态站，直接原样上传
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
