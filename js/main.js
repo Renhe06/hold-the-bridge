@@ -7,7 +7,7 @@ import { Camera } from './camera.js';
 import { Sound } from './audio.js';
 import { Game, STATE } from './game.js';
 import { Renderer, TAG_COLOR } from './render.js';
-import { CFG } from './config.js';
+import { CFG, isHordeWave, isBossWave } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -374,11 +374,12 @@ function syncHud() {
     if (game.gates) {
       setText(el.prepLabel, 'pp', `← 走位吃奖励 →`);
     } else {
-      const isBoss = (game.wave + 1) % CFG.wave.bossEvery === 0;
+      const nw = game.wave + 1;
+      const tag = isBossWave(nw) ? 'BOSS ' : isHordeWave(nw) ? '尸潮 ' : '';
       setText(
         el.prepLabel,
         'pp',
-        `第 ${game.wave + 1}/${CFG.level.waves} 波 ${isBoss ? 'BOSS ' : ''}来袭 · ${Math.max(0, Math.ceil(game.prepT))}`
+        `第 ${nw}/${CFG.level.waves} 波 ${tag}来袭 · ${Math.max(0, Math.ceil(game.prepT))}`
       );
     }
     el.prepLabel.classList.add('on');

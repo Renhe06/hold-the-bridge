@@ -12,7 +12,7 @@
 //   3. 僵尸体型整体放大一档
 // ============================================================
 
-import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS } from './config.js';
+import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave } from './config.js';
 import { clamp, rand, sample } from './util.js';
 
 export const STATE = {
@@ -286,9 +286,12 @@ export class Game {
 
     let count = Math.round(Math.min(W.maxCount, W.firstCount + (w - 1) * W.countPerWave) * ((M && M.countMul) || 1));
 
-    const isBossWave = w % W.bossEvery === 0;
-    // BOSS 波另外铺一片人海（spawnHorde），所以常规出怪砍一半
-    if (isBossWave) count = Math.max(3, Math.round(count * CFG.bossHorde.queueMul));
+    // 人海波：铺一片一枪一个的小兵。BOSS 只在最后一波来（见 config 的波型判定），
+    // 所以第 5 / 10 波是"割草波"，不夹带 BOSS。
+    const hordeWave = isHordeWave(w);
+    const bossWave = isBossWave(w);
+    // 人海波另外铺一片人海（spawnHorde），所以常规出怪砍到三分之一
+    if (hordeWave) count = Math.max(3, Math.round(count * CFG.bossHorde.queueMul));
 
     const queue = [];
     for (let i = 0; i < count; i++) {
@@ -320,14 +323,16 @@ export class Game {
     }
 
     this.state = STATE.FIGHT;
-    this.waveBanner = isBossWave ? 2.6 : M ? 2.4 : 2.2;
+    this.waveBanner = bossWave ? 2.8 : hordeWave ? 2.5 : M ? 2.4 : 2.2;
     this.pulseT = CFG.weapon.pulseInterval;
     this.sfx.waveStart(w);
-    if (isBossWave) {
+    if (hordeWave) {
       // 这一波开场就要是这个画面：桥面最前面铺满密密麻麻的小兵，
-      // 玩家抬手一梭子扫倒一片；它们身后是那个巨大的 BOSS，正慢慢压过来。
-      // 所以 BOSS 不走出怪队列，和人海在同一帧直接生成（人海更靠近玩家）。
+      // 玩家抬手一梭子扫倒一片。所以人海不走出怪队列，直接一次性生成。
       this.spawnHorde(w);
+    }
+    if (bossWave) {
+      // 最后一波：人海之后再压上那个巨大的 BOSS（人海更靠近玩家）。
       this.spawnEnemy('boss', null, CFG.zFar - 5, 1);
       this.sfx.bossSpawn();
       this.say('BRING IT ON!', '#ff6b4a');
@@ -335,15 +340,15 @@ export class Game {
   }
 
   /**
-   * BOSS 波的"人海"：一次性把一群脆皮小兵铺在 BOSS 前方（比 BOSS 更靠近玩家）。
+   * 人海波的"人海"：一次性把一群脆皮小兵铺在桥面上（最前一排离你 zFrom）。
    * 横向 N 条车道铺满桥宽、纵向 M 排，全部当场生成（不走 spawnQueue），
    * 这样开场就是"密密麻麻一片"而不是稀稀拉拉一个个走出来。
    */
   spawnHorde(w) {
     const H = CFG.bossHorde;
     const W = CFG.wave;
-    const ro = W.bossEvery;
-    const level = Math.max(0, Math.floor((w - ro) / ro)); // 第几个 BOSS 波
+    const ro = W.hordeEvery;
+    const level = Math.max(0, Math.floor((w - ro) / ro)); // 第几个"人海波"（5→0、10→1、15→2）
     const n = Math.min(H.maxCount, H.base + level * H.perLevel);
     const roadHalf = this.cam.roadHalf;
     const lanes = H.lanes;
@@ -557,7 +562,16 @@ export class Game {
     // 左门一定从"进攻类"里抽：保证每波都有变强的路，
     // 不会运气不好两扇门都是生存增益、越打越打不动
     const off = avail.filter((u) => OFFENSIVE_KEYS.includes(u.id));
-    const left = (off.length ? sample(off, 1) : sample(avail, 1))[0];
+    // 弹道数还不到 preferBulletsUntil（3）条时，进攻门优先给"弹道 +1"：
+    // 基础武器只有一条弹道，前期清那一片人海全靠"一发一条线"，
+    // 先把弹道铺到 3 条，割草的爽感才立得住。达标后（或已经抽满）恢复随机。
+    const wantBullets =
+      this.weapon.bullets < CFG.gate.preferBulletsUntil && off.some((u) => u.id === 'bullets');
+    const left = wantBullets
+      ? off.find((u) => u.id === 'bullets')
+      : off.length
+        ? sample(off, 1)[0]
+        : sample(avail, 1)[0];
     const rest = avail.filter((u) => u.id !== left.id);
     const right = rest.length ? sample(rest, 1)[0] : left;
     this.gates = { z: CFG.gate.zStart, left, right };

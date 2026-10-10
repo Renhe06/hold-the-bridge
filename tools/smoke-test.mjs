@@ -360,6 +360,12 @@ try {
 try {
   const { CFG, UPGRADES: UPS } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
   game.state = STATE.FIGHT;
+  // 这一段的机制断言不能受"机器人刚才打到第几波"影响：机器人现在能一路打到第 15 波，
+  // 那样 game.wave 就是 15，下面任何一次 update() 只要敌人数组和出怪队列都空着，
+  // 真实状态机就会判成"清完最后一波"→ levelClear() → state = CLEAR，
+  // 之后所有依赖 FIGHT/PREP 的断言（空袭等）都会连锁失败。所以这里把波次钉在中段。
+  game.wave = 3;
+  game.spawnQueue.length = 0;
   game.mod = null;
   game.enemies.length = 0;
   game.spits.length = 0;
@@ -555,18 +561,34 @@ try {
 try {
   const { CFG: C } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
 
-  // (a) BOSS 波：先在 BOSS 前面铺一片"一枪一个"的小兵，BOSS 在后面慢慢压过来
+  // (a) 人海波（第 5 / 10 波）：铺一片"一枪一个"的小兵，但**不夹带 BOSS**
   game.reset();
   game.state = STATE.PREP;
   game.mod = null;
-  game.wave = C.wave.bossEvery - 1; // 下一波就是第一个 BOSS 波
+  game.wave = C.wave.hordeEvery - 1; // 下一波就是第一个人海波（第 5 波）
+  game.spawnQueue.length = 0;
+  game.enemies.length = 0;
+  game.gates = null;
+  game.startWave();
+  const midHorde = game.enemies.filter((e) => e.kind === 'walker');
+  ok(
+    !game.enemies.some((e) => e.kind === 'boss'),
+    `第 ${C.wave.hordeEvery} 波只来人海、没有 BOSS（BOSS 只留给最后一波）`
+  );
+  ok(midHorde.length >= C.bossHorde.base, `人海波先铺一地小兵（walker ${midHorde.length} 只）`);
+
+  // (a2) BOSS 波 = 关卡最后一波：人海在前，巨大的 BOSS 在后
+  game.reset();
+  game.state = STATE.PREP;
+  game.mod = null;
+  game.wave = C.level.waves - 1; // 下一波就是第 15 波（最后一波）
   game.spawnQueue.length = 0;
   game.enemies.length = 0;
   game.gates = null;
   game.startWave();
   const boss = game.enemies.find((e) => e.kind === 'boss');
   const horde = game.enemies.filter((e) => e.kind === 'walker');
-  ok(!!boss && horde.length >= C.bossHorde.base, `BOSS 波先铺一地小兵（walker ${horde.length} 只 + BOSS 1 只）`);
+  ok(!!boss && horde.length >= C.bossHorde.base, `最后一波：walker ${horde.length} 只 + BOSS 1 只`);
   ok(horde.every((e) => e.hp === 1), `小兵一枪一个（hp=${horde[0] && horde[0].hp}，目标是 ${C.bossHorde.hpTarget}）`);
   const hordeNearest = Math.min(...horde.map((e) => e.z));
   ok(hordeNearest < boss.z, `小兵全在 BOSS 前面（小兵最前 z=${hordeNearest.toFixed(1)} < BOSS z=${boss.z.toFixed(1)}）`);
@@ -626,6 +648,37 @@ try {
   ok(game.state === st0, `四个入口点了只提示（state 仍是 ${game.state}）`);
   ok(ELS.get('startOverlay').classList.contains('show'), '点入口没有误触发「开始挑战」');
   ok(String(ELS.get('gainToast').textContent).includes('即将开放'), `入口提示 = ${ELS.get('gainToast').textContent}`);
+
+  // (e) 用户点名：弹道数还不到 3 条时，进攻门必须优先给"弹道 +1"
+  game.reset();
+  game.newRun();
+  const b0 = game.weapon.bullets;
+  let tenBullets = 0;
+  for (let i = 0; i < 10; i++) {
+    game.openGates();
+    if (game.gates.left.id === 'bullets') tenBullets += 1;
+  }
+  ok(
+    tenBullets === 10,
+    `弹道 ${b0} < ${C.gate.preferBulletsUntil} 时进攻门每扇都是"弹道 +1"（10 抽中 ${tenBullets}）`
+  );
+  for (let i = b0; i < C.gate.preferBulletsUntil; i++) {
+    game.openGates();
+    game.applyUpgrade('bullets', 0);
+  }
+  ok(
+    game.weapon.bullets === C.gate.preferBulletsUntil,
+    `吃掉 ${C.gate.preferBulletsUntil - b0} 次加成后弹道铺到 ${game.weapon.bullets} 条`
+  );
+  let stillBullets = 0;
+  for (let i = 0; i < 10; i++) {
+    game.openGates();
+    if (game.gates.left.id === 'bullets') stillBullets += 1;
+  }
+  ok(
+    stillBullets < 10,
+    `弹道达标后进攻门恢复随机（10 抽里 ${stillBullets} 次是弹道，不再被锁定）`
+  );
 
   // 收尾：清干净，别影响第 4~8 段
   game.reset();

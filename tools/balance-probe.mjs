@@ -8,7 +8,7 @@
 //  运行：node tools/balance-probe.mjs
 // ============================================================
 
-import { CFG } from '../js/config.js';
+import { CFG, isHordeWave, isBossWave } from '../js/config.js';
 
 const W = CFG.wave;
 const G = CFG.weapon;
@@ -35,10 +35,19 @@ console.log(
 let firstBad = null;
 for (let w = 1; w <= 18; w++) {
   const count = Math.min(W.maxCount, W.firstCount + (w - 1) * W.countPerWave);
-  const bossWave = w % W.bossEvery === 0;
+  // 波型判定统一走 config 里的两个函数：人海波（第 5/10/15 波）多一片脆皮小兵，
+  // BOSS 只在最后一波。别在这里另写一份 % 5 的算法。
+  const hordeWave = isHordeWave(w);
+  const bossWave = isBossWave(w);
   const baseHp = W.baseHp + (w - 1) * W.hpPerWave;
   const walkerHp = Math.max(1, Math.round(baseHp));
   const bossHp = Math.max(1, Math.round(baseHp * CFG.kinds.boss.hpMul));
+  // 人海波：常规出怪砍到 queueMul，另外铺一片"一枪一个"的小兵
+  const queueCount = hordeWave ? Math.max(3, Math.round(count * CFG.bossHorde.queueMul)) : count;
+  const hordeLevel = hordeWave ? Math.max(0, Math.floor((w - W.hordeEvery) / W.hordeEvery)) : 0;
+  const hordeN = hordeWave
+    ? Math.min(CFG.bossHorde.maxCount, CFG.bossHorde.base + hordeLevel * CFG.bossHorde.perLevel)
+    : 0;
 
   // 混合了 runner/brute 之后的期望血量：按 spawnEnemy 里的出现概率估算
   const pRunner = w >= CFG.runnerFrom ? Math.min(0.4, 0.1 + w * 0.02) : 0;
@@ -48,10 +57,14 @@ for (let w = 1; w <= 18; w++) {
     Math.max(1, Math.round(baseHp * CFG.kinds.runner.hpMul)) * pRunner +
     Math.max(1, Math.round(baseHp * CFG.kinds.brute.hpMul)) * pBrute;
 
-  const totalHp = mixHp * count + (bossWave ? bossHp : 0);
+  // 总血量 = 常规队列（人海波已砍到 queueMul）× 混合血量
+  //        + 人海（hordeN 只、每只正好 hpTarget 点血，一枪一个）
+  //        + 最后一波的 BOSS
+  const totalHp = mixHp * queueCount + hordeN * CFG.bossHorde.hpTarget + (bossWave ? bossHp : 0);
 
   const gap = Math.max(W.spawnGapMin, W.spawnGap - (w - 1) * W.spawnGapDecay);
-  const spawnWindow = gap * (count - 1);
+  // 人海是同一帧一次性生成的，所以出怪窗口按"常规队列"算（人海不占队列时间）
+  const spawnWindow = gap * (Math.max(1, queueCount) - 1);
   const speed = W.zombieSpeed + Math.min(W.speedPerWaveMax, (w - 1) * W.speedPerWave);
   const travel = (CFG.zFar - (CFG.zNear + W.stopGap)) / speed;
   const lastArrive = travel + spawnWindow;
@@ -65,10 +78,11 @@ for (let w = 1; w <= 18; w++) {
   const flag = ratio < 1 ? '  ✗ 打不完' : ratio < 1.5 ? '  ⚠ 很紧' : '';
   if (ratio < 1 && firstBad === null) firstBad = w;
 
+  const tag = bossWave ? ' BOSS' : hordeWave ? ' 人海' : '';
   console.log(
-    `  ${String(w).padStart(3)}  ${String(count + (bossWave ? 1 : 0)).padStart(4)}  ` +
+    `  ${String(w).padStart(3)}  ${String(queueCount + hordeN + (bossWave ? 1 : 0)).padStart(4)}  ` +
       `${fmt(walkerHp)}  ${fmt(totalHp)}  ${fmt(spawnWindow)}s  ${fmt(lastArrive)}s  ` +
-      `${fmt(needDps)}  ${fmt(haveDps)}  ${fmt(ratio, 2)}×${flag}`
+      `${fmt(needDps)}  ${fmt(haveDps)}  ${fmt(ratio, 2)}×${flag}${tag}`
   );
 }
 

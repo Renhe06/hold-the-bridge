@@ -8,7 +8,7 @@
 //   - 径向渐变只在上面那两种烘焙里创建，主循环里不新建渐变对象
 // ============================================================
 
-import { CFG, WEAPON_TIERS } from './config.js';
+import { CFG, WEAPON_TIERS, isHordeWave, isBossWave } from './config.js';
 import { clamp, mulberry32, mix, rgba } from './util.js';
 
 const TAU = Math.PI * 2;
@@ -1443,7 +1443,9 @@ export class Renderer {
 
     // 波次横幅
     if (game.waveBanner > 0) {
-      const dur = game.mod || game.wave % CFG.wave.bossEvery === 0 ? 2.5 : 2.2;
+      const bossWave = isBossWave(game.wave);
+      const hordeWave = isHordeWave(game.wave);
+      const dur = bossWave || hordeWave || game.mod ? 2.5 : 2.2;
       const k = game.waveBanner / dur;
       const a = k > 0.75 ? (1 - k) / 0.25 : Math.min(1, k / 0.25);
       ctx.textAlign = 'center';
@@ -1454,14 +1456,19 @@ export class Renderer {
       const txt = `第 ${game.wave} / ${CFG.level.waves} 波`;
       const yy = h * 0.3;
       ctx.strokeText(txt, w / 2, yy);
-      const isBoss = game.wave % CFG.wave.bossEvery === 0;
-      ctx.fillStyle = isBoss ? '#ff5a4a' : '#ffe9a8';
+      ctx.fillStyle = bossWave ? '#ff5a4a' : hordeWave ? '#8bf58b' : '#ffe9a8';
       ctx.fillText(txt, w / 2, yy);
       let subY = yy + w * 0.08;
-      if (isBoss) {
+      // BOSS 只在最后一波；第 5/10 波只来人海，横幅要说清楚区别
+      if (bossWave) {
         ctx.font = `700 ${Math.round(w * 0.05)}px ${FONT}`;
         ctx.strokeText('BOSS 来袭', w / 2, subY);
         ctx.fillText('BOSS 来袭', w / 2, subY);
+        subY += w * 0.07;
+      } else if (hordeWave) {
+        ctx.font = `700 ${Math.round(w * 0.05)}px ${FONT}`;
+        ctx.strokeText('尸 潮 来 袭', w / 2, subY);
+        ctx.fillText('尸 潮 来 袭', w / 2, subY);
         subY += w * 0.07;
       }
       // 词条：每 3 波来一个，横幅上直接写清楚这一波变了什么

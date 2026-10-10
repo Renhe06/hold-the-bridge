@@ -49,6 +49,7 @@ export const CFG = {
     panelHalfRatio: 0.5, // 面板半宽 = 桥面半宽 × 该值（0.5 ⇒ 两块并排正好铺满桥面）
     height: 0.42, // 面板高度（世界单位）
     resolveGap: 0.4, // 滑到英雄前方这么近就结算
+    preferBulletsUntil: 3, // 玩家弹道数不到这个值时，进攻门优先给"弹道 +1"（用户 m02668）
   },
 
   // ---- 主武器（第一版只有一把）----
@@ -87,7 +88,11 @@ export const CFG = {
     spawnGap: 0.9, // 出怪间隔基准
     spawnGapMin: 0.16,
     spawnGapDecay: 0.032, // 每波缩短
-    bossEvery: 5, // 每几波一个 BOSS
+    // 每几波来一片"人海"（桥面一次铺满一枪一个的小兵）——第 5 / 10 / 15 波。
+    // 注意：人海波 ≠ BOSS 波。用户 m02586 问"BOSS 不是最后一波才出来吗"，
+    // 所以从这一版起 BOSS 只在关卡最后一波（第 15 波）出场，中间两次只来人海。
+    // 判定统一走下面的 isHordeWave() / isBossWave()，别再各自算 % 5。
+    hordeEvery: 5,
     prepTime: 2.4, // 波次之间的备战时间
     zombieSpeed: 6.4,
     speedPerWave: 0.13,
@@ -266,6 +271,16 @@ export const CFG = {
   coinKey: 'hold-the-bridge:coins',
   progressKey: 'hold-the-bridge:progress',
 };
+
+// ---- 波型判定（全工程唯一出处）----
+// 以前 game.js / main.js / render.js / 探针脚本各自写一遍 `w % bossEvery === 0`，
+// 一改规则就得满工程找。现在只有这两个函数说了算。
+//
+// 人海波：桥面一次性铺满一枪一个的小兵（第 5 / 10 / 15 波）
+export const isHordeWave = (w) => w > 0 && w % CFG.wave.hordeEvery === 0;
+// BOSS 波：只在每一关的最后一波出场（第一关 = 第 15 波）。清完这一波就结算通关，
+// 所以"最后来一只大的"这件事刚好成立；第 5 / 10 波只来人海，不再夹带 BOSS。
+export const isBossWave = (w) => w > 0 && w % CFG.level.waves === 0;
 
 // 武器质变阶梯：按"攻击类升级"累计点数解锁，纯视觉 + 轻微加成
 export const WEAPON_TIERS = [
