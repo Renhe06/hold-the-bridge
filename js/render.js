@@ -912,7 +912,8 @@ export class Renderer {
     ctx.scale(sx, sy);
     if (e.kind === 'runner') ctx.rotate(-0.10);
     if (e.kind === 'brute') ctx.scale(1.24, 1.0);
-    if (e.kind === 'boss') ctx.scale(1.3, 1.0);
+    // 体型 1.2 的 BOSS 本来就够宽了，不再额外横向拉 1.3 倍
+    //（拉过之后肩宽会超出屏幕、把两侧车道全挡掉）
     // 胖体（吐酸者 / 分裂者）：横向鼓起来，再加一点呼吸般的起伏
     if (e.body === 'fat') ctx.scale(1.22 + Math.sin(e.phase * 0.7) * 0.04, 1.0);
 
@@ -1450,7 +1451,7 @@ export class Renderer {
       ctx.font = `800 ${Math.round(Math.min(46, w * 0.115))}px ${FONT}`;
       ctx.lineWidth = 6;
       ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-      const txt = `第 ${game.wave} 波`;
+      const txt = `第 ${game.wave} / ${CFG.level.waves} 波`;
       const yy = h * 0.3;
       ctx.strokeText(txt, w / 2, yy);
       const isBoss = game.wave % CFG.wave.bossEvery === 0;
@@ -1475,6 +1476,59 @@ export class Renderer {
         ctx.fillText(game.mod.desc, w / 2, subY + w * 0.058);
       }
       ctx.globalAlpha = 1;
+    }
+
+    // ---- BOSS 血条（用户要求"血条加厚"）----
+    // 摆在"连杀数字"和"波次横幅"之间的空档里，两边都不挡：
+    // 连杀数字最高占到 safeTop+50 左右，横幅在 h*0.3。厚度 14~17px，
+    // 比普通 UI 线粗一倍，扫一眼就能读出还剩多少。
+    const boss = game.enemies ? game.enemies.find((e) => e.kind === 'boss' && !e.dead) : null;
+    if (boss) {
+      const bw = w * 0.8;
+      const bh = Math.max(14, Math.round(w * 0.043));
+      const bx = (w - bw) / 2;
+      const by = safeTop + 54;
+      const frac = clamp(boss.hp / boss.maxHp, 0, 1);
+      const low = frac < 0.3;
+      // 底槽
+      ctx.fillStyle = 'rgba(8,5,7,0.8)';
+      roundRect(ctx, bx, by, bw, bh, bh / 2);
+      ctx.fill();
+      // 血量（低血时变红并脉动）
+      const pulse = low ? 0.72 + 0.28 * Math.sin(this.time * 9) : 1;
+      const g = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+      g.addColorStop(0, low ? '#ff2f2f' : '#ffb03d');
+      g.addColorStop(1, low ? '#ff6a4a' : '#ff3b2f');
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = g;
+      roundRect(ctx, bx + 2, by + 2, Math.max(2, (bw - 4) * frac), bh - 4, Math.max(1, (bh - 4) / 2));
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // 外框
+      ctx.strokeStyle = 'rgba(255,255,255,0.24)';
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, bx, by, bw, bh, bh / 2);
+      ctx.stroke();
+      // 名字 + 数值
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = `800 ${Math.round(bh * 0.78)}px ${FONT}`;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.fillStyle = '#ffd9c9';
+      const label = '尸 潮 首 领';
+      ctx.strokeText(label, bx, by - bh * 0.9);
+      ctx.fillText(label, bx, by - bh * 0.9);
+      ctx.textAlign = 'right';
+      const hpTxt = `${Math.max(0, Math.ceil(boss.hp))} / ${boss.maxHp}`;
+      ctx.strokeText(hpTxt, bx + bw, by - bh * 0.9);
+      ctx.fillText(hpTxt, bx + bw, by - bh * 0.9);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      // 给测试留一个可读的落点（跟空袭按钮同一个套路）
+      this.bossBar = { x: bx, y: by, w: bw, h: bh, frac, hp: boss.hp, maxHp: boss.maxHp };
+    } else {
+      this.bossBar = null;
     }
 
     // 连杀数：屏幕中部偏上，数字弹一下 + 颜色随连杀升高变烫

@@ -7,6 +7,7 @@ import { Camera } from './camera.js';
 import { Sound } from './audio.js';
 import { Game, STATE } from './game.js';
 import { Renderer, TAG_COLOR } from './render.js';
+import { CFG } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -23,6 +24,11 @@ const el = {
   muteBtn: $('muteBtn'),
   startOverlay: $('startOverlay'),
   startBest: $('startBest'),
+  startCoins: $('startCoins'),
+  menuRole: $('menuRole'),
+  menuWeapon: $('menuWeapon'),
+  menuShop: $('menuShop'),
+  menuLevel: $('menuLevel'),
   guideOverlay: $('guideOverlay'),
   guideBtn: $('guideBtn'),
   guideClose: $('guideClose'),
@@ -35,6 +41,14 @@ const el = {
   overKills: $('overKills'),
   overTier: $('overTier'),
   againBtn: $('againBtn'),
+  clearOverlay: $('clearOverlay'),
+  clearCoins: $('clearCoins'),
+  clearScore: $('clearScore'),
+  clearKills: $('clearKills'),
+  clearCombo: $('clearCombo'),
+  clearTotal: $('clearTotal'),
+  clearAgain: $('clearAgain'),
+  clearMenu: $('clearMenu'),
 };
 
 // ---------------------------------------------------------
@@ -203,11 +217,42 @@ onTap(el.guidePlay, startGame);
 
 // 三条命没了不能一点就重开（玩家可能正在猛戳屏幕走位）
 let overAt = 0;
+let clearAt = 0;
 onTap(el.againBtn, () => {
   if (performance.now() - overAt < 600) return;
   sfx.uiClick();
   game.newRun();
 });
+
+// 通关结算：同样留 600ms 缓冲（最后一波刚清完玩家手还在屏幕上）
+onTap(el.clearAgain, () => {
+  if (performance.now() - clearAt < 600) return;
+  sfx.uiClick();
+  game.newRun();
+});
+onTap(el.clearMenu, () => {
+  if (performance.now() - clearAt < 600) return;
+  sfx.uiClick();
+  game.backToMenu();
+});
+
+// ---- 主界面四个入口 ----
+// 现在只预留按钮：点下去给一条"即将开放"的提示，不做任何功能。
+// 以后分别接：角色切换 / 武器切换 / 商店购买 / 关卡选择。
+const MENU_ENTRIES = [
+  [el.menuRole, '角色'],
+  [el.menuWeapon, '武器'],
+  [el.menuShop, '商店'],
+  [el.menuLevel, '关卡'],
+];
+for (const [node, name] of MENU_ENTRIES) {
+  onTap(node, (e) => {
+    sfx.unlock();
+    sfx.uiClick();
+    showHint(`${name} · 即将开放`, '#7df9ff');
+    e.stopPropagation();
+  });
+}
 
 onTap(el.muteBtn, (e) => {
   const m = sfx.toggleMute();
@@ -267,6 +312,24 @@ function showGameOver() {
   overAt = performance.now();
 }
 
+/** 通用提示条：主界面的四个入口点下去就用它提示"即将开放" */
+function showHint(text, color = '#ffd166') {
+  setText(el.gainToast, 'gain', text);
+  el.gainToast.style.setProperty('--c', color);
+  gainT = 1.6;
+}
+
+/** 第一关通关结算面板 */
+function showClear() {
+  const r = game.lastReward || { score: game.score, coins: 0, total: game.coins, kills: game.kills, combo: game.comboBest };
+  setText(el.clearCoins, 'cC', String(r.coins));
+  setText(el.clearScore, 'cS', String(r.score));
+  setText(el.clearKills, 'cK', String(r.kills));
+  setText(el.clearCombo, 'cX', String(r.combo || 0));
+  setText(el.clearTotal, 'cT', String(r.total));
+  clearAt = performance.now();
+}
+
 let lastState = null;
 
 function syncState() {
@@ -274,10 +337,15 @@ function syncState() {
 
   if (st !== lastState) {
     if (st === STATE.OVER) showGameOver();
-    if (st === STATE.START) setText(el.startBest, 'sB', String(game.best));
+    if (st === STATE.CLEAR) showClear();
+    if (st === STATE.START) {
+      setText(el.startBest, 'sB', String(game.best));
+      setText(el.startCoins, 'sC', String(game.coins));
+    }
 
     el.startOverlay.classList.toggle('show', st === STATE.START);
     el.overOverlay.classList.toggle('show', st === STATE.OVER);
+    el.clearOverlay.classList.toggle('show', st === STATE.CLEAR);
     lastState = st;
   }
 }
@@ -287,7 +355,11 @@ function syncHud() {
 
   setText(el.score, 'sc', String(game.score));
   setText(el.bestLabel, 'sb', String(game.best));
-  setText(el.waveLabel, 'wv', game.wave > 0 && st !== STATE.START ? String(game.wave) : '—');
+  setText(
+    el.waveLabel,
+    'wv',
+    game.wave > 0 && st !== STATE.START ? `${game.wave}/${CFG.level.waves}` : `0/${CFG.level.waves}`
+  );
 
   // 武器质变等级
   const ti = game.weapon.tierIdx;
@@ -302,7 +374,12 @@ function syncHud() {
     if (game.gates) {
       setText(el.prepLabel, 'pp', `← 走位吃奖励 →`);
     } else {
-      setText(el.prepLabel, 'pp', `第 ${game.wave + 1} 波 来袭 · ${Math.max(0, Math.ceil(game.prepT))}`);
+      const isBoss = (game.wave + 1) % CFG.wave.bossEvery === 0;
+      setText(
+        el.prepLabel,
+        'pp',
+        `第 ${game.wave + 1}/${CFG.level.waves} 波 ${isBoss ? 'BOSS ' : ''}来袭 · ${Math.max(0, Math.ceil(game.prepT))}`
+      );
     }
     el.prepLabel.classList.add('on');
   } else {

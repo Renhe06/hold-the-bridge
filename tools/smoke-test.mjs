@@ -22,6 +22,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // 加 --smart 则换一种会挑升级的机器人，用来验证"认真玩能不能打深"——
 // 如果连会挑升级的玩家都卡在第 6 波，那是数值经济坏了，不是玩家菜。
 const SMART = process.argv.includes('--smart');
+// `--seed=123456` 换一颗种子：单次成绩会被随机流带着跑（多一次 rand 调用就整体平移），
+// 想判断"难度是不是真的变了"要多跑几颗种子看分布，不能只看一次。
+const SEED_ARG = process.argv.find((a) => a.startsWith('--seed='));
+const SEED = SEED_ARG ? Number(SEED_ARG.slice('--seed='.length)) : 20240613;
 const PICK_ORDER = [
   'damage', 'rateMul', 'bullets', 'pierce', 'crit', 'critMul', 'splash', 'burn',
   'ice', 'pulse', 'bulletSpeedMul', 'maxHp', 'shieldPerWave', 'moveMul', 'heal', 'dropChance',
@@ -36,7 +40,7 @@ function makeRng(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-Math.random = makeRng(20240613);
+Math.random = makeRng(SEED);
 
 // ---------------------------------------------------------
 //  Canvas 2D 上下文桩
@@ -434,10 +438,14 @@ try {
   const appr = mk('walker', 6);
   appr.state = 'approach';
   appr.z = zFwdAbs + 0.2; // 摆在"英雄前方一点点"，模拟它正走过来
+  // 这一段是手搓出来的敌人，前面几步的 kill/splice 会把敌人数组清空，
+  // 真实的状态机就会当成"清完一波"切到 PREP，而 updateEnemies 只在 FIGHT 里跑。
+  // 所以这里先把状态按回 FIGHT，测的才是"停下线跟着英雄走"这一件事。
+  game.state = STATE.FIGHT;
   step(1);
   ok(
     appr.stopZ >= game.player.z + CFG.wave.stopGap - 1e-6,
-    `停下线跟着英雄走（stopZ=${appr.stopZ.toFixed(2)} ≥ 英雄 ${game.player.z.toFixed(2)}+${CFG.wave.stopGap}）`
+    `停下线跟着英雄走（stopZ=${appr.stopZ.toFixed(2)} ≥ 英雄 ${game.player.z.toFixed(2)}+${CFG.wave.stopGap}；state=${game.state} 在数组里=${game.enemies.includes(appr)}）`
   );
   game.enemies.splice(game.enemies.indexOf(appr), 1);
   game.player.z = CFG.zNear;
@@ -539,6 +547,94 @@ try {
 } catch (err) {
   failures++;
   notes.push(`  ✗ v3 新玩法抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : err}`);
+}
+
+// ---------------------------------------------------------
+// -- 3c. 本轮新增：BOSS 人海 / BOSS 血条 / 第 15 波结算金币 / 主界面 --
+// ---------------------------------------------------------
+try {
+  const { CFG: C } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
+
+  // (a) BOSS 波：先在 BOSS 前面铺一片"一枪一个"的小兵，BOSS 在后面慢慢压过来
+  game.reset();
+  game.state = STATE.PREP;
+  game.mod = null;
+  game.wave = C.wave.bossEvery - 1; // 下一波就是第一个 BOSS 波
+  game.spawnQueue.length = 0;
+  game.enemies.length = 0;
+  game.gates = null;
+  game.startWave();
+  const boss = game.enemies.find((e) => e.kind === 'boss');
+  const horde = game.enemies.filter((e) => e.kind === 'walker');
+  ok(!!boss && horde.length >= C.bossHorde.base, `BOSS 波先铺一地小兵（walker ${horde.length} 只 + BOSS 1 只）`);
+  ok(horde.every((e) => e.hp === 1), `小兵一枪一个（hp=${horde[0] && horde[0].hp}，目标是 ${C.bossHorde.hpTarget}）`);
+  const hordeNearest = Math.min(...horde.map((e) => e.z));
+  ok(hordeNearest < boss.z, `小兵全在 BOSS 前面（小兵最前 z=${hordeNearest.toFixed(1)} < BOSS z=${boss.z.toFixed(1)}）`);
+  ok(
+    boss.size === C.kinds.boss.size && boss.size >= C.kinds.walker.size * 4,
+    `BOSS 体型 ${boss.size}（小兵的 ${(boss.size / C.kinds.walker.size).toFixed(1)} 倍）`
+  );
+  ok(boss.speed < C.wave.zombieSpeed, `BOSS 走得更慢（${boss.speed.toFixed(2)} < 小兵 ${C.wave.zombieSpeed}）`);
+  ok(boss.hp > 20, `BOSS 血厚（${boss.hp} 血）`);
+  step(2);
+  ok(!!renderer.bossBar && renderer.bossBar.frac > 0.9, `BOSS 血条已显示（${Math.round(renderer.bossBar.w)}x${renderer.bossBar.h}px）`);
+  boss.hp = Math.ceil(boss.maxHp * 0.2);
+  step(1);
+  ok(!!renderer.bossBar && renderer.bossBar.frac < 0.25, `血条跟着掉（剩 ${(renderer.bossBar.frac * 100).toFixed(0)}%）`);
+
+  // (b) 第 15 波清完 = 第一关通关：按得分比例结算金币并写进存档
+  game.enemies.length = 0;
+  game.spawnQueue.length = 0;
+  game.state = STATE.FIGHT;
+  game.wave = C.level.waves;
+  game.score = 5000;
+  game.kills = 100;
+  game.comboBest = 30;
+  const scoreAfter = 5000 + C.score.perWave * C.level.waves; // 清波奖励也计入总分
+  const wantCoins = Math.max(1, Math.round(scoreAfter * C.level.coinRatio));
+  const coinsBefore = Number(localStorage.getItem(C.coinKey) || '0');
+  game.onWaveClear();
+  ok(game.state === STATE.CLEAR, `第 ${C.level.waves} 波清完直接通关（state=${game.state}）`);
+  ok(
+    !!game.lastReward && game.lastReward.score === scoreAfter && game.lastReward.coins === wantCoins,
+    `按得分比例结算金币（${scoreAfter} × ${C.level.coinRatio} = ${wantCoins}）`
+  );
+  ok(
+    Number(localStorage.getItem(C.coinKey)) === coinsBefore + wantCoins,
+    `金币累加进存档（${coinsBefore} → ${localStorage.getItem(C.coinKey)}）`
+  );
+  ok(localStorage.getItem(C.progressKey) === '1', '通关进度已记录');
+  step(2);
+  ok(ELS.get('clearOverlay').classList.contains('show'), '通关结算面板已弹出');
+  ok(String(ELS.get('clearCoins').textContent) === String(wantCoins), `面板上的金币 = ${ELS.get('clearCoins').textContent}`);
+
+  // (c) 返回主界面：金币要跟着显示出来
+  for (let i = 0; i < 45; i++) step(20); // 等过 600ms 误触保护
+  tap('clearMenu');
+  step(2);
+  ok(game.state === STATE.START, `点「返回主界面」回到主界面（state=${game.state}）`);
+  ok(ELS.get('startOverlay').classList.contains('show'), '主界面已显示');
+  ok(
+    String(ELS.get('startCoins').textContent) === String(coinsBefore + wantCoins),
+    `主界面显示金币 ${ELS.get('startCoins').textContent}`
+  );
+
+  // (d) 四个入口：这一版只预留按钮，点了只提示、不实装、也不许误触发开局
+  const st0 = game.state;
+  for (const id of ['menuRole', 'menuWeapon', 'menuShop', 'menuLevel']) tap(id);
+  step(2);
+  ok(game.state === st0, `四个入口点了只提示（state 仍是 ${game.state}）`);
+  ok(ELS.get('startOverlay').classList.contains('show'), '点入口没有误触发「开始挑战」');
+  ok(String(ELS.get('gainToast').textContent).includes('即将开放'), `入口提示 = ${ELS.get('gainToast').textContent}`);
+
+  // 收尾：清干净，别影响第 4~8 段
+  game.reset();
+  game.enemies.length = 0;
+  game.spawnQueue.length = 0;
+  game.player.hp = 99;
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ 本轮新玩法抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : err}`);
 }
 
 // -- 4. 全部升级逐个生效 --

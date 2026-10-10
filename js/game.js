@@ -19,7 +19,8 @@ export const STATE = {
   START: 'start',
   PREP: 'prep', // 备战：奖励门滑过来的这段时间
   FIGHT: 'fight',
-  OVER: 'over',
+  OVER: 'over', // 桥头失守
+  CLEAR: 'clear', // 第一关通关（结算金币）
 };
 
 export class Game {
@@ -27,6 +28,8 @@ export class Game {
     this.cam = cam;
     this.sfx = sfx;
     this.best = this._loadBest();
+    this.coins = this._loadCoins();
+    this.clearedLevel = this._loadProgress();
     this.reset();
     this.state = STATE.START;
   }
@@ -61,6 +64,7 @@ export class Game {
     this.lastGain = null; // 最近吃到的那块奖励（HUD 弹一条提示用）
     this.gates = null; // 正在滑过来的左右两块奖励门
     this.newBest = false;
+    this.lastReward = null; // 本次通关结算（得分/金币）——结算面板用
     this.pulseT = CFG.weapon.pulseInterval;
     this._hitSfxT = 0;
     this.dragging = false;
@@ -125,7 +129,7 @@ export class Game {
     };
   }
 
-  /** 开始新一局（点击"开始守桥"/"再来一局"时调用） */
+  /** 开始新一局（点击"开始挑战"/"再来一局"时调用） */
   newRun() {
     this.reset();
     this.state = STATE.PREP;
@@ -133,6 +137,17 @@ export class Game {
     this.pulseT = CFG.weapon.pulseInterval;
     // 第一波之前也给一对奖励门：让玩家在没有任何压力时先学会"走位选奖励"
     this.openGates();
+  }
+
+  /** 回主界面（结算面板上的"返回主界面"）：清干净，但不碰存档 */
+  backToMenu() {
+    this.reset();
+    this.state = STATE.START;
+  }
+
+  /** 这一关打到第几波了（HUD 显示 n/15 用） */
+  get levelWaves() {
+    return CFG.level.waves;
   }
 
   get tier() {
@@ -269,7 +284,11 @@ export class Game {
     this.fogMul = this.mod && this.mod.fog ? this.mod.fog : 1;
     const M = this.mod;
 
-    const count = Math.round(Math.min(W.maxCount, W.firstCount + (w - 1) * W.countPerWave) * ((M && M.countMul) || 1));
+    let count = Math.round(Math.min(W.maxCount, W.firstCount + (w - 1) * W.countPerWave) * ((M && M.countMul) || 1));
+
+    const isBossWave = w % W.bossEvery === 0;
+    // BOSS 波另外铺一片人海（spawnHorde），所以常规出怪砍一半
+    if (isBossWave) count = Math.max(3, Math.round(count * CFG.bossHorde.queueMul));
 
     const queue = [];
     for (let i = 0; i < count; i++) {
@@ -290,9 +309,8 @@ export class Game {
     if (w >= CFG.spitterFrom && !queue.includes('spitter')) queue.push('spitter');
     if (w >= CFG.splitterFrom && !queue.includes('splitter')) queue.push('splitter');
 
-    const isBossWave = w % W.bossEvery === 0;
-    if (isBossWave) queue.push('boss');
-
+    // BOSS 不走常规出怪队列：它和人海同一帧出场（见下面 spawnHorde），
+    // 所以这里不再 queue.push('boss')
     this.spawnQueue = queue;
     this.spawnT = 0;
     this.spawnGap = Math.max(W.spawnGapMin, W.spawnGap - (w - 1) * W.spawnGapDecay);
@@ -306,9 +324,91 @@ export class Game {
     this.pulseT = CFG.weapon.pulseInterval;
     this.sfx.waveStart(w);
     if (isBossWave) {
+      // 这一波开场就要是这个画面：桥面最前面铺满密密麻麻的小兵，
+      // 玩家抬手一梭子扫倒一片；它们身后是那个巨大的 BOSS，正慢慢压过来。
+      // 所以 BOSS 不走出怪队列，和人海在同一帧直接生成（人海更靠近玩家）。
+      this.spawnHorde(w);
+      this.spawnEnemy('boss', null, CFG.zFar - 5, 1);
       this.sfx.bossSpawn();
       this.say('BRING IT ON!', '#ff6b4a');
     }
+  }
+
+  /**
+   * BOSS 波的"人海"：一次性把一群脆皮小兵铺在 BOSS 前方（比 BOSS 更靠近玩家）。
+   * 横向 N 条车道铺满桥宽、纵向 M 排，全部当场生成（不走 spawnQueue），
+   * 这样开场就是"密密麻麻一片"而不是稀稀拉拉一个个走出来。
+   */
+  spawnHorde(w) {
+    const H = CFG.bossHorde;
+    const W = CFG.wave;
+    const ro = W.bossEvery;
+    const level = Math.max(0, Math.floor((w - ro) / ro)); // 第几个 BOSS 波
+    const n = Math.min(H.maxCount, H.base + level * H.perLevel);
+    const roadHalf = this.cam.roadHalf;
+    const lanes = H.lanes;
+    // 这一群小兵的血量按"目标血量"给，不按这一刻的基础血量乘系数：
+    // 乘法会让第 5 波的小兵变成 2 血（基础武器 1 伤/0.3s，16 只砍 10s，
+    // 结果是一群脆皮围着你咬），而这一波要的是"一枪一个"的割草爽感，
+    // 所以直接反算倍率，让它们正好 H.hpTarget 点血（词条倍率仍会作用于它）。
+    const baseHp = W.baseHp + (w - 1) * W.hpPerWave;
+    const hpScale = H.hpTarget / baseHp;
+    for (let i = 0; i < n; i++) {
+      const lane = i % lanes;
+      const rank = Math.floor(i / lanes);
+      // 车道均匀铺开：-1 / -1/3 / +1/3 / +1（lanes = 4）
+      const lf = lanes === 1 ? 0 : (lane / (lanes - 1)) * 2 - 1;
+      const x = clamp(lf * roadHalf * H.spread + rand(-0.02, 0.02), -roadHalf, roadHalf);
+      const z = CFG.zFar - H.zFrom - rank * H.zStep + rand(-0.4, 0.4);
+      // 人海：统一减速 + 停在"挤成一堵墙但够不着你"的位置（见 config 注释）
+      const e = this.spawnEnemy('walker', x, z, hpScale);
+      e.speed *= H.speedScale;
+      e.stopGap = rand(H.stopFrom, H.stopTo);
+      e.stopJit = 0;
+    }
+    // 一片"尸潮"落地扬尘 + 提示，让玩家知道这是设计好的场面而不是卡出来的
+    for (let i = 0; i < 14; i++) {
+      this.particles.push({
+        x: rand(-roadHalf, roadHalf),
+        z: CFG.zFar - H.zFrom - rand(0, 8),
+        h: rand(0.02, 0.16),
+        vx: rand(-0.2, 0.2),
+        vz: rand(-0.3, 0.3),
+        vh: rand(0.3, 0.9),
+        life: rand(0.35, 0.8),
+        size: rand(0.006, 0.014),
+        color: '#9aa7bd',
+        add: false,
+      });
+    }
+  }
+
+  /**
+   * BOSS 的"放崽子"：每隔 spawnEvery 秒往它身前扔几只一枪一个的小兵。
+   * 这样它虽然站得远、够不着你，依然是这一波真正的压力来源
+   * （也是你该优先把它打死的理由）。场上小兵太多时会先停手，
+   * 免得玩家站着不动被无尽的崽子堆死。
+   */
+  spawnBossAdds(boss) {
+    const K = CFG.kinds.boss;
+    const H = CFG.bossHorde;
+    boss.addT = K.spawnEvery;
+    const alive = this.enemies.reduce((n, e) => n + (!e.dead && e.kind !== 'boss' ? 1 : 0), 0);
+    if (alive >= 22) return;
+    const baseHp = CFG.wave.baseHp + (this.wave - 1) * CFG.wave.hpPerWave;
+    const hpScale = H.hpTarget / baseHp;
+    const roadHalf = this.cam.roadHalf;
+    for (let i = 0; i < K.spawnCount; i++) {
+      const x = clamp(boss.x + rand(-0.8, 0.8) * roadHalf, -roadHalf, roadHalf);
+      const z = boss.z + rand(0.5, 1.8);
+      // birth 0.4：新鲜出炉的崽子有一小段"爬起来"的时间，看得见它们是怎么来的
+      const e = this.spawnEnemy('walker', x, z, hpScale, 0.4);
+      e.speed *= H.speedScale;
+      e.stopGap = rand(H.stopFrom, H.stopTo);
+      e.stopJit = 0;
+    }
+    // 一圈红色的"首领在生"提示环，别让玩家以为是凭空冒出来的
+    this.rings.push({ x: boss.x, z: boss.z + 0.7, t: 0, life: 0.5, maxR: 0.55, color: '#ff7a4a' });
   }
 
   updateSpawning(dt) {
@@ -339,7 +439,11 @@ export class Game {
     // 必须是"英雄当前所在位置"往前一点，不能按固定基准位 zNear 算** ——
     // 英雄能前后走 ±(zBack/zFwd)，按 zNear 算的话，你往前走时丧尸就会从你
     // 身边（甚至身后）穿过去，看起来像"凭空出现在面前"（用户实测反馈）。
-    const stopJit = K.spit ? 0 : rand(0, W.stopJitter);
+    //
+    // 停多远由"种类"决定：吐酸者在远处喷酸、BOSS 太大要站得更远（贴脸会
+    // 占满屏幕，玩家连自己在哪条车道都看不见），其他怪按基础值 + 一点随机。
+    const stopGap = K.stopGap != null ? K.stopGap : K.spit ? CFG.spitter.gap : W.stopGap;
+    const stopJit = K.spit || K.stopGap != null ? 0 : rand(0, W.stopJitter);
 
     this.enemies.push({
       id: this.nextId++,
@@ -354,10 +458,19 @@ export class Game {
       color: K.color,
       dark: K.dark,
       halfW: K.size * 0.32,
+      // 能"咬到"你的宽度。默认跟体型走，但 BOSS 体型太大（1.2 → 0.38）
+      // 会盖满整条桥，所以它单独给一个窄值：身体很大很好打，想咬你只有中间一小段
+      biteHalfW: K.biteHalfW != null ? K.biteHalfW : K.size * 0.32,
+      // 能咬到你的纵向距离。**故意和 stopGap 解耦**：站在哪 vs 够不够得着是两件事 ——
+      // 人海站在 2.6~4.2（一堵尸墙）够不着你，BOSS 站在 7 更够不着，
+      // 它们的伤害来源分别是"被割"和"放崽子"，不是咬人。
+      biteReach: W.stopGap + 0.6,
       zdepth: K.size * 0.45,
       score: Math.round(K.score * ((M && M.scoreMul) || 1)),
       stopJit,
-      stopZ: CFG.zNear + (K.spit ? CFG.spitter.gap : W.stopGap + stopJit),
+      stopGap,
+      stopZ: CFG.zNear + stopGap + stopJit,
+      addT: K.spawnEvery || 0,
       birth: birth || 0,
       birthDur: birth || 1,
       spit: !!K.spit,
@@ -377,6 +490,8 @@ export class Game {
       biteCd: 0,
       dead: false,
     });
+    // 返回刚生成的这一只，方便调用方拿到它再改点什么（人海就是靠它统一减速的）
+    return this.enemies[this.enemies.length - 1];
   }
 
   onWaveClear() {
@@ -385,9 +500,47 @@ export class Game {
     const bonus = CFG.score.perWave * this.wave;
     this.score += bonus;
     this.addPopup(0, this.player.z + 3, `第 ${this.wave} 波清除  +${bonus}`, '#7df9ff', 1.25);
+    // 打满 15 波 = 第一关通关：不再开奖励门，直接结算发金币
+    if (this.wave >= CFG.level.waves) {
+      this.levelClear();
+      return;
+    }
     this.openGates();
     this.state = STATE.PREP;
     this.prepT = CFG.wave.prepTime;
+  }
+
+  /**
+   * 第一关通关：按得分结算金币（比例见 CFG.level.coinRatio）。
+   * 金币是"跨局"的，存在本地，留给以后主界面的商店花。
+   */
+  levelClear() {
+    this.state = STATE.CLEAR;
+    this.gates = null;
+    this.shake = 20;
+    this.flash = 0.9;
+    const coins = Math.max(1, Math.round(this.score * CFG.level.coinRatio));
+    this.coins += coins;
+    this.clearedLevel = Math.max(this.clearedLevel, 1);
+    this._saveCoins();
+    this._saveProgress();
+    if (this.score > this.best) {
+      this.best = this.score;
+      this.newBest = true;
+      this._saveBest();
+    } else {
+      this.newBest = false;
+    }
+    this.lastReward = {
+      score: this.score,
+      coins,
+      total: this.coins,
+      kills: this.kills,
+      combo: this.comboBest,
+      wave: this.wave,
+    };
+    this.sfx.victory();
+    this.addPopup(0, this.player.z + 3, `第一关通关！+${coins} 金币`, '#ffd166', 2.0);
   }
 
   // ---------------------------------------------------------
@@ -636,7 +789,7 @@ export class Game {
       if (e.state === 'approach') {
         e.z -= e.speed * spd * dt;
         // 停下线跟着英雄走：英雄往前压，怪就在更前面停下，绝不会从身边穿过去
-        e.stopZ = e.spit ? pl.z + CFG.spitter.gap : pl.z + W.stopGap + e.stopJit;
+        e.stopZ = pl.z + e.stopGap + e.stopJit;
         if (e.z <= e.stopZ) {
           e.z = e.stopZ;
           e.state = 'attack';
@@ -662,6 +815,18 @@ export class Game {
             e.atkT = CFG.spitter.interval / (0.7 + Math.min(0.6, this.wave * 0.03));
             this.spawnSpit(e);
           }
+        } else if (e.kind === 'boss') {
+          // BOSS 太大（体型 1.2），所以它不贴身：站得远（stopGap 7）——
+          // 真贴到脸上会占满整个屏幕，玩家连自己站在哪条车道都看不见。
+          // 它的威胁不是咬人（够不着），而是"尸潮首领"这个身份：
+          // 源源不断往身前放小兵，所以你得尽快把它打死。
+          e.x += dir * W.drift * 0.35 * spd * dt;
+          e.x = clamp(e.x, -this.cam.roadHalf, this.cam.roadHalf);
+          const bz = pl.z + e.stopGap;
+          const bStep = W.drift * spd * dt * 1.6;
+          e.z += clamp(bz - e.z, -bStep, bStep);
+          e.addT -= dt;
+          if (e.addT <= 0) this.spawnBossAdds(e);
         } else {
           if (e.atk === 'rest') {
             // 慢慢横移贴过来
@@ -691,7 +856,7 @@ export class Game {
           // 英雄能前后移动了，所以贴身之后丧尸也要在深度上跟过来：
           // 否则玩家一直后退就永远咬不到。跟得比人慢，所以后退能换来
           // 一点点喘息时间（但不是无限安全，后退幅度只有 1.8 个单位）。
-          const wantZ = pl.z + W.stopGap;
+          const wantZ = pl.z + e.stopGap;
           const zStep = W.drift * spd * dt * 2.2;
           const ddz = wantZ - e.z;
           e.z += clamp(ddz, -zStep, zStep);
@@ -702,8 +867,8 @@ export class Game {
           if (
             e.birth <= 0 &&
             e.biteCd <= 0 &&
-            Math.abs(pl.x - e.x) < CFG.hero.halfWidth + e.halfW &&
-            Math.abs(pl.z - e.z) < W.stopGap + 0.6
+            Math.abs(pl.x - e.x) < CFG.hero.halfWidth + e.biteHalfW &&
+            Math.abs(pl.z - e.z) < e.biteReach
           ) {
             e.biteCd = W.biteCooldown;
             this.bite(e);
@@ -1204,5 +1369,34 @@ export class Game {
     } catch (e) {
       /* iOS 无痕模式下 localStorage 会抛异常，忽略即可 */
     }
+  }
+
+  _loadCoins() {
+    try {
+      return Math.max(0, parseInt(localStorage.getItem(CFG.coinKey) || '0', 10) || 0);
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  _saveCoins() {
+    try {
+      localStorage.setItem(CFG.coinKey, String(this.coins));
+    } catch (e) {}
+  }
+
+  /** 已通关到第几关（主界面的"关卡"按钮以后用它做进度） */
+  _loadProgress() {
+    try {
+      return Math.max(0, parseInt(localStorage.getItem(CFG.progressKey) || '0', 10) || 0);
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  _saveProgress() {
+    try {
+      localStorage.setItem(CFG.progressKey, String(this.clearedLevel));
+    } catch (e) {}
   }
 }

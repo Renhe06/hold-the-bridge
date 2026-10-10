@@ -218,6 +218,23 @@ export class Sound {
     this.tone({ freq: 1200, freq2: 180, type: 'sine', dur: 0.46, vol: 0.045 });
   }
 
+  /**
+   * 通关（第一关 15 波打完）：一段往上冲的号角 + 金币落袋的叮当。
+   * 要跟"被咬死"的 gameOver 明显分得开，所以走大调琶音而不是下坠音。
+   */
+  victory() {
+    const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
+    notes.forEach((f, i) => this.tone({ freq: f, type: 'triangle', dur: 0.26, vol: 0.15, delay: i * 0.11 }));
+    // 收尾的和弦：两个八度一起按下去
+    this.tone({ freq: 1046.5, type: 'triangle', dur: 0.9, vol: 0.13, delay: 0.46, attack: 0.02 });
+    this.tone({ freq: 1318.5, type: 'sine', dur: 1.0, vol: 0.1, delay: 0.46, attack: 0.02 });
+    this.burst({ dur: 0.6, vol: 0.08, type: 'highpass', freq: 3600, delay: 0.46 });
+    // 金币：三声清脆的叮
+    [0.62, 0.74, 0.86].forEach((d, i) => {
+      this.tone({ freq: 1760 + i * 220, type: 'sine', dur: 0.14, vol: 0.09, delay: d });
+    });
+  }
+
   /** 角色喊话：一小段上扬的"喊"音型，跟屏幕上那句台词配合 */
   voice(pitch = 0) {
     const base = 320 + Math.min(pitch, 8) * 26;

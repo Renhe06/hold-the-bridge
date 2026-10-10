@@ -305,6 +305,34 @@ html, body {
 }
 .btn.ghost:active { background: rgba(255, 255, 255, 0.12); }
 
+/* ---------------- 主界面：四个功能入口 ---------------- */
+
+/* 现在只预留按钮（点了提示"即将开放"），以后分别接：角色切换 / 武器切换 /
+   商店购买 / 关卡选择。所以文案写成"以后是干什么的"，而不是"敬请期待"，
+   真机上一眼就知道这块以后会长成什么样。 */
+.menu-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin: 16px 0 14px;
+}
+
+.menu-btn {
+  font-family: var(--font);
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(160, 200, 240, 0.18);
+  background: linear-gradient(180deg, rgba(30, 38, 52, 0.74), rgba(13, 18, 27, 0.74));
+  color: #dce6f2;
+  cursor: pointer;
+  transition: transform 0.08s, background 0.15s;
+}
+
+.menu-btn:active { transform: scale(0.97); background: rgba(255, 255, 255, 0.09); }
+.menu-btn b { display: block; font-size: 15px; font-weight: 800; letter-spacing: 3px; text-indent: 3px; }
+.menu-btn i { display: block; margin-top: 3px; font-style: normal; font-size: 11px; color: #7f8896; }
+
 /* ---------------- 使用说明弹窗 ---------------- */
 
 /* 说明要盖在开始界面之上：第一次自动弹出时底下就是开始界面 */
@@ -421,6 +449,31 @@ html, body {
 }
 .newbest.show { display: block; }
 
+/* 通关结算：红色换成金色，跟"失守"一眼分得开 */
+.over-title.win {
+  color: var(--gold);
+  filter: drop-shadow(0 3px 14px rgba(255, 200, 80, 0.45));
+}
+
+.coin-big {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  margin: 16px 0 2px;
+  color: var(--gold);
+  font-weight: 900;
+  letter-spacing: 2px;
+}
+
+.coin-big b {
+  font-size: 40px;
+  font-variant-numeric: tabular-nums;
+  filter: drop-shadow(0 3px 14px rgba(255, 200, 80, 0.45));
+}
+
+.coin-big span { font-size: 14px; color: #ffe6a8; }
+
 @keyframes pop { 0% { transform: scale(0.7); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
 
 .stats {
@@ -450,6 +503,12 @@ html, body {
   .best-line { margin: 12px 0 10px; }
   .btn { padding: 12px 16px; font-size: 16px; }
   .stats { margin: 12px 0 12px; }
+  /* 主界面多了四宫格，矮屏上一起收一收，别把「开始挑战」挤出屏幕 */
+  .menu-grid { margin: 12px 0 10px; gap: 7px; }
+  .menu-btn { padding: 8px 10px; }
+  .menu-btn b { font-size: 13px; }
+  .menu-btn i { font-size: 10px; }
+  .coin-big b { font-size: 32px; }
 }
 @media (max-height: 620px) {
   .title { font-size: 34px; }
