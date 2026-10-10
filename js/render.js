@@ -240,6 +240,7 @@ export class Renderer {
     this._drawMissiles(ctx, game);
     this._drawFog(ctx, w);
     this._drawRings(ctx, game);
+    this._drawWarns(ctx, game);
     this._drawHero(ctx, game);
     this._drawShout(ctx, game);
     this._drawScreenFx(ctx, game, w, h);
@@ -1342,6 +1343,64 @@ export class Renderer {
       ctx.globalAlpha = (1 - k) * 0.35;
       ctx.lineWidth = Math.max(3, (1 - k) * p.s * 0.03);
       ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // BOSS 导弹的地面预警：红圈从大缩到小，缩到圈里就要挨打；
+  // 最后 40% 再补一道从天而降的亮痕（纯视觉，判定只看落点和半径）。
+  _drawWarns(ctx, game) {
+    const cam = this.cam;
+    const R = CFG.bossMissile.radius;
+    for (const w of game.warns) {
+      const k = clamp(w.t / w.life, 0, 1);
+      const p = cam.project(w.x, w.z);
+      const flat = clamp(CFG.camHeight / w.z, 0.06, 0.42);
+      const rad = R * p.s * (1.9 - 0.9 * k);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.35 + 0.5 * k;
+      ctx.strokeStyle = '#ff5a3a';
+      ctx.lineWidth = Math.max(2, p.s * (0.006 + 0.008 * k));
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, rad, rad * flat, 0, 0, TAU);
+      ctx.stroke();
+      ctx.globalAlpha = 0.1 + 0.22 * k;
+      ctx.fillStyle = '#ff3b2f';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, rad, rad * flat, 0, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 0.4 + 0.5 * k;
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = Math.max(1.2, p.s * 0.003);
+      ctx.beginPath();
+      ctx.moveTo(p.x - rad * 1.35, p.y);
+      ctx.lineTo(p.x - rad * 0.45, p.y);
+      ctx.moveTo(p.x + rad * 0.45, p.y);
+      ctx.lineTo(p.x + rad * 1.35, p.y);
+      ctx.moveTo(p.x, p.y - rad * flat * 1.5);
+      ctx.lineTo(p.x, p.y - rad * flat * 0.5);
+      ctx.moveTo(p.x, p.y + rad * flat * 0.5);
+      ctx.lineTo(p.x, p.y + rad * flat * 1.5);
+      ctx.stroke();
+      const fall = (k - 0.6) / 0.4;
+      if (fall > 0) {
+        const len = p.s * 3.4 * (1 - fall);
+        ctx.globalAlpha = 0.55 + 0.45 * (1 - fall);
+        const g = ctx.createLinearGradient(p.x, p.y - len, p.x, p.y);
+        g.addColorStop(0, 'rgba(255,120,60,0)');
+        g.addColorStop(1, 'rgba(255,220,160,0.95)');
+        ctx.strokeStyle = g;
+        ctx.lineWidth = Math.max(2, p.s * 0.008);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y - len);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        ctx.fillStyle = '#fff3c4';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(2, p.s * 0.012), 0, TAU);
+        ctx.fill();
+      }
       ctx.restore();
     }
   }

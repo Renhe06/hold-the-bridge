@@ -171,6 +171,18 @@ export class Sound {
 
   // ---------------- v3 新增（打击感 / 新玩法）----------------
 
+  /** BOSS 导弹预警：两声急促的上滑警报（听到就准备挪位） */
+  missileWarn() {
+    this.tone({ freq: 520, freq2: 900, type: 'square', dur: 0.16, vol: 0.12 });
+    this.tone({ freq: 700, freq2: 1180, type: 'square', dur: 0.18, vol: 0.11, delay: 0.22 });
+  }
+
+  /** BOSS 导弹落地：闷响 + 低频冲击 */
+  missileBoom() {
+    this.tone({ freq: 150, freq2: 38, type: 'sawtooth', dur: 0.5, vol: 0.26 });
+    this.burst({ dur: 0.45, vol: 0.22, type: 'lowpass', freq: 1100, sweepTo: 110 });
+  }
+
   /** 吐酸者喷吐：湿滑的向上滑音 */
   spit() {
     this.tone({ freq: 300, freq2: 720, type: 'sawtooth', dur: 0.16, vol: 0.075 });

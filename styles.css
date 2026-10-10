@@ -332,6 +332,9 @@ html, body {
 .menu-btn:active { transform: scale(0.97); background: rgba(255, 255, 255, 0.09); }
 .menu-btn b { display: block; font-size: 15px; font-weight: 800; letter-spacing: 3px; text-indent: 3px; }
 .menu-btn i { display: block; margin-top: 3px; font-style: normal; font-size: 11px; color: #7f8896; }
+/* 主界面四个入口的"未实装"提示：默认不占视觉，点过才显示 */
+.menu-hint { margin: 10px 0 0; min-height: 17px; font-size: 12.5px; font-weight: 700; text-align: center; color: #ffd166; opacity: 0; transition: opacity 0.16s ease; }
+.menu-hint.show { opacity: 1; }
 
 /* ---------------- 使用说明弹窗 ---------------- */
 

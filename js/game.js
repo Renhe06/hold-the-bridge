@@ -54,6 +54,7 @@ export class Game {
     this.popups = [];
     this.orbs = [];
     this.rings = [];
+    this.warns = []; // BOSS 导弹的地面预警圈
     this.nextId = 1;
     this.shake = 0;
     this.flash = 0;
@@ -241,6 +242,7 @@ export class Game {
     this.updateParticles(dt);
     this.updatePopups(dt);
     this.updateRings(dt);
+    this.updateWarns(dt);
 
     const pl = this.player;
     pl.iframe = Math.max(0, pl.iframe - dt);
@@ -333,7 +335,7 @@ export class Game {
     }
     if (bossWave) {
       // 最后一波：人海之后再压上那个巨大的 BOSS（人海更靠近玩家）。
-      this.spawnEnemy('boss', null, CFG.zFar - 5, 1);
+      this.fitBossHp(this.spawnEnemy('boss', null, CFG.zFar - 5, 1));
       this.sfx.bossSpawn();
       this.say('BRING IT ON!', '#ff6b4a');
     }
@@ -394,6 +396,27 @@ export class Game {
    * （也是你该优先把它打死的理由）。场上小兵太多时会先停手，
    * 免得玩家站着不动被无尽的崽子堆死。
    */
+  // BOSS 战时长校准（用户要"打 BOSS 大约 15~30 秒"）。
+  // 玩家构筑的 DPS 差异太大，固定血量倍数做不到这个区间，所以开打时
+  // 按玩家当前 DPS 反推血量：血量 = 估算 DPS × CFG.kinds.boss.seconds。
+  estimateDps() {
+    const w = this.weapon;
+    const crit = 1 + w.crit * (w.critMul - 1);
+    const perShot = w.damage * crit * Math.min(w.bullets, 6);
+    const shots = 1 / Math.max(0.05, w.interval / w.rateMul);
+    let dps = perShot * shots * 0.75; // 折算：BOSS 很大，但散开的弹道不会发发命中
+    dps += (w.splash || 0) * 1.6 + (w.burn || 0) * 0.5 + (w.pulse || 0) * 0.4;
+    return dps;
+  }
+
+  fitBossHp(b) {
+    const K = CFG.kinds.boss;
+    const want = Math.round(clamp(this.estimateDps() * K.seconds, K.hpMin, K.hpMax));
+    b.hp = want;
+    b.maxHp = want;
+    return b;
+  }
+
   spawnBossAdds(boss) {
     const K = CFG.kinds.boss;
     const H = CFG.bossHorde;
@@ -414,6 +437,38 @@ export class Game {
     }
     // 一圈红色的"首领在生"提示环，别让玩家以为是凭空冒出来的
     this.rings.push({ x: boss.x, z: boss.z + 0.7, t: 0, life: 0.5, maxR: 0.55, color: '#ff7a4a' });
+  }
+
+  // BOSS 导弹：先在"你现在站的地方"画一个预警圈（render 里画），
+  // warn 秒后砸下来；落点是开火那一刻定死的，所以走开就是躲开了。
+  bossFire(boss) {
+    const M = CFG.bossMissile;
+    const pl = this.player;
+    this.warns.push({ x: pl.x, z: pl.z, t: 0, life: M.warn, fromZ: boss.z });
+    this.sfx.missileWarn();
+    this.addPopup(boss.x, boss.z - 0.6, '导弹来袭', '#ff5a3a', 1.15);
+  }
+
+  updateWarns(dt) {
+    for (const w of this.warns) w.t += dt;
+    const landed = this.warns.filter((w) => w.t >= w.life);
+    this.warns = this.warns.filter((w) => w.t < w.life);
+    for (const w of landed) this.missileLand(w);
+  }
+
+  missileLand(w) {
+    const M = CFG.bossMissile;
+    const pl = this.player;
+    // 爆炸用现成的冲击环 + 火花，不另做一套特效
+    this.rings.push({ x: w.x, z: w.z, t: 0, life: 0.5, maxR: M.radius * 2.6, color: '#ff7a3a' });
+    this.rings.push({ x: w.x, z: w.z, t: 0, life: 0.32, maxR: M.radius * 1.3, color: '#fff0c0' });
+    this.spawnParticles(w.x, w.z, 20, 'spark', '#ffb060');
+    this.shake = Math.max(this.shake, 14);
+    this.sfx.missileBoom();
+    // 复用咬人的结算（护盾抵挡 / 无敌帧 / 断连杀 / 掉血都跟被咬一致）
+    if (Math.abs(pl.x - w.x) < M.radius && Math.abs(pl.z - w.z) < 1.1) {
+      this.bite({ x: w.x, z: w.z });
+    }
   }
 
   updateSpawning(dt) {
@@ -476,6 +531,7 @@ export class Game {
       stopGap,
       stopZ: CFG.zNear + stopGap + stopJit,
       addT: K.spawnEvery || 0,
+      missileT: kind === 'boss' ? CFG.bossMissile.every : 0,
       birth: birth || 0,
       birthDur: birth || 1,
       spit: !!K.spit,
@@ -841,6 +897,12 @@ export class Game {
           e.z += clamp(bz - e.z, -bStep, bStep);
           e.addT -= dt;
           if (e.addT <= 0) this.spawnBossAdds(e);
+          // 导弹：它够不着你，但能隔着半个桥砸你 —— 有 1.5 秒预警，能躲
+          e.missileT -= dt;
+          if (e.missileT <= 0) {
+            e.missileT = CFG.bossMissile.every;
+            this.bossFire(e);
+          }
         } else {
           if (e.atk === 'rest') {
             // 慢慢横移贴过来

@@ -32,7 +32,7 @@ const el = {
   guideOverlay: $('guideOverlay'),
   guideBtn: $('guideBtn'),
   guideClose: $('guideClose'),
-  guidePlay: $('guidePlay'),
+  menuHint: $('menuHint'),
   overOverlay: $('overOverlay'),
   newBest: $('newBest'),
   overScore: $('overScore'),
@@ -213,7 +213,6 @@ onTap(el.guideClose, () => {
   sfx.uiClick();
   hideGuide();
 });
-onTap(el.guidePlay, startGame);
 
 // 三条命没了不能一点就重开（玩家可能正在猛戳屏幕走位）
 let overAt = 0;
@@ -249,7 +248,11 @@ for (const [node, name] of MENU_ENTRIES) {
   onTap(node, (e) => {
     sfx.unlock();
     sfx.uiClick();
-    showHint(`${name} · 即将开放`, '#7df9ff');
+    // 提示词给到"未实装"，而且不能只靠 #gainToast —— 它在画布 HUD 层，
+    // 被开始遮罩压着看不见，玩家点了会以为按钮坏了。
+    showHint(`${name} · 该功能未实装`, '#7df9ff');
+    setText(el.menuHint, 'menuHint', `${name} · 该功能未实装`);
+    el.menuHint.classList.add('show');
     e.stopPropagation();
   });
 }

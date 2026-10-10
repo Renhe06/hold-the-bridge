@@ -12,6 +12,7 @@
 //  运行：node tools/smoke-test.mjs
 // ============================================================
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -158,9 +159,10 @@ try {
   ok(gEl.classList.contains('show'), '首页的「使用说明」按钮能再打开');
   // 弹窗是盖在开始界面之上的（z-index 由 CSS 保证，这里至少确认两层同时显示）
   ok(ELS.get('startOverlay').classList.contains('show'), '说明弹窗背后仍留着开始界面');
-  tap('guidePlay');
-  step();
-  ok(!gEl.classList.contains('show') && game.state === STATE.PREP, '点「开始守桥」收起说明并直接开局');
+  // m02878：使用说明里那个「开始守桥」按钮被用户点名删掉，这里直接核对源码
+  // （桩 DOM 是按需现造的，抓不到"按钮已经不存在"这件事）。
+  ok(!/guidePlay/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')), '使用说明里已经没有「开始守桥」按钮');
+  tap('guideClose');
   // 回到开始界面，给下一段用
   game.state = STATE.START;
   step();
@@ -611,12 +613,53 @@ try {
     `BOSS 体型 ${boss.size}（小兵的 ${(boss.size / C.kinds.walker.size).toFixed(1)} 倍）`
   );
   ok(boss.speed < C.wave.zombieSpeed, `BOSS 走得更慢（${boss.speed.toFixed(2)} < 小兵 ${C.wave.zombieSpeed}）`);
-  ok(boss.hp > 20, `BOSS 血厚（${boss.hp} 血）`);
+  ok(
+    boss.hp >= C.kinds.boss.hpMin && boss.hp <= C.kinds.boss.hpMax && boss.maxHp === boss.hp,
+    `BOSS 血量按玩家 DPS 校准（${boss.hp} 血，目标 ${C.kinds.boss.seconds}s，区间 ${C.kinds.boss.hpMin}~${C.kinds.boss.hpMax}）`
+  );
   step(2);
   ok(!!renderer.bossBar && renderer.bossBar.frac > 0.9, `BOSS 血条已显示（${Math.round(renderer.bossBar.w)}x${renderer.bossBar.h}px）`);
   boss.hp = Math.ceil(boss.maxHp * 0.2);
   step(1);
   ok(!!renderer.bossBar && renderer.bossBar.frac < 0.25, `血条跟着掉（剩 ${(renderer.bossBar.frac * 100).toFixed(0)}%）`);
+
+  // (a3) BOSS 导弹：预警 1.5 秒，落点 = 它开火时你站的地方 → 不动必中、挪开就躲掉
+  game.state = STATE.FIGHT;
+  game.wave = 1; // 别让它判定成"清完最后一波"
+  game.spawnQueue.length = 0;
+  game.enemies = [boss];
+  game.player.hp = C.hero.hp;
+  game.player.shield = 0;
+  game.player.iframe = 0;
+  game.player.x = -0.2;
+  game.player.targetX = -0.2;
+  game.player.z = C.zNear;
+  game.player.targetZ = C.zNear;
+  boss.z = C.zNear + boss.stopGap;
+  boss.missileT = 0;
+  step(50); // 第一帧：BOSS 从 approach 切进 attack（它走到停下线才进攻击态）
+  step(50); // 第二帧：导弹才打出来（注意 step(ms) 是"推进一帧、帧长 ms"）
+  ok(
+    game.warns.length === 1,
+    `BOSS 打出一发导弹、地面出现预警圈（${game.warns.length} 个｜game=${game.state} 敌=${game.enemies.length} boss=${boss.state} missileT=${boss.missileT} dead=${!!boss.dead}）`
+  );
+  ok(
+    Math.abs(game.warns[0].x - game.player.x) < 1e-6,
+    `预警落点 = 开火时你站的位置（x=${game.warns[0].x.toFixed(2)}）`
+  );
+  const hpB = game.player.hp;
+  for (let i = 0; i < 34; i++) step(50); // 1.7s > 预警 1.5s
+  ok(game.player.hp === hpB - 1, `站着不动被导弹砸中（${hpB} → ${game.player.hp} 血）`);
+  // 第二发：开火后立刻横向挪开
+  boss.missileT = 0;
+  step(50);
+  step(50);
+  ok(game.warns.length === 1, `第二发导弹也在预警（${game.warns.length} 个）`);
+  game.player.x = 0.32;
+  game.player.targetX = 0.32;
+  const hpC = game.player.hp;
+  for (let i = 0; i < 34; i++) step(50);
+  ok(game.player.hp === hpC, `预警期间挪一步就躲开了（血还是 ${game.player.hp}）`);
 
   // (b) 第 15 波清完 = 第一关通关：按得分比例结算金币并写进存档
   game.enemies.length = 0;
@@ -661,7 +704,11 @@ try {
   step(2);
   ok(game.state === st0, `四个入口点了只提示（state 仍是 ${game.state}）`);
   ok(ELS.get('startOverlay').classList.contains('show'), '点入口没有误触发「开始挑战」');
-  ok(String(ELS.get('gainToast').textContent).includes('即将开放'), `入口提示 = ${ELS.get('gainToast').textContent}`);
+  ok(String(ELS.get('gainToast').textContent).includes('该功能未实装'), `入口提示 = ${ELS.get('gainToast').textContent}`);
+  ok(
+    String(ELS.get('menuHint').textContent).includes('该功能未实装') && ELS.get('menuHint').classList.contains('show'),
+    `主界面自己那行提示也亮了（${ELS.get('menuHint').textContent}）`
+  );
 
   // (e) 用户点名：弹道数还不到 3 条时，进攻门必须优先给"弹道 +1"
   game.reset();

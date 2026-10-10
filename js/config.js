@@ -167,8 +167,16 @@ export const CFG = {
     // 它够不着你，威胁相应改成"放崽子"（见 game.js 的 spawnBossAdds）。
     boss: {
       size: 1.2,
-      speedMul: 0.38,
-      hpMul: 13,
+      // 速度：m02878 要求"速度变缓"，0.38 → 0.26（比人海小兵还慢，慢慢压过来）
+      speedMul: 0.26,
+      // 血量：这是"没走校准流程时的兜底倍数"（比如出图夹具直接 spawnEnemy）。
+      // 真正的血量由 game.js 的 fitBossHp 按【玩家当前 DPS × seconds】反推 ——
+      // 原因：测试机器人不同种子的 DPS 横跨 32~80/秒，固定倍数必然对一半人
+      // 太短、对另一半人太长（m02765 要翻倍、m02878 要"打 15~30 秒"）。
+      hpMul: 20,
+      seconds: 20, // BOSS 战目标时长（秒）：血量 = 估算 DPS × 这个数
+      hpMin: 320, // 血量下限（弱构筑也让它像个 BOSS）
+      hpMax: 2600, // 血量上限（免得"要磨两分钟"）
       score: 900,
       stopGap: 5,
       spawnEvery: 3.2, // 每 3.2 秒往身前放 spawnCount 只小兵
@@ -184,6 +192,15 @@ export const CFG = {
     shielded: { size: 0.28, speedMul: 0.8, hpMul: 1.4, score: 26, body: 'normal', shield: 3, color: '#8d8f7a', dark: '#45473a' },
     // 分裂者：死后裂成两只小兵，越打越多，逼你换目标优先级
     splitter: { size: 0.3, speedMul: 0.95, hpMul: 1.7, score: 18, body: 'fat', split: 2, color: '#9a6bb5', dark: '#4a2f5c' },
+  },
+
+  // BOSS 的导弹（m02878）：落点 = 它开火那一刻你站的位置，不是追踪弹，
+  // 所以预警圈出现后横向挪一步就能躲开（圈内才吃伤害）。
+  bossMissile: {
+    every: 4.5, // BOSS 每隔多久打一发
+    warn: 1.5, // 预警时长：地面红圈从大缩到小，缩到底就砸下来
+    radius: 0.16, // 命中半径（世界单位；英雄身位 halfWidth 只有 0.075）
+    dmg: 1,
   },
 
   // 从第几波开始出现特殊怪
