@@ -231,6 +231,12 @@ function botTargetX() {
       if (d < 0.4) spit += (0.4 - d) * Math.max(0.5, 5 - dz * 0.5);
     }
     s -= spit * 1.6;
+    // 躲 BOSS 的必杀导弹（m03096）：圈里直接死，所以圈内站位一律重罚。
+    // 落点就是它开火那一刻你站的位置（半径 0.16，见 CFG.bossMissile.radius），
+    // 只要横向挪出圈就安全 —— 这里用字面量是为了不把 config 提到模块顶部。
+    for (const wn of game.warns) {
+      if (Math.abs(wn.x - cx) < 0.16 + 0.03) s -= 30;
+    }
     if (s > bestScore) { bestScore = s; bestX = cx; }
   }
   return bestX;
@@ -622,7 +628,8 @@ try {
   step(1);
   ok(!!renderer.bossBar && renderer.bossBar.frac < 0.25, `血条跟着掉（剩 ${(renderer.bossBar.frac * 100).toFixed(0)}%）`);
 
-  // (a3) BOSS 导弹：预警 1.5 秒，落点 = 它开火时你站的地方 → 不动必中、挪开就躲掉
+  // (a3) BOSS 必杀导弹（m03096）：只在血量掉到 3/4 时放一次，别的时候不放；
+  //      落点 = 开火那一刻你站的位置（不是追踪弹）→ 不挪步必中，中者直接死。
   game.state = STATE.FIGHT;
   game.wave = 1; // 别让它判定成"清完最后一波"
   game.spawnQueue.length = 0;
@@ -635,30 +642,55 @@ try {
   game.player.z = C.zNear;
   game.player.targetZ = C.zNear;
   boss.z = C.zNear + boss.stopGap;
-  boss.missileT = 0;
-  step(50); // 第一帧：BOSS 从 approach 切进 attack（它走到停下线才进攻击态）
-  step(50); // 第二帧：导弹才打出来（注意 step(ms) 是"推进一帧、帧长 ms"）
+  boss.hp = boss.maxHp;
+  boss.missileFired = false;
+  // 3 秒里 BOSS 才从 approach 切进 attack（它得先走到停下线），这段时间一直满血。
+  // 顺便证明"满血 / 掉血不到 3/4 时一发都不放"。
+  for (let i = 0; i < 60; i++) step(50);
+  const fracNow = boss.hp / boss.maxHp;
+  ok(boss.state === 'attack', `BOSS 已站定进入攻击态（state=${boss.state}）`);
+  ok(
+    game.warns.length === 0 && boss.missileFired === false,
+    `血还没掉到 3/4（现在 ${(fracNow * 100).toFixed(0)}%）时一发都不放（预警圈 ${game.warns.length} 个）`
+  );
+  // 掉到 3/4 → 下一帧强制开火
+  boss.hp = Math.floor(boss.maxHp * C.bossMissile.hpAt);
+  step(50);
   ok(
     game.warns.length === 1,
-    `BOSS 打出一发导弹、地面出现预警圈（${game.warns.length} 个｜game=${game.state} 敌=${game.enemies.length} boss=${boss.state} missileT=${boss.missileT} dead=${!!boss.dead}）`
+    `血量掉到 3/4 时强制放技能（预警圈 ${game.warns.length} 个｜boss=${boss.state} hp=${boss.hp}/${boss.maxHp} fired=${boss.missileFired}）`
   );
+  ok(boss.missileFired === true, '这一发整场只有一次（标记已用掉）');
   ok(
     Math.abs(game.warns[0].x - game.player.x) < 1e-6,
     `预警落点 = 开火时你站的位置（x=${game.warns[0].x.toFixed(2)}）`
   );
-  const hpB = game.player.hp;
-  for (let i = 0; i < 34; i++) step(50); // 1.7s > 预警 1.5s
-  ok(game.player.hp === hpB - 1, `站着不动被导弹砸中（${hpB} → ${game.player.hp} 血）`);
-  // 第二发：开火后立刻横向挪开
-  boss.missileT = 0;
+  for (let i = 0; i < 20; i++) step(50); // 预警 1.5s 还没落地
+  ok(game.warns.length === 1 && boss.missileFired === true, '预警期间也不会补第二发');
+  for (let i = 0; i < 14; i++) step(50); // 累计 1.7s > 预警
+  ok(
+    game.player.hp === 0 && game.state === STATE.OVER,
+    `站着不动被技能打中直接死（hp=${game.player.hp} state=${game.state}）`
+  );
+  // 再打一次：这回预警一出现就横向挪开 —— 挪开就活，一个圈不落
+  game.state = STATE.FIGHT;
+  game.player.hp = C.hero.hp;
+  game.player.iframe = 0;
+  game.player.shield = 0;
+  game.player.x = -0.2;
+  game.player.targetX = -0.2;
+  boss.hp = Math.floor(boss.maxHp * C.bossMissile.hpAt);
+  boss.missileFired = false;
   step(50);
-  step(50);
-  ok(game.warns.length === 1, `第二发导弹也在预警（${game.warns.length} 个）`);
+  ok(game.warns.length === 1, `第二次挑战：技能又放了一发（${game.warns.length} 个）`);
   game.player.x = 0.32;
   game.player.targetX = 0.32;
-  const hpC = game.player.hp;
   for (let i = 0; i < 34; i++) step(50);
-  ok(game.player.hp === hpC, `预警期间挪一步就躲开了（血还是 ${game.player.hp}）`);
+  ok(
+    game.player.hp === C.hero.hp && game.state === STATE.FIGHT,
+    `预警期间挪一步就躲开了（血 ${game.player.hp} / 满血 ${C.hero.hp}）`
+  );
+  game.warns.length = 0;
 
   // (b) 第 15 波清完 = 第一关通关：按得分比例结算金币并写进存档
   game.enemies.length = 0;

@@ -439,8 +439,9 @@ export class Game {
     this.rings.push({ x: boss.x, z: boss.z + 0.7, t: 0, life: 0.5, maxR: 0.55, color: '#ff7a4a' });
   }
 
-  // BOSS 导弹：先在"你现在站的地方"画一个预警圈（render 里画），
+  // BOSS 必杀：先在"你现在站的地方"画一个预警圈（render 里画），
   // warn 秒后砸下来；落点是开火那一刻定死的，所以走开就是躲开了。
+  // 什么时候放见 updateEnemies 的 boss 分支：血量掉到 3/4 时放一次，整场就这一发。
   bossFire(boss) {
     const M = CFG.bossMissile;
     const pl = this.player;
@@ -465,9 +466,19 @@ export class Game {
     this.spawnParticles(w.x, w.z, 20, 'spark', '#ffb060');
     this.shake = Math.max(this.shake, 14);
     this.sfx.missileBoom();
-    // 复用咬人的结算（护盾抵挡 / 无敌帧 / 断连杀 / 掉血都跟被咬一致）
-    if (Math.abs(pl.x - w.x) < M.radius && Math.abs(pl.z - w.z) < 1.1) {
-      this.bite({ x: w.x, z: w.z });
+    // m03096：必杀技 —— 圈里直接死。这里故意不走 bite()：护盾和无敌帧都不该挡住
+    // 这一发，否则"被技能打中直接死亡"会退化成"掉 1 滴血"，玩家也读不出这发的分量。
+    // pl.hp > 0 这个前置条件顺便避免已经死了还重复触发一次结算。
+    if (pl.hp > 0 && Math.abs(pl.x - w.x) < M.radius && Math.abs(pl.z - w.z) < 1.1) {
+      pl.hp = 0;
+      pl.hurt = 1;
+      this.combo = 0;
+      this.comboT = 0;
+      this.flash = 1;
+      this.shake = Math.max(this.shake, 22);
+      this.addPopup(pl.x, pl.z + 0.7, '被导弹命中', '#ff5a3a', 1.5);
+      this.sfx.bite();
+      this.gameOver();
     }
   }
 
@@ -531,7 +542,8 @@ export class Game {
       stopGap,
       stopZ: CFG.zNear + stopGap + stopJit,
       addT: K.spawnEvery || 0,
-      missileT: kind === 'boss' ? CFG.bossMissile.every : 0,
+      // 必杀导弹整场只放一次（m03096）：血量掉到 3/4 时才放，放完把标记用掉
+      missileFired: false,
       birth: birth || 0,
       birthDur: birth || 1,
       spit: !!K.spit,
@@ -897,10 +909,10 @@ export class Game {
           e.z += clamp(bz - e.z, -bStep, bStep);
           e.addT -= dt;
           if (e.addT <= 0) this.spawnBossAdds(e);
-          // 导弹：它够不着你，但能隔着半个桥砸你 —— 有 1.5 秒预警，能躲
-          e.missileT -= dt;
-          if (e.missileT <= 0) {
-            e.missileT = CFG.bossMissile.every;
+          // 必杀导弹（m03096）：血量掉到 3/4 时强制放一发，整场只此一发。
+          // 不做追踪、不连发 —— 血条跌破 3/4 就是"该挪步了"的信号，一次机会一次考试。
+          if (!e.missileFired && e.hp <= e.maxHp * CFG.bossMissile.hpAt) {
+            e.missileFired = true;
             this.bossFire(e);
           }
         } else {
