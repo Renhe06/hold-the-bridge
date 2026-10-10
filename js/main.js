@@ -23,6 +23,7 @@ const el = {
   gainToast: $('gainToast'),
   muteBtn: $('muteBtn'),
   startOverlay: $('startOverlay'),
+  startBtn: $('startBtn'),
   startBest: $('startBest'),
   startCoins: $('startCoins'),
   menuRole: $('menuRole'),
@@ -182,14 +183,17 @@ function onTap(node, fn) {
   }, { passive: false });
 }
 
-// 开始：整块遮罩都能点，手指落在哪都能开局
+// 开始：只认「开 始 挑 战」这一个按钮。
+// 用户 m03061 反馈：整块遮罩"按下即开局"会导致随手双击屏幕就进游戏
+// （想点四个入口却点偏、想点使用说明却点歪，全都直接开局）。
+// 所以遮罩空白处不再响应，只有按钮算。
 function startGame() {
   sfx.unlock();
   sfx.uiClick();
   hideGuide();
   game.newRun();
 }
-onTap(el.startOverlay, startGame);
+onTap(el.startBtn, startGame);
 
 // ---- 使用说明弹窗 ----
 // 第一次进来自动弹一次（本地记一笔），之后只能从首页的「使用说明」按钮打开

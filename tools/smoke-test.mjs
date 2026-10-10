@@ -173,15 +173,14 @@ try {
 
 // -- 2. 点开始 --
 try {
-  // 开始界面底部挂了一个「使用说明」链接。遮罩整体是"按下即开局"的，
-  // 如果 onTap 不把链接放行，preventDefault 会把跳转吞掉 —— 这里锁住这个行为。
-  tap('startOverlay', { target: { closest: (s) => (s === 'a' ? {} : null) } });
-  step();
-  ok(game.state === STATE.START, '点在「使用说明」链接上不会顺手开局（点击让给浏览器）');
-
+  // 用户 m03061：整块遮罩不再"按下即开局"，只有「开 始 挑 战」按钮算。
   tap('startOverlay');
   step();
-  ok(game.state === STATE.PREP, `点开始后进入备战（当前 ${game.state}）`);
+  ok(game.state === STATE.START, '主界面空白处按下去不会开局（只有按钮算）');
+
+  tap('startBtn');
+  step();
+  ok(game.state === STATE.PREP, `点「开 始 挑 战」后才进入备战（当前 ${game.state}）`);
 } catch (err) {
   failures++;
   notes.push(`  ✗ 开始流程抛异常: ${err && err.message}`);
