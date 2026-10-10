@@ -52,7 +52,9 @@ node tools/balance-probe.mjs  # 逐波算账：需要多少 DPS、估计有多�
 
 ## 发布与更新
 
-托管在 GitHub Pages，推送即上线（见 `.github/workflows/pages.yml`）：
+线上地址：**https://renhe06.github.io/hold-the-bridge/**（仓库 `Renhe06/hold-the-bridge`）
+
+推送即上线（见 `.github/workflows/pages.yml`）：
 
 ```powershell
 pwsh -File tools/deploy.ps1 "改了什么"     # = git add -A && git commit && git push
@@ -60,6 +62,22 @@ pwsh -File tools/deploy.ps1 "改了什么"     # = git add -A && git commit && g
 
 推上去约 40 秒后生效。Service Worker 是**网络优先**，所以手机上刷新就是新版本
 （如果加了主屏幕图标，关掉重开）。`sw.js` 里的 `CACHE` 名字只在需要强制清离线缓存时才动。
+
+### 一次性设置（已经做过，换机器时才需要）
+
+1. **开 Pages**：仓库 → Settings → Pages → Build and deployment → Source 选 **GitHub Actions**。
+   workflow 里的 `actions/configure-pages` 带 `enablement: true`，但 GitHub 给 Actions 的
+   临时令牌**没有权限替你改仓库设置**，所以这一步必须人工点一次（点完以后就不用再管）。
+2. **推送凭据**：本机用的是部署密钥 `…\default-workspace\.secrets\github_hbt_ed25519`
+   （已作为 Deploy key 加进仓库，勾了 Allow write access）。换机器就把这把私钥放好、
+   `git remote set-url origin git@github.com:Renhe06/hold-the-bridge.git`。
+
+> **本机沙箱的两个坑（已在工具里绕过，别"修回去"）**：
+> 1. Git 自带的 `sh.exe` 起不来（`couldn't create signal pipe, Win32 error 5`），所以
+>    `git push` 必须让 git 用 Windows 原生 ssh：`.secrets\git-ssh-hbt.cmd` 包装脚本 +
+>    `$env:GIT_SSH`，`tools/deploy.ps1` 会自动识别并设置。
+> 2. PowerShell 5.1 按 ANSI 读 `.ps1`，中文注释会把语法读崩 —— `tools/deploy.ps1` 存的是
+>    **UTF-8 with BOM**。用别的编辑器改它时，务必保留 BOM。
 
 ## 注意（iOS Safari 的坑，已在代码里处理）
 
