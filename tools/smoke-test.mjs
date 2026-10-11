@@ -628,7 +628,7 @@ try {
   step(1);
   ok(!!renderer.bossBar && renderer.bossBar.frac < 0.25, `血条跟着掉（剩 ${(renderer.bossBar.frac * 100).toFixed(0)}%）`);
 
-  // (a3) BOSS 必杀导弹（m03096）：只在血量掉到 3/4 时放一次，别的时候不放；
+  // (a3) BOSS 必杀导弹（m03096，m03130 修）：只认血量到 3/4，跟它有没有走到停下线无关。
   //      落点 = 开火那一刻你站的位置（不是追踪弹）→ 不挪步必中，中者直接死。
   game.state = STATE.FIGHT;
   game.wave = 1; // 别让它判定成"清完最后一波"
@@ -641,24 +641,25 @@ try {
   game.player.targetX = -0.2;
   game.player.z = C.zNear;
   game.player.targetZ = C.zNear;
-  boss.z = C.zNear + boss.stopGap;
+  // 关键：把它按回"刚出场、还在往这边走"的状态 —— 真机上它要走 10 秒才到停下线，
+  // 玩家通常在这段时间里已经把它打到 3/4 以下了（这就是 m03130 那个 bug 的现场）。
+  boss.z = C.zFar - 5;
+  boss.state = 'approach';
   boss.hp = boss.maxHp;
   boss.missileFired = false;
-  // 3 秒里 BOSS 才从 approach 切进 attack（它得先走到停下线），这段时间一直满血。
-  // 顺便证明"满血 / 掉血不到 3/4 时一发都不放"。
-  for (let i = 0; i < 60; i++) step(50);
+  for (let i = 0; i < 60; i++) step(50); // 3 秒，它还在路上
   const fracNow = boss.hp / boss.maxHp;
-  ok(boss.state === 'attack', `BOSS 已站定进入攻击态（state=${boss.state}）`);
+  ok(boss.state === 'approach', `BOSS 还在往这边走（state=${boss.state} z=${boss.z.toFixed(1)}）`);
   ok(
     game.warns.length === 0 && boss.missileFired === false,
     `血还没掉到 3/4（现在 ${(fracNow * 100).toFixed(0)}%）时一发都不放（预警圈 ${game.warns.length} 个）`
   );
-  // 掉到 3/4 → 下一帧强制开火
+  // 掉到 3/4 → 下一帧强制开火（此刻它还没站定，也必须放）
   boss.hp = Math.floor(boss.maxHp * C.bossMissile.hpAt);
   step(50);
   ok(
-    game.warns.length === 1,
-    `血量掉到 3/4 时强制放技能（预警圈 ${game.warns.length} 个｜boss=${boss.state} hp=${boss.hp}/${boss.maxHp} fired=${boss.missileFired}）`
+    game.warns.length === 1 && boss.state === 'approach',
+    `血量一到 3/4 就放技能（哪怕它还在路上：state=${boss.state} 预警圈 ${game.warns.length} 个 hp=${boss.hp}/${boss.maxHp}）`
   );
   ok(boss.missileFired === true, '这一发整场只有一次（标记已用掉）');
   ok(

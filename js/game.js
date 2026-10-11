@@ -868,6 +868,16 @@ export class Game {
 
       e.phase += dt * (e.state === 'approach' ? e.speed * 0.7 : 3.6);
 
+      // BOSS 必杀（m03096，m03130 修）：只看血量，不看它有没有走到停下线。
+      // 旧写法把判定塞在"已经站定（attack）"那个分支里，而 BOSS 从 zFar-5 走到
+      // 停下线要 10 秒上下（2.14 单位/秒 × 22 个单位），玩家常常在它停稳之前就把它
+      // 打到 3/4 以下 —— 结果技能要么晚放、要么在"没停稳就被打死"时一次都不放
+      // （用户 m03130 在真机上测到就是这个）。放到循环开头就与站位无关了。
+      if (e.kind === 'boss' && !e.missileFired && e.hp <= e.maxHp * CFG.bossMissile.hpAt) {
+        e.missileFired = true;
+        this.bossFire(e);
+      }
+
       if (e.state === 'approach') {
         e.z -= e.speed * spd * dt;
         // 停下线跟着英雄走：英雄往前压，怪就在更前面停下，绝不会从身边穿过去
@@ -909,12 +919,6 @@ export class Game {
           e.z += clamp(bz - e.z, -bStep, bStep);
           e.addT -= dt;
           if (e.addT <= 0) this.spawnBossAdds(e);
-          // 必杀导弹（m03096）：血量掉到 3/4 时强制放一发，整场只此一发。
-          // 不做追踪、不连发 —— 血条跌破 3/4 就是"该挪步了"的信号，一次机会一次考试。
-          if (!e.missileFired && e.hp <= e.maxHp * CFG.bossMissile.hpAt) {
-            e.missileFired = true;
-            this.bossFire(e);
-          }
         } else {
           if (e.atk === 'rest') {
             // 慢慢横移贴过来
