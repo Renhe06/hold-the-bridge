@@ -673,6 +673,7 @@ try {
   );
   // 半血 → 再放一发，而且升级成错开的导弹阵
   game.warns.length = 0;
+  game.hazardCd = 0; // 【用户 m01220】危险技能之间有硬间隔，测试里要"立刻放"就手动清零
   boss.hp = Math.floor(boss.maxHp * C.bossSkill.hpAt);
   step(50);
   ok(
@@ -683,20 +684,22 @@ try {
   );
   // 命中/躲开：把"出场那一发"重放（单发、落点确定，方便验收真判定）
   game.warns.length = 0;
+  game.hazardCd = 0;
   boss.casts = 0;
   boss.skillT = 0.05;
   boss.hp = boss.maxHp;
   step(50);
   ok(game.warns.length === C.bossSkill.spawnCount, `重放：又放了一发（${game.warns.length} 个）`);
-  for (let i = 0; i < 20; i++) step(50); // 预警 1.5s 还没落地
+  for (let i = 0; i < 20; i++) step(50); // 预警期（m01220 起 1.9s）还没落地
   ok(game.warns.length === C.bossSkill.spawnCount, `预警期间不会补第二发（下一轮要等 ${C.bossSkill.every}s）`);
-  for (let i = 0; i < 14; i++) step(50); // 累计 1.7s > 预警
+  for (let i = 0; i < 24; i++) step(50); // 累计 2.2s > 预警 1.9s
   ok(
     game.player.hp === C.hero.hp - C.bossMissile.hpCost && game.state === STATE.FIGHT,
     `站着不动被技能打中掉 ${C.bossMissile.hpCost} 格血（${C.hero.hp}→${game.player.hp}），不再直接死（state=${game.state}）`
   );
   // 用户 m02128：必杀技的分量留在"躲不掉就得交一格血"，但护盾/无敌帧照样挡不住
   game.warns.length = 0;
+  game.hazardCd = 0;
   boss.casts = 0;
   boss.skillT = 0.05;
   boss.hp = boss.maxHp;
@@ -704,7 +707,7 @@ try {
   game.player.iframe = 9;
   const hpShield = game.player.hp;
   step(50);
-  for (let i = 0; i < 34; i++) step(50);
+  for (let i = 0; i < 44; i++) step(50); // 2.25s > 预警 1.9s（m01220 加长过）
   ok(
     game.player.hp === hpShield - C.bossMissile.hpCost && game.player.shield === 2,
     `必杀打穿护盾和无敌帧（血 ${hpShield}→${game.player.hp}，护盾仍是 ${game.player.shield}）`
@@ -717,6 +720,7 @@ try {
   game.player.x = -0.2;
   game.player.targetX = -0.2;
   game.warns.length = 0;
+  game.hazardCd = 0;
   boss.casts = 0;
   boss.skillT = 0.05;
   boss.hp = boss.maxHp;
@@ -724,7 +728,7 @@ try {
   ok(game.warns.length === C.bossSkill.spawnCount, `第二次挑战：技能又放了一发（${game.warns.length} 个）`);
   game.player.x = 0.32;
   game.player.targetX = 0.32;
-  for (let i = 0; i < 34; i++) step(50);
+  for (let i = 0; i < 44; i++) step(50); // 2.25s > 预警 1.9s
   ok(
     game.player.hp === C.hero.hp && game.state === STATE.FIGHT,
     `预警期间挪一步就躲开了（血 ${game.player.hp} / 满血 ${C.hero.hp}）`
@@ -752,6 +756,7 @@ try {
   game.player.hp = C.hero.hp;
   game.state = STATE.FIGHT;
   game.warns.length = 0;
+  game.hazardCd = 0;
   boss.casts = 2;
   boss.form = 1;
   boss.hp = Math.floor(boss.maxHp * 0.4);
@@ -782,6 +787,90 @@ try {
   ok(
     game.enemies.length > aliveBefore,
     `场上 24 只崽子时 BOSS 照样接着放（${aliveBefore} → ${game.enemies.length} 只）`
+  );
+  game.enemies = [boss];
+  boss.addT = 1;
+
+  // (a5) 【用户 m01220】两个真机 bug：
+  //   ① "僵尸博士打到后面越来越小甚至消失了"
+  //      → 根因是每发子弹都给 BOSS 一次 0.045 的击退（damageEnemy 2011 行），
+  //        三条弹道一秒二十来发，一分钟把它顶出去几十个单位；博士的停线是冻结的，
+  //        被顶走就不会再走回来，只能越缩越小、最后飞出 zFar 消失。
+  //   ② "导弹和地上的圈有时候一起到，根本避无可避"
+  //      → 危险技能之间没有间隔：博士 skillEvery 2.5s 一轮，导弹阵（warn 1.5s + 错峰 0.56s）
+  //        还没落地，火球齐射又铺上来了。现在加了硬冷却，谁也不许叠着放。
+  game.enemies = [boss];
+  game.state = STATE.FIGHT;
+  game.player.hp = C.hero.hp;
+  boss.form = 1;
+  boss.frozenStop = false;
+  boss.z = C.zNear + 6;
+  boss.hp = boss.maxHp = 4000;
+  const zBefore = boss.z;
+  for (let i = 0; i < 120; i++) game.damageEnemy(boss, 1, null, false); // 120 发子弹
+  ok(
+    Math.abs(boss.z - zBefore) < 1e-6,
+    `BOSS 不吃子弹击退（打 120 发，z 仍是 ${boss.z.toFixed(2)}；以前会被顶到 ${(zBefore + 120 * 0.045).toFixed(1)}）`
+  );
+  game.explode(boss.x, boss.z, 1.7, 1);
+  ok(Math.abs(boss.z - zBefore) < 1e-6, `空袭炸不动 BOSS（z=${boss.z.toFixed(2)}）`);
+  // 冻结停线的博士：任何来源都不许把它往后推
+  boss.form = 2;
+  boss.frozenStop = true;
+  boss.state = 'attack';
+  boss.stopZ = C.zNear + 5;
+  boss.z = boss.stopZ;
+  boss.z += 1.4; // 模拟"被推出去"
+  step(50);
+  ok(
+    Math.abs(boss.z - boss.stopZ) < 0.02,
+    `博士的冻结停线会把越界的 z 拉回来（${(boss.stopZ + 1.4).toFixed(2)} → ${boss.z.toFixed(2)}）`
+  );
+  // 危险技能的硬冷却：一轮之后必须等冷却，冷却期内谁都不许再放
+  game.warns.length = 0;
+  game.hazardCd = 0;
+  boss.form = 1;
+  boss.frozenStop = false;
+  boss.z = C.zNear + 6;
+  boss.hp = Math.floor(boss.maxHp * 0.4);
+  boss.casts = 2;
+  boss.skillT = 0.05;
+  step(50);
+  const warnN = game.warns.length;
+  ok(warnN === C.bossSkill.halfCount, `导弹阵照常放（${warnN} 个预警圈）`);
+  const castsAfterFirst = boss.casts;
+  ok(
+    Math.abs(game.hazardCd - C.bossMissile.cooldown) < 0.06,
+    `放完一轮危险技能进入冷却（${game.hazardCd.toFixed(2)}s）`
+  );
+  boss.skillT = 0.05;
+  step(50);
+  ok(
+    game.warns.length === warnN && boss.casts === castsAfterFirst,
+    `冷却期内不许再放（预警圈仍是 ${game.warns.length} 个，技能记账停在 ${boss.casts}）`
+  );
+  const gapSteps = Math.ceil((C.bossMissile.cooldown + 0.2) / 0.05);
+  for (let i = 0; i < gapSteps; i++) step(50);
+  ok(
+    boss.casts > castsAfterFirst,
+    `等满冷却（${C.bossMissile.cooldown}s）之后接着放（技能记账 ${castsAfterFirst} → ${boss.casts}）`
+  );
+  // 火球齐射要留出真能站人的缝：命中半宽 = hero.halfWidth + 0.06
+  const fireHit = C.hero.halfWidth + 0.06;
+  const fxs = [];
+  const fhalf = (B2.fireballCount - 1) / 2;
+  for (let i = 0; i < B2.fireballCount; i++) fxs.push((i - fhalf) * B2.fireballGap);
+  let widest = 0;
+  for (let i = 0; i < fxs.length - 1; i++) {
+    widest = Math.max(widest, fxs[i + 1] - fxs[i] - fireHit * 2);
+  }
+  ok(
+    widest >= 0.3,
+    `火球齐射留下 ${widest.toFixed(2)} 宽的通道（${B2.fireballCount} 颗 × 间距 ${B2.fireballGap}；命中半宽 ${fireHit}）`
+  );
+  ok(
+    C.bossMissile.warn >= 1.9 && C.bossMissile.cooldown >= 3.2,
+    `导弹预警加长到 ${C.bossMissile.warn}s、两轮之间硬间隔 ${C.bossMissile.cooldown}s`
   );
   game.enemies = [boss];
   boss.addT = 1;
@@ -1541,7 +1630,9 @@ try {
     );
 
     // 三种技能轮着放：导弹阵 → 召唤尸潮 → 火球齐射
+    //（m01220 起危险技能之间有硬冷却，这里手动清零才叫得动下一个）
     game.warns.length = 0;
+    game.hazardCd = 0;
     b.skillIdx = 0;
     b.skillT = 0.01;
     step(50);
@@ -1553,6 +1644,7 @@ try {
     const adds = game.enemies.filter((e) => !e.dead && e.kind !== 'boss').length - addsBefore;
     ok(adds >= B2.summonCount, `技能 2：召唤尸潮（一次叫来 ${adds} 只，配置 ${B2.summonCount} 批）`);
     game.spits.length = 0;
+    game.hazardCd = 0;
     b.skillT = 0.01;
     step(50);
     ok(

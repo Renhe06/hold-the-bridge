@@ -59,6 +59,7 @@ export class Game {
     this.orbs = [];
     this.rings = [];
     this.warns = []; // BOSS 导弹的地面预警圈
+    this.hazardCd = 0; // 【用户 m01220】两轮 BOSS 危险技能之间的硬间隔（见 CFG.bossMissile.cooldown）
     this.nextId = 1;
     this.shake = 0;
     this.flash = 0;
@@ -749,9 +750,15 @@ export class Game {
   // 什么时候放见 updateBoss：出场一次、半血一次（用户 m01503）。
   // opts.count > 1 时是"导弹阵"：几颗横向错开、落地时间也错开（stagger），
   // 中间留缝给你钻 —— 站着不动照样死，但挪对方向就能全躲开。
+  //
+  // 【用户 m01220】"导弹和地上的圈有时候一起到，根本避无可避"：
+  // 这里加了一道硬间隔 —— 上一轮危险技能（导弹阵 / 火球齐射）没过冷却就直接**不发**，
+  // 返回 false 让调用方把这次技能往后挪（不吞技能，只是排队）。这样永远不会出现
+  // "上一轮的圈还在脚下、下一轮的圈又画上来了"。
   bossFire(boss, opts) {
     const M = CFG.bossMissile;
     const S = CFG.bossSkill;
+    if (this.hazardCd > 0) return false;
     const n = Math.max(1, (opts && opts.count) || 1);
     const spread = (opts && opts.spread) || 0;
     const stagger = (opts && opts.stagger) || 0;
@@ -767,8 +774,10 @@ export class Game {
         fromZ: boss.z,
       });
     }
+    this.hazardCd = M.cooldown;
     this.sfx.missileWarn();
     this.addPopup(boss.x, boss.z - 0.6, n > 1 ? `${n} 连导弹来袭` : '导弹来袭', '#ff5a3a', 1.15);
+    return true;
   }
 
   /**
@@ -800,32 +809,40 @@ export class Game {
     // ---- 第一形态（僵王 / 鲨鱼王）：出场一发教学 → 半血立刻补一发导弹阵 →
     // 之后按 bossSkill.every / everyHalf 反复施压（用户 m01023："更频繁放技能"）。
     // 以前是 casts 数到 2 就彻底哑火，BOSS 战后半段只剩站桩对射，玩家没事做。
+    // bossFire 返回 false = 撞上危险技能冷却（用户 m01220），这次不记账，0.4 秒后再来。
     e.skillT -= dt;
     if (e.casts === 0) {
       if (e.skillT <= 0) {
-        e.casts = 1;
-        e.skillT = S.every;
-        this.bossFire(e, { count: S.spawnCount, spread: S.spawnSpread });
+        if (this.bossFire(e, { count: S.spawnCount, spread: S.spawnSpread })) {
+          e.casts = 1;
+          e.skillT = S.every;
+        } else {
+          e.skillT = 0.4;
+        }
       }
       return 'ok';
     }
     // 半血：不管计时器走到哪，立刻升级成导弹阵，并且此后换成更密的节奏
     if (e.casts === 1 && e.hp <= e.maxHp * S.hpAt) {
-      e.casts = 2;
-      e.skillT = S.everyHalf;
-      this.bossFire(e, { count: S.halfCount, spread: S.halfSpread, stagger: S.stagger });
+      if (this.bossFire(e, { count: S.halfCount, spread: S.halfSpread, stagger: S.stagger })) {
+        e.casts = 2;
+        e.skillT = S.everyHalf;
+      } else {
+        e.skillT = 0.4; // 等上一轮落地再升级，别两轮叠着来
+      }
       return 'ok';
     }
     if (e.skillT <= 0) {
-      e.casts += 1;
       const half = e.casts >= 2;
-      e.skillT = half ? S.everyHalf : S.every;
-      this.bossFire(
-        e,
-        half
-          ? { count: S.halfCount, spread: S.halfSpread, stagger: S.stagger }
-          : { count: S.spawnCount, spread: S.spawnSpread }
-      );
+      const opts = half
+        ? { count: S.halfCount, spread: S.halfSpread, stagger: S.stagger }
+        : { count: S.spawnCount, spread: S.spawnSpread };
+      if (this.bossFire(e, opts)) {
+        e.casts += 1;
+        e.skillT = half ? S.everyHalf : S.every;
+      } else {
+        e.skillT = 0.4;
+      }
     }
     return 'ok';
   }
@@ -833,6 +850,15 @@ export class Game {
   /** 僵尸博士的技能循环：导弹阵 / 召崽子 / 火球齐射（用户 m01503 的"技能更多"） */
   bossSkill2(e) {
     const B = CFG.pvz.boss2;
+    // 【用户 m01220】危险技能（导弹阵 / 火球齐射）撞上冷却就让位：这次不算数、
+    // 0.4 秒后再试，skillIdx 不往后走 —— 技能不会丢，只是排队。
+    if (this.hazardCd > 0) {
+      const next = B.skills[e.skillIdx % B.skills.length];
+      if (next === 'missile' || next === 'fireball') {
+        e.skillT = 0.4;
+        return;
+      }
+    }
     const kind = B.skills[e.skillIdx % B.skills.length];
     e.skillIdx += 1;
     if (kind === 'missile') {
@@ -849,6 +875,7 @@ export class Game {
   /** 火球齐射：横铺整条路的一大排火球（速度比酸液慢，看得清、走得开） */
   doctorFireballs(e) {
     const B = CFG.pvz.boss2;
+    if (this.hazardCd > 0) return false; // 【用户 m01220】别和导弹阵叠在一起
     const n = B.fireballCount;
     const half = (n - 1) / 2;
     for (let i = 0; i < n; i++) {
@@ -862,9 +889,11 @@ export class Game {
         dead: false,
       });
     }
+    this.hazardCd = CFG.bossMissile.cooldown;
     this.sfx.fireball();
     this.spawnParticles(e.x, e.z - e.size * 0.4, 14, 'spark', B.fireballColor);
     this.addPopup(e.x, e.z - 0.6, '火球齐射', B.fireballColor, 1.2);
+    return true;
   }
 
   /**
@@ -916,6 +945,8 @@ export class Game {
   }
 
   updateWarns(dt) {
+    // 【用户 m01220】危险技能的硬间隔在这里走表（每帧一次，与有没有 BOSS 无关）
+    this.hazardCd = Math.max(0, this.hazardCd - dt);
     for (const w of this.warns) w.t += dt;
     const landed = this.warns.filter((w) => w.t >= w.life);
     this.warns = this.warns.filter((w) => w.t < w.life);
@@ -1531,6 +1562,10 @@ export class Game {
             const bz = pl.z + e.stopGap;
             const bStep = W.drift * spd * dt * 1.6;
             e.z += clamp(bz - e.z, -bStep, bStep);
+          } else {
+            // 【用户 m01220】博士的停线是冻结的：任何来源（爆炸、空袭、残留击退）
+            // 都不许把它往后推 —— 推出去它不会自己走回来，玩家只会看到它越缩越小。
+            e.z = Math.min(e.z, e.stopZ);
           }
           e.addT -= dt;
           if (e.addT <= 0) this.spawnBossAdds(e);
@@ -1843,7 +1878,7 @@ export class Game {
       if (Math.abs(e.z - c.z) > c.zR || Math.abs(e.x - c.x) > c.r) continue;
       e.hp -= c.dmg;
       e.hurtT = 0.14;
-      e.z += 0.2; // 炸得往后一掀
+      if (e.kind !== 'boss') e.z += 0.2; // 炸得往后一掀（BOSS 太沉，掀不动）
       if (e.hp <= 0) this.killEnemy(e);
     }
   }
@@ -1893,7 +1928,7 @@ export class Game {
       if (Math.abs(e.z - z) > CFG.strike.zRadius || Math.abs(e.x - x) > r) continue;
       e.hp -= dmg;
       e.hurtT = 0.12;
-      e.z += 0.14; // 炸得往后退一点，视觉上"被掀了"
+      if (e.kind !== 'boss') e.z += 0.14; // 炸得往后退一点，视觉上"被掀了"（BOSS 不吃击退）
       if (e.hp <= 0) this.killEnemy(e);
     }
   }
@@ -2007,8 +2042,11 @@ export class Game {
 
     e.hp -= dmg;
     e.hurtT = 0.09;
-    // 击退：中弹的丧尸会被顶一下，人堆前沿会肉眼可见地晃
-    e.z += 0.045;
+    // 击退：中弹的丧尸会被顶一下，人堆前沿会肉眼可见地晃。
+    // 【用户 m01220】BOSS 不吃击退：一发子弹 0.045，三条弹道一秒二十来发，
+    // 一分钟就能把僵王顶出几十个单位 —— 玩家看到的是"BOSS 越打越小、最后消失"。
+    // 博士（frozenStop）被打退也不会再走回来，这个问题在它身上最明显。
+    if (e.kind !== 'boss') e.z += 0.045;
     this.spawnParticles(b ? b.x : e.x, e.z, isCrit ? 6 : 3, 'blood', '#7d1a1a');
 
     if (b) {
