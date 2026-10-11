@@ -1147,13 +1147,15 @@ try {
   ok(game.lanes[0] === 'ice', `第三个属性才轮到中间左边（${game.lanes.slice(0, 3).join('/')}）`);
 
   // (e2) 【m02503】寒冰/炎火改成"那条弹道一发吐两颗"，且全铺满后不再出现这两条
+  //      【m02633】第二颗（效果弹）只有正常豌豆 30% 的伤害
   {
-    const { UPGRADES } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
+    const { CFG: PZ, UPGRADES } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
     ok(!UPGRADES.some((u) => u.id === 'pulse'), '奖励墙里已经把「过载脉冲」摘掉了（m02503 去掉脉冲 AOE）');
     ok(!UPGRADES.some((u) => u.id === 'sunflower'), '奖励墙里也没有「阳光 +1」了（m02403）');
 
-    // 带属性那条吐两颗：第一颗普通、第二颗才带寒冰
+    // 带属性那条吐两颗：第一颗普通、第二颗才带寒冰（且只有 30% 伤害）
     game.weapon.bullets = 1;
+    game.weapon.crit = 0; // 关掉暴击，不然两颗里有一颗暴击就看不出 30% 了
     game.lanes = ['ice', '', '', '', '', ''];
     game.bullets = [];
     game.fire();
@@ -1161,6 +1163,12 @@ try {
     ok(
       game.bullets[0].ice === 0 && game.bullets[1].ice === 1,
       `两颗里只有第二颗带寒冰（${game.bullets.map((b) => (b.ice ? '冰' : '普通')).join('+')}）`
+    );
+    const dNormal = game.bullets[0].dmg;
+    const dEff = game.bullets[1].dmg;
+    ok(
+      Math.abs(dEff / dNormal - PZ.pvz.laneDmgMul) < 1e-6,
+      `效果弹只有正常豌豆的 30% 伤害（${dEff.toFixed(2)} / ${dNormal.toFixed(2)} = ×${(dEff / dNormal).toFixed(2)}）`
     );
     game.lanes = ['', '', '', '', '', ''];
     game.bullets = [];
@@ -1189,13 +1197,16 @@ try {
     game.weapon.bullets = 4;
     ok(drawsFlavor(250) > 0, '弹道变多、又有空位之后冰火重新出现');
 
-    // 多吐的那颗算进 DPS 估算（BOSS 血量校准跟着走，不然冰火一多就秒 BOSS）
+    // 多吐的那颗算进 DPS 估算，但只按 30% 算（BOSS 血量校准跟着走）
     game.weapon.bullets = 1;
     game.lanes = ['', '', '', '', '', ''];
     const dps0 = game.estimateDps();
     game.lanes = ['ice', '', '', '', '', ''];
     const dps1 = game.estimateDps();
-    ok(Math.abs(dps1 / dps0 - 2) < 0.001, `带属性的那条让估算 DPS ×${(dps1 / dps0).toFixed(2)}（1 条弹道时正好两颗）`);
+    ok(
+      Math.abs(dps1 / dps0 - (1 + PZ.pvz.laneDmgMul)) < 0.001,
+      `带属性的那条让估算 DPS ×${(dps1 / dps0).toFixed(2)}（1 条弹道 = 1 + ${PZ.pvz.laneDmgMul}）`
+    );
   }
 
   // (f) 豌豆射手的称号按弹道数走（用户 m02771 要的"弹道 +1 就换一个植物"）

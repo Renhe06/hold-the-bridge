@@ -599,9 +599,10 @@ export class Game {
     const w = this.weapon;
     const crit = 1 + w.crit * (w.critMul - 1);
     const nb = Math.min(w.bullets, 6);
-    // 【m02503】第三关带寒冰/炎火的那几条弹道会多发一颗效果弹（也是实打实的伤害），
-    // 估算 DPS 得算进去 —— 不然 BOSS 血量校准会偏低，冰火一多就变成秒杀。
-    const extra = isPvz() ? Math.min(this._flavoredLanes(), nb) : 0;
+    // 【m02503】第三关带寒冰/炎火的那几条弹道会多发一颗效果弹；
+    // 【m02633】这颗效果弹只有 30% 伤害（CFG.pvz.laneDmgMul），估算 DPS 按它算 ——
+    // 不然 BOSS 血量校准会把冰火当成"火力翻倍"，血量虚高。
+    const extra = isPvz() ? Math.min(this._flavoredLanes(), nb) * CFG.pvz.laneDmgMul : 0;
     const perShot = w.damage * crit * (nb + extra) * this.atkMul();
     const shots = 1 / Math.max(0.05, w.interval / w.rateMul);
     let dps = perShot * shots * 0.75; // 折算：BOSS 很大，但散开的弹道不会发发命中
@@ -1252,7 +1253,8 @@ export class Game {
           z: bz,
           pz: bz,
           vz: w.bulletSpeed,
-          dmg: w.damage * fwd * this.atkMul() * (isCrit ? w.critMul : 1),
+          // 【m02633】效果弹只有正常豌豆的 30% 伤害（用户：不然又无敌了）
+          dmg: w.damage * fwd * this.atkMul() * (isCrit ? w.critMul : 1) * (eff ? CFG.pvz.laneDmgMul : 1),
           crit: isCrit,
           pierceLeft: w.pierce,
           splash: Math.max(CFG.weapon.splash, w.splash, tier.splash),
