@@ -717,10 +717,12 @@ export class Game {
   spawnBossAdds(boss, count) {
     const K = CFG.kinds.boss;
     const H = CFG.bossHorde;
-    // 被动放崽子：僵王 3.2 秒一批，博士慢一点（5 秒）—— 它自己还另有技能循环
+    // 被动放崽子：僵王 2.2 秒一批，博士 3.2 秒一批（它自己还另有 2.5 秒的技能循环）
     boss.addT = boss.form === 2 ? CFG.pvz.boss2.addEvery : K.spawnEvery;
+    // 场上的非 BOSS 怪到 aliveCap 就先不放 —— 但不能"放着不放"：
+    // 旧值 22 会被人海（24 只）+ 队列的怪顶死，BOSS 就此哑火（用户 m01023 的"没事做"）。
     const alive = this.enemies.reduce((n, e) => n + (!e.dead && e.kind !== 'boss' ? 1 : 0), 0);
-    if (alive >= 22) return;
+    if (alive >= (H.aliveCap || 22)) return;
     const baseHp = CFG.wave.baseHp + (this.wave - 1) * CFG.wave.hpPerWave;
     // 除上 levels[].diff：这里是"一枪一个"的脆皮崽子，血量要正好落在 hpTarget
     // 【m02762】每波的 +2% 复利同样约掉
@@ -773,7 +775,8 @@ export class Game {
    * BOSS 每帧的技能账（用户 m01503），在所有形态下都从 updateEnemies 里调一次：
    *  - 变身演出中（evolveT > 0）：不动、不打、不咬，返回 'frozen' 让调用方 continue；
    *  - 第二形态（僵尸博士）：技能按 boss2.skills 轮着放；
-   *  - 第一形态：出场 0.9 秒后放一发（教学），半血再放一发导弹阵（升级）。
+   *  - 第一形态：出场 0.9 秒后放一发（教学），半血再放一发导弹阵（升级），
+   *    之后按 every / everyHalf 秒反复放（用户 m01023：别让 BOSS 放完两发就哑火）。
    */
   updateBoss(e, dt) {
     const S = CFG.bossSkill;
@@ -794,15 +797,35 @@ export class Game {
       }
       return 'ok';
     }
+    // ---- 第一形态（僵王 / 鲨鱼王）：出场一发教学 → 半血立刻补一发导弹阵 →
+    // 之后按 bossSkill.every / everyHalf 反复施压（用户 m01023："更频繁放技能"）。
+    // 以前是 casts 数到 2 就彻底哑火，BOSS 战后半段只剩站桩对射，玩家没事做。
+    e.skillT -= dt;
     if (e.casts === 0) {
-      e.skillT -= dt;
       if (e.skillT <= 0) {
         e.casts = 1;
+        e.skillT = S.every;
         this.bossFire(e, { count: S.spawnCount, spread: S.spawnSpread });
       }
-    } else if (e.casts === 1 && e.hp <= e.maxHp * S.hpAt) {
+      return 'ok';
+    }
+    // 半血：不管计时器走到哪，立刻升级成导弹阵，并且此后换成更密的节奏
+    if (e.casts === 1 && e.hp <= e.maxHp * S.hpAt) {
       e.casts = 2;
+      e.skillT = S.everyHalf;
       this.bossFire(e, { count: S.halfCount, spread: S.halfSpread, stagger: S.stagger });
+      return 'ok';
+    }
+    if (e.skillT <= 0) {
+      e.casts += 1;
+      const half = e.casts >= 2;
+      e.skillT = half ? S.everyHalf : S.every;
+      this.bossFire(
+        e,
+        half
+          ? { count: S.halfCount, spread: S.halfSpread, stagger: S.stagger }
+          : { count: S.spawnCount, spread: S.spawnSpread }
+      );
     }
     return 'ok';
   }

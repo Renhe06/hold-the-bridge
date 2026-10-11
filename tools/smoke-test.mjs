@@ -689,7 +689,7 @@ try {
   step(50);
   ok(game.warns.length === C.bossSkill.spawnCount, `重放：又放了一发（${game.warns.length} 个）`);
   for (let i = 0; i < 20; i++) step(50); // 预警 1.5s 还没落地
-  ok(game.warns.length === C.bossSkill.spawnCount, '预警期间不会补第二发（要等半血）');
+  ok(game.warns.length === C.bossSkill.spawnCount, `预警期间不会补第二发（下一轮要等 ${C.bossSkill.every}s）`);
   for (let i = 0; i < 14; i++) step(50); // 累计 1.7s > 预警
   ok(
     game.player.hp === C.hero.hp - C.bossMissile.hpCost && game.state === STATE.FIGHT,
@@ -730,6 +730,61 @@ try {
     `预警期间挪一步就躲开了（血 ${game.player.hp} / 满血 ${C.hero.hp}）`
   );
   game.warns.length = 0;
+
+  // (a4) 【用户 m01023】"所有 boss 加强：血条更厚、会不断召唤小僵尸、更频繁放技能"
+  const BK = C.kinds.boss;
+  ok(
+    BK.seconds >= 30 && BK.hpMax >= 3200 && BK.hpMin >= 500,
+    `BOSS 血条更厚（血量 = 估算 DPS × ${BK.seconds}s，区间 ${BK.hpMin}~${BK.hpMax}）`
+  );
+  ok(BK.spawnEvery <= 2.5, `BOSS 每 ${BK.spawnEvery}s 放一批崽子（原来 3.2s）`);
+  ok(
+    (C.bossHorde.aliveCap || 0) >= 30,
+    `崽子场上上限提到 ${C.bossHorde.aliveCap}（旧值写死 22：人海一挤进来 BOSS 就哑火、玩家干等）`
+  );
+  const B2 = C.pvz.boss2;
+  ok(
+    B2.skillEvery <= 2.8 && B2.firstSkill <= 2 && B2.summonCount >= 4 && B2.addEvery <= 3.5 && B2.hpMul >= 1.6,
+    `僵尸博士更凶（技能 ${B2.skillEvery}s 一轮、开场 ${B2.firstSkill}s、一次召 ${B2.summonCount} 批、被动 ${B2.addEvery}s、第二条血 ×${B2.hpMul}）`
+  );
+  // 技能不停：第一形态放完"出场那发 + 半血那发"之后还得接着放（以前 casts 到 2 就哑火）
+  game.enemies = [boss];
+  game.player.hp = C.hero.hp;
+  game.state = STATE.FIGHT;
+  game.warns.length = 0;
+  boss.casts = 2;
+  boss.form = 1;
+  boss.hp = Math.floor(boss.maxHp * 0.4);
+  boss.skillT = 0.05;
+  step(50);
+  ok(game.warns.length === C.bossSkill.halfCount, `半血之后还在接着放导弹阵（${game.warns.length} 个预警圈）`);
+  const castsBefore = boss.casts;
+  const skillSteps = Math.ceil((C.bossSkill.everyHalf + 0.3) / 0.05);
+  for (let i = 0; i < skillSteps; i++) step(50);
+  ok(
+    boss.casts > castsBefore,
+    `隔着 ${C.bossSkill.everyHalf}s 又是一发（这一段总共放了 ${boss.casts} 次技能，不再放完两发就哑火）`
+  );
+  // 崽子不停：场上已经挤了 24 只（人海的量）时，BOSS 照样接着放
+  game.enemies = [boss];
+  game.player.hp = C.hero.hp;
+  game.state = STATE.FIGHT;
+  game.warns.length = 0;
+  boss.form = 1;
+  boss.addT = 0;
+  for (let i = 0; i < 24; i++) {
+    const a = game.spawnEnemy('walker', 0, boss.z + 1, 1, 0);
+    a.hp = 1;
+    a.maxHp = 1;
+  }
+  const aliveBefore = game.enemies.length;
+  game.spawnBossAdds(boss, 0);
+  ok(
+    game.enemies.length > aliveBefore,
+    `场上 24 只崽子时 BOSS 照样接着放（${aliveBefore} → ${game.enemies.length} 只）`
+  );
+  game.enemies = [boss];
+  boss.addT = 1;
 
   // (b) 第 15 波清完 = 第一关通关：按得分比例结算金币并写进存档
   game.enemies.length = 0;
