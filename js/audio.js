@@ -12,11 +12,39 @@ export class Sound {
     this.noiseBuf = null;
     this.muted = false;
     this.ready = false;
+    this._sessionHooked = false;
+    this._seed = 0x9e3779b9; // 音效自己的随机数种子（见 _rnd）
+  }
+
+  /**
+   * 把音频上下文叫醒。iOS 上 AudioContext 被系统挂起之后，state 有两种可能：
+   *   - 'suspended'：切后台 / 锁屏 / 没在用户手势里创建（标准状态）
+   *   - 'interrupted'：来电、闹钟、别的 App 抢走音频（WebKit 的私有状态）
+   * 老代码只判 'suspended'，所以一旦被打断（最典型：打游戏时来条微信语音/接个电话）
+   * 就再也发不出声音，只能刷新页面 —— 用户说的"经常没有声音"就是这个。
+   * 现在统一按"只要不是 running 就 resume"处理，什么状态都能自己爬回来。
+   */
+  wake() {
+    const c = this.ctx;
+    if (!c) return;
+    try {
+      if (c.state !== 'running' && typeof c.resume === 'function') {
+        const p = c.resume();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      }
+    } catch (_) {}
   }
 
   unlock() {
+    // 上下文被系统关掉（内存吃紧时 WebKit 会这么干）→ 丢掉重来。
+    // 不重来的话 ready 一直是 true，却永远不出声，而且再也修不回来。
+    if (this.ctx && this.ctx.state === 'closed') {
+      this.ctx = null;
+      this.master = null;
+      this.ready = false;
+    }
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') this.ctx.resume();
+      this.wake();
       return;
     }
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -31,6 +59,51 @@ export class Sound {
     this.master.connect(this.ctx.destination);
     this.noiseBuf = this._makeNoise(1.2);
     this.ready = true;
+    this._hookSession();
+    this.wake();
+  }
+
+  /**
+   * iOS 16.4+ 的音频会话（navigator.audioSession）。
+   * 声明成 'playback' 有两个用：
+   *  1) 手机侧边那颗静音拨片拨到静音时，Safari 默认把 WebAudio 一起静掉
+   *     （这是"有时候就是没声音"的一大来源），playback 会话才会照常出声；
+   *  2) 能收到 statechange，被来电打断结束时第一时间自己恢复。
+   */
+  _hookSession() {
+    if (this._sessionHooked) return;
+    try {
+      const s = navigator.audioSession;
+      if (!s) return;
+      if (typeof s.addEventListener === 'function') {
+        this._sessionHooked = true;
+        s.addEventListener('statechange', () => {
+          // 'interrupted' 是"现在被抢着"，等它变成别的再醒过来
+          if (s.state !== 'interrupted') this.wake();
+        });
+      }
+      s.type = 'playback';
+    } catch (_) {}
+  }
+
+  /** 音频到底出没出声：给暂停面板上那行自检用（见 status） */
+  get running() {
+    return !!(this.ctx && this.ctx.state === 'running' && !this.muted);
+  }
+
+  /**
+   * 给玩家看的自检结果。用户说"经常没声音"，而 iOS 上没声音的原因有好几种
+   * （静音拨片 / 切后台被挂起 / 被来电打断 / 自己点过静音 / 上下文被关），
+   * 光靠猜查不出来，索性把状态直接摆到暂停面板上。
+   */
+  get status() {
+    if (this.muted) return '已静音（点右上角 🔊 打开）';
+    if (!this.ctx || !this.ready) return '未启动（在画面上点一下）';
+    const st = this.ctx.state;
+    if (st === 'running') return '正常';
+    if (st === 'interrupted') return '被系统打断 · 点一下画面';
+    if (st === 'closed') return '被系统关闭 · 要刷新页面';
+    return '被挂起 · 点一下画面';
   }
 
   setMuted(m) {
@@ -43,11 +116,23 @@ export class Sound {
     return this.muted;
   }
 
+  /**
+   * 音效自己的随机数。
+   * 刻意不用 Math.random()：冒烟测试里 Math.random 被换成定种 RNG 给游戏逻辑用，
+   * 音效要是也去抽签（每次开枪一次、建噪声缓冲一次要抽近万个），
+   * 就会把那条流冲掉，机器人跑分立刻变得不可复现 —— 而"跑分没变"正是调参的参照系。
+   * 音效这点随机（气流的沙沙、枪声的微走音）本来也不需要和游戏共用一条流。
+   */
+  _rnd() {
+    this._seed = (this._seed * 1664525 + 1013904223) >>> 0;
+    return this._seed / 4294967296;
+  }
+
   _makeNoise(sec) {
     const n = Math.floor(this.ctx.sampleRate * sec);
     const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
     const d = buf.getChannelData(0);
-    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    for (let i = 0; i < n; i++) d[i] = this._rnd() * 2 - 1;
     return buf;
   }
 
@@ -102,7 +187,7 @@ export class Sound {
   shoot(tier = 0) {
     // 老版本是一声 660~940Hz 的方波，听着像玩具激光枪（用户反馈"没有爽感"）。
     // 真枪的听感是三层叠出来的：低频推力 + 中频炸裂 + 高频尖啸。
-    const det = 1 + (Math.random() - 0.5) * 0.12;
+    const det = 1 + (this._rnd() - 0.5) * 0.12;
     const base = [210, 190, 172, 156][Math.min(tier, 3)] * det;
     this.tone({ freq: base, freq2: base * 0.22, type: 'triangle', dur: 0.085, vol: 0.16 });
     this.burst({ dur: 0.06, vol: 0.17, type: 'bandpass', freq: 2800 * det, q: 0.7, sweepTo: 420 });
@@ -188,7 +273,7 @@ export class Sound {
 
   /** 豌豆：一声"噗"，比枪声软、频率低，连射起来是"噗噗噗" */
   pea() {
-    const det = 1 + (Math.random() - 0.5) * 0.12;
+    const det = 1 + (this._rnd() - 0.5) * 0.12;
     this.tone({ freq: 420 * det, freq2: 240, type: 'sine', dur: 0.06, vol: 0.11 });
     this.burst({ dur: 0.035, vol: 0.05, type: 'bandpass', freq: 1200, q: 1.1, sweepTo: 500 });
   }

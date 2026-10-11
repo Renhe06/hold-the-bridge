@@ -56,6 +56,67 @@ export function makeStyle() {
   };
 }
 
+/**
+ * 够用的 WebAudio 桩。
+ *
+ * 为什么要桩这个：用户 m01157 报"经常没声音"，而音频这条路上出问题
+ * （切后台被挂起、来电打断、上下文被系统关掉、自己点过静音）在 Node 里
+ * 以前一律走不通 —— 没有 AudioContext，`unlock()` 直接 return，所有音效
+ * 都是空操作，等于整块逻辑没有测试。桩上之后，这些状态就能在冒烟测试里
+ * 一个个摆出来验证。
+ *
+ * 只实现 audio.js 真会调到的方法：一旦它调了别的方法就抛 undefined is not
+ * a function，正是想抓的东西。
+ * @param {'suspended'|'running'|'interrupted'|'closed'} state 初始状态（真机上
+ *        没在用户手势里创建的就是 suspended）
+ */
+export function makeAudioContext(state = 'suspended') {
+  const param = () => ({
+    value: 0,
+    setValueAtTime() {},
+    linearRampToValueAtTime() {},
+    exponentialRampToValueAtTime() {},
+  });
+  const ctx = {
+    state,
+    sampleRate: 8000,
+    currentTime: 0,
+    destination: { connect() {} },
+    resumes: 0,   // resume() 被调了几次（断言"有没有自己爬回来"）
+    oscs: 0,      // 排出去的振荡器个数（断言"真的在响" / "静音时一个都不排"）
+    bufs: 0,
+    resume() {
+      ctx.resumes++;
+      ctx.state = 'running';
+      return { catch() {} };
+    },
+    createGain: () => ({ gain: param(), connect() {} }),
+    createOscillator: () => {
+      ctx.oscs++;
+      return { type: 'sine', frequency: param(), connect() {}, start() {}, stop() {} };
+    },
+    createBufferSource: () => {
+      ctx.bufs++;
+      return { buffer: null, connect() {}, start() {}, stop() {} };
+    },
+    createBiquadFilter: () => ({ type: 'lowpass', frequency: param(), Q: { value: 1 }, connect() {} }),
+    createBuffer: (ch, len) => ({ length: len, getChannelData: () => new Float32Array(len) }),
+  };
+  return ctx;
+}
+
+/** navigator.audioSession 的桩：type / state / statechange 事件 */
+export function makeAudioSession() {
+  return {
+    type: 'auto',
+    state: 'active',
+    _l: {},
+    addEventListener(t, fn) { (this._l[t] ||= []).push(fn); },
+    removeEventListener() {},
+    fire(t) { (this._l[t] || []).forEach((fn) => fn()); },
+  };
+}
+
 export function makeEl(tag, id) {
   const el = {
     tagName: String(tag).toUpperCase(),
@@ -181,7 +242,16 @@ export function installDom(opts = {}) {
   }
 
   def('document', DOC);
-  def('navigator', { userAgent: 'dom-stub', serviceWorker: undefined });
+  const AUDIO_SESSION = makeAudioSession();
+  def('navigator', { userAgent: 'dom-stub', serviceWorker: undefined, audioSession: AUDIO_SESSION });
+  // new AudioContext() 一律给一个 suspended 的桩：真实 iOS 上没在用户手势里
+  // 创建就是这个状态，冒烟测试里也照这个来（unlock 之后才该是 running）
+  const AUDIO_CTXS = [];
+  def('AudioContext', function FakeAudioContext() {
+    const c = makeAudioContext('suspended');
+    AUDIO_CTXS.push(c);
+    return c;
+  });
   def('location', { hostname, protocol: 'http:', href });
   def('devicePixelRatio', dpr);
   def('innerWidth', width);
@@ -204,5 +274,5 @@ export function installDom(opts = {}) {
   def('window', globalThis);
 
   // def 也返回出去：测试里要中途改 devicePixelRatio / innerWidth 来模拟旋转
-  return { ELS, DOC, CANVAS, APP, RAF, WINDOW_LISTENERS, P, def, width, height, dpr };
+  return { ELS, DOC, CANVAS, APP, RAF, WINDOW_LISTENERS, P, def, width, height, dpr, AUDIO_SESSION, AUDIO_CTXS };
 }

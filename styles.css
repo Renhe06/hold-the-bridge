@@ -173,6 +173,13 @@ html, body {
   z-index: 5;
 }
 .mute:active { transform: scale(0.92); }
+/* 静音时不能只是"暗一点"：玩家会以为游戏坏了。
+   换成琥珀色边 + 底色，扫一眼就知道是自己把声音关了。 */
+.mute.off {
+  border-color: rgba(255, 196, 107, 0.75);
+  box-shadow: 0 0 0 1px rgba(255, 196, 107, 0.25), 0 0 12px rgba(255, 170, 60, 0.35);
+  background: rgba(60, 38, 8, 0.72);
+}
 
 /* ---------------- 遮罩与面板 ---------------- */
 
@@ -355,6 +362,16 @@ html, body {
   margin: 4px 0 18px;
   font-size: 13px;
   color: #8fa3b8;
+}
+
+/* 暂停面板上的音效自检那一行：正常时不起眼，不正常时变琥珀色 */
+.pause-tip.audio {
+  margin: -10px 0 16px;
+  font-size: 12px;
+  color: #6f8399;
+}
+.pause-tip.audio.warn {
+  color: #ffc46b;
 }
 
 /* ---------------- 次级按钮 ---------------- */

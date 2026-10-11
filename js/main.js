@@ -84,6 +84,8 @@ const el = {
   pauseOverlay: $('pauseOverlay'),
   resumeBtn: $('resumeBtn'),
   pauseMenu: $('pauseMenu'),
+  // 暂停面板上的音效自检那一行（用户说"经常没声音"，得让他能一眼看出是哪一种）
+  audioState: $('audioState'),
 };
 
 // ---------------------------------------------------------
@@ -437,6 +439,17 @@ function resetBack() {
   el.backBtn.classList.remove('warn');
 }
 
+/**
+ * 右上角那颗音量键的样子。静音时除了换成 🔇，还要挂个 .off：
+ * 只靠"透明度降到 0.55"太不显眼了 —— 玩家很容易以为游戏坏了（没声音），
+ * 其实是自己上次误点了一下，而且这个偏好还被存进了 localStorage。
+ */
+function applyMuteUI(m) {
+  el.muteBtn.textContent = m ? '🔇' : '🔊';
+  el.muteBtn.classList.toggle('off', !!m);
+  el.muteBtn.setAttribute('aria-label', m ? '音效已关，点一下打开' : '音效已开，点一下关闭');
+}
+
 function pauseGame() {
   // 只有真正在打的时候能暂停：主界面/结算/失守界面上按暂停没有意义
   if (paused) return;
@@ -447,6 +460,21 @@ function pauseGame() {
   game.pointerUp();
   resetBack();
   el.pauseOverlay.classList.add('show');
+  syncAudioState();
+}
+
+/**
+ * 暂停面板上那行「音效：xxx」。
+ * 用户 m01157：经常没声音，不知道什么问题 —— iOS 上没声音有好几种原因，
+ * 与其在聊天里来回猜，不如把答案写在暂停面板上，一看就知道该点哪儿。
+ */
+function syncAudioState() {
+  if (!el.audioState) return;
+  const s = sfx.status;
+  if (syncAudioState._last === s) return; // 每帧都会调，状态没变就一个字都别写
+  syncAudioState._last = s;
+  setText(el.audioState, 'au', `音效：${s}`);
+  el.audioState.classList.toggle('warn', s !== '正常');
 }
 
 function resumeGame() {
@@ -492,10 +520,11 @@ onTap(el.backBtn, () => {
 });
 
 onTap(el.muteBtn, (e) => {
+  sfx.unlock(); // 这一下本身就是用户手势，顺手把上下文建起来/叫醒
   const m = sfx.toggleMute();
-  el.muteBtn.textContent = m ? '🔇' : '🔊';
-  el.muteBtn.style.opacity = m ? '0.55' : '1';
+  applyMuteUI(m);
   try { localStorage.setItem(MUTE_KEY, m ? '1' : '0'); } catch (_) {}
+  syncAudioState();
   e.stopPropagation();
 });
 
@@ -659,6 +688,7 @@ function syncHud() {
 // ---------------------------------------------------------
 
 let last = 0;
+let audioKickAt = 0; // 上一次"音频自愈"的时间戳（RAF 的 now，和 performance.now 同源）
 
 function frame(now) {
   if (!last) last = now;
@@ -675,6 +705,7 @@ function frame(now) {
     renderer.draw(game, 0);
     syncState();
     syncHud();
+    syncAudioState();
     syncGain(0);
     requestAnimationFrame(frame);
     return;
@@ -685,6 +716,15 @@ function frame(now) {
   syncState();
   syncHud();
   syncGain(dt);
+
+  // 音频自愈：iOS 会在后台、来电、锁屏之后把 AudioContext 挂起，
+  // 而光靠"下一次触摸"不一定能碰上（比如玩家一直按着屏幕不动）。
+  // 这里每秒顺手叫一次，resume 不需要用户手势时就能自己爬回来；
+  // 要是这次被系统拒了也不影响：下一次触摸还会再叫。
+  if (sfx.ready && !sfx.muted && !document.hidden && !sfx.running && now - audioKickAt > 1000) {
+    audioKickAt = now;
+    sfx.wake();
+  }
 
   requestAnimationFrame(frame);
 }
@@ -697,10 +737,13 @@ function frame(now) {
 try {
   if (localStorage.getItem(MUTE_KEY) === '1') {
     sfx.setMuted(true);
-    el.muteBtn.textContent = '🔇';
-    el.muteBtn.style.opacity = '0.55';
+    applyMuteUI(true);
+  } else {
+    applyMuteUI(false);
   }
-} catch (_) {}
+} catch (_) {
+  applyMuteUI(false);
+}
 
 // 使用说明：只有第一次打开才自动弹（之后点首页的「使用说明」按钮才显示）
 try {
@@ -715,9 +758,22 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', scheduleFit);
 }
 document.addEventListener('visibilitychange', () => {
-  // 回到前台时重置计时基准，避免一帧跳掉一大段时间
-  if (!document.hidden) last = 0;
+  // 回到前台时重置计时基准，避免一帧跳掉一大段时间；
+  // 顺便把音频叫醒：切后台 / 锁屏回来 AudioContext 是被系统挂起的
+  // （这是"玩着玩着就没声音了"最常见的一种）
+  if (!document.hidden) {
+    last = 0;
+    sfx.wake();
+  }
 });
+
+// 任何一次触摸都顺手唤醒一次音频。iOS 只认"用户手势里的 resume"，
+// 所以这条兜底比什么都管用：不管前面被切后台还是被来电打断，
+// 玩家下一次碰屏幕就该有声音。
+window.addEventListener('pointerdown', () => sfx.wake(), true);
+window.addEventListener('touchstart', () => sfx.wake(), { passive: true });
+window.addEventListener('focus', () => sfx.wake());
+window.addEventListener('pageshow', () => sfx.wake());
 
 fit();
 syncState();

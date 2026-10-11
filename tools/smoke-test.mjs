@@ -57,7 +57,7 @@ Math.random = makeRng(SEED);
 
 import { installDom } from './dom-stub.mjs';
 
-const { ELS, DOC, CANVAS, APP, WINDOW_LISTENERS, P, def } = installDom({
+const { ELS, DOC, CANVAS, APP, WINDOW_LISTENERS, P, def, AUDIO_SESSION, AUDIO_CTXS } = installDom({
   width: 390, height: 844, dpr: 3,
 });
 
@@ -1347,6 +1347,88 @@ try {
 } catch (err) {
   failures++;
   notes.push(`  ✗ 静音按钮抛异常: ${err && err.message}`);
+}
+
+// -- 9. 音频：iOS 上"经常没声音"的几种情况都要能自己爬回来 --
+// 用户 m01249：经常出现没有声音。老代码只在 state === 'suspended' 时 resume，
+// 而 WebKit 被来电/别的 App 打断时给的是非标准的 'interrupted' —— 一旦碰上就
+// 永远没声音，只能刷新页面。这里把几种状态一个个摆出来钉住。
+try {
+  const sfx = H.sfx;
+  sfx.setMuted(false); // 上一段把静音打开了，先恢复
+
+  // 第一次触摸：上下文从 suspended 变成 running（iOS 的规矩）
+  sfx.ctx && (sfx.ctx.state = 'suspended');
+  sfx.unlock();
+  const c1 = sfx.ctx;
+  ok(!!c1 && c1.state === 'running', `第一次触摸后音频跑起来（state=${c1 && c1.state}）`);
+  ok(AUDIO_SESSION.type === 'playback',
+    '把音频会话声明成 playback（手机侧边静音拨片拨到静音时也能出声）');
+  ok(sfx.status === '正常', `自检认为正常（${sfx.status}）`);
+
+  // 切后台 / 锁屏：系统挂起
+  c1.state = 'suspended';
+  sfx.wake();
+  ok(c1.state === 'running', '被挂起（切后台/锁屏）之后能自己恢复');
+
+  // 来电 / 别的 App 抢音频：WebKit 的 'interrupted'
+  c1.state = 'interrupted';
+  const before = c1.resumes;
+  sfx.wake();
+  ok(c1.state === 'running' && c1.resumes === before + 1,
+    "被系统打断（interrupted）之后也能恢复 —— 这就是「经常没声音」的根因");
+
+  // 上下文被系统关掉：不能 ready 一直 true 却永远不出声，必须重建
+  c1.state = 'closed';
+  const ctxsBefore = AUDIO_CTXS.length;
+  sfx.unlock();
+  ok(sfx.ctx !== c1 && AUDIO_CTXS.length === ctxsBefore + 1 && sfx.ctx.state === 'running',
+    '上下文被系统关闭后重新建一个（不是一直拿着死的那份）');
+
+  // 打断结束的系统事件
+  sfx.ctx.state = 'interrupted';
+  AUDIO_SESSION.state = 'active';
+  AUDIO_SESSION.fire('statechange');
+  ok(sfx.ctx.state === 'running', '音频会话 statechange（打断结束）会自动唤醒');
+
+  // 真的在响：把每一个音效都排一遍。
+  // 这一条既证明"上下文跑起来了真会出声"（不是看着 running 其实静悄悄），
+  // 也顺手把 audio.js 的音效方法全过一遍桩 —— 谁写了桩里没有的 WebAudio 方法，
+  // 这里立刻抛 "xxx is not a function"。
+  const proto = Object.getPrototypeOf(sfx);
+  const skip = ['constructor', 'unlock', 'wake', 'setMuted', 'toggleMute', 'status', 'running'];
+  const sounds = Object.getOwnPropertyNames(proto).filter(
+    (k) => k[0] !== '_' && !skip.includes(k) && typeof sfx[k] === 'function'
+  );
+  const o0 = sfx.ctx.oscs + sfx.ctx.bufs;
+  for (const k of sounds) sfx[k](3);
+  const made = sfx.ctx.oscs + sfx.ctx.bufs - o0;
+  ok(sounds.length >= 20 && made > 0,
+    `${sounds.length} 个音效都能排出来（共 ${made} 个发声节点：${sounds.join('/')}）`);
+
+  // 自己被静音：一个音符都不该排，而且状态要一眼看得出来
+  sfx.setMuted(true);
+  const o1 = sfx.ctx.oscs + sfx.ctx.bufs;
+  for (const k of sounds) sfx[k](3);
+  ok(sfx.ctx.oscs + sfx.ctx.bufs === o1, '手动静音时一个音符都不排');
+  ok(/已静音/.test(sfx.status), `静音时自检说清原因（${sfx.status}）`);
+  sfx.setMuted(false);
+
+  // 暂停面板上那行自检：这是让玩家自己看出问题在哪儿的入口
+  game.state = STATE.FIGHT;
+  game.player.hp = 99;
+  H.pauseGame();
+  ok(/音效：正常/.test(ELS.get('audioState').textContent),
+    `暂停面板写出音效自检：${ELS.get('audioState').textContent}`);
+  H.resumeGame();
+
+  // 任何一次触摸都兜底唤醒（兜底比什么都管用：只要在碰屏幕就该有声音）
+  sfx.ctx.state = 'interrupted';
+  (WINDOW_LISTENERS.pointerdown || []).forEach((fn) => fn({}));
+  ok(sfx.ctx.state === 'running', '触摸兜底：任意一次 pointerdown 都会唤醒音频');
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ 音频流程抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : err}`);
 }
 
 // ---------------------------------------------------------
