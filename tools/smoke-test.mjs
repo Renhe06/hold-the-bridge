@@ -1189,6 +1189,53 @@ try {
     ok(game.suns.length === 0, `站着不动，阳光自己飞过来被捡走（${((n3 * 50) / 1000).toFixed(1)} 秒）`);
     ok(game.energy > 0, `自动吸附照样充能（energy=${game.energy}）`);
     ok(before > S3.magnetPick, `它是被吸过来的，不是掉在脚边（起始距离 ${before.toFixed(2)}）`);
+
+    // 【m02004】阳光 = 攻击加成：用户实测"第 6 波根本打不过去"，
+    // 所以阳光除了充能，还要永久加攻击力（子弹和 BOSS 血量校准都吃这个倍率）。
+    ok(game.sunAtk > 0, `捡阳光涨攻击：sunAtk=${game.sunAtk.toFixed(3)}（每个 +${S3.atk}）`);
+    ok(
+      Math.abs(game.sunAtk - S3.atk) < 1e-6 || Math.abs(game.sunAtk - S3.atk * S3.bigMul) < 1e-6,
+      `这一个的加成量对得上配置（${game.sunAtk.toFixed(3)} = atk ${S3.atk} 或 atk×bigMul ${(S3.atk * S3.bigMul).toFixed(3)}）`
+    );
+    ok(Math.abs(game.atkMul() - (1 + game.sunAtk)) < 1e-9, `atkMul() = ${game.atkMul().toFixed(3)}`);
+    // 真打一发豌豆，看子弹上写着的伤害有没有吃到倍率
+    game.enemies.length = 0;
+    game.spawnEnemy('walker');
+    game.weapon.cd = 0;
+    game.weapon.crit = 0; // 暴击是随机数，先关掉，免得这一发比出个 critMul 来
+    game.bullets.length = 0;
+    game.fire();
+    const fat = game.bullets[game.bullets.length - 1].dmg;
+    const dpsFat = game.estimateDps();
+    const keepAtk = game.sunAtk;
+    game.sunAtk = 0;
+    game.bullets.length = 0;
+    game.weapon.cd = 0;
+    game.fire();
+    const thin = game.bullets[game.bullets.length - 1].dmg;
+    const dpsThin = game.estimateDps();
+    ok(
+      Math.abs(fat / thin - (1 + keepAtk)) < 0.02,
+      `同样的豌豆，捡过阳光的一发更狠：${fat.toFixed(2)} / ${thin.toFixed(2)} = ×${(fat / thin).toFixed(2)}`
+    );
+    ok(
+      Math.abs(dpsFat / dpsThin - (1 + keepAtk)) < 0.02,
+      `BOSS 血量校准也跟着涨（不然阳光一多，BOSS 战就变成秒杀）：×${(dpsFat / dpsThin).toFixed(2)}`
+    );
+    // 上限：捡到爆也只到 atkMax
+    game.sunAtk = S3.atkMax - 0.001;
+    game.suns.length = 0;
+    game.player.x = 0;
+    game.player.z = C3.zNear;
+    game.sunT = 99;
+    game.spawnSun();
+    const s4 = game.suns[0];
+    s4.x = game.player.x;
+    s4.z = game.player.z;
+    s4.t = s4.fall;
+    s4.hold = 0;
+    for (let i = 0; i < 20 && game.suns.length; i++) step(50);
+    ok(game.sunAtk <= S3.atkMax + 1e-9, `攻击加成有上限：封顶在 +${Math.round(S3.atkMax * 100)}%（当前 ${game.sunAtk.toFixed(3)}）`);
   }
 
   // (h) 樱桃炸弹：能量满了落在人堆中心，引信烧完炸开

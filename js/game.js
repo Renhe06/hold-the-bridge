@@ -105,6 +105,7 @@ export class Game {
     this.sunSeq = 0; // 掉过多少个了（每 N 个来一个大的）
     this.sunWaveStacks = 0; // "向日葵"奖励：每波开局直接掉几个
     this.sunMul = 1; // "阳光充沛"：一个阳光充多少能量
+    this.sunAtk = 0; // 【m02004】阳光的攻击加成（0.06/个，上限 CFG.pvz.sun.atkMax）
     this.cherries = []; // 樱桃炸弹（第三关的大招，取代飞机轰炸）
     this.cherryMul = 1; // "巨型樱桃"：炸开范围倍率
     this.alertT = 0; // 开场"警报 + 3 2 1"还剩多久
@@ -231,6 +232,15 @@ export class Game {
   get weaponLabel() {
     if (isPvz()) return pvzPlant(this.weapon.bullets).name;
     return this.tier.name;
+  }
+
+  /**
+   * 【m02004】阳光带来的攻击倍率（1 = 没捡过阳光）。
+   * 子弹和 BOSS 血量校准（estimateDps）都走这里 —— 不然"阳光越捡越猛"
+   * 会让 BOSS 战变成几秒秒杀，20 秒的消耗战设计就废了。
+   */
+  atkMul() {
+    return 1 + (this.sunAtk || 0);
   }
 
   // ---------------------------------------------------------
@@ -588,7 +598,7 @@ export class Game {
   estimateDps() {
     const w = this.weapon;
     const crit = 1 + w.crit * (w.critMul - 1);
-    const perShot = w.damage * crit * Math.min(w.bullets, 6);
+    const perShot = w.damage * crit * Math.min(w.bullets, 6) * this.atkMul();
     const shots = 1 / Math.max(0.05, w.interval / w.rateMul);
     let dps = perShot * shots * 0.75; // 折算：BOSS 很大，但散开的弹道不会发发命中
     dps += (w.splash || 0) * 1.6 + (w.burn || 0) * 0.5 + (w.pulse || 0) * 0.4;
@@ -1175,7 +1185,7 @@ export class Game {
         z: z0,
         pz: z0,
         vz: w.bulletSpeed,
-        dmg: w.damage * fwd * (isCrit ? w.critMul : 1),
+        dmg: w.damage * fwd * this.atkMul() * (isCrit ? w.critMul : 1),
         crit: isCrit,
         pierceLeft: w.pierce,
         splash: Math.max(CFG.weapon.splash, w.splash, tier.splash),
@@ -2003,9 +2013,14 @@ export class Game {
       const sucked = s.fly > 0 && Math.hypot(dx, dz) <= S.magnetPick;
       if (onFoot || sucked) {
         s.dead = true;
-        const gain = S.charge * (s.big ? S.bigMul : 1) * this.sunMul;
+        const big = s.big ? S.bigMul : 1;
+        const gain = S.charge * big * this.sunMul;
         this.gainEnergy(gain);
-        this.addPopup(s.x, s.z, `☀ +${Math.round(gain)}`, '#ffe066', s.big ? 1.5 : 1.15);
+        // 【m02004】阳光 = 攻击加成：每捡一个永久 +S.atk（大的 ×bigMul），封顶 S.atkMax。
+        // 这是"第 6 波打不过去"的解法：撑到中盘攻击力翻倍，越打越顺。
+        const atkGain = S.atk * big * this.sunMul;
+        this.sunAtk = Math.min(S.atkMax, this.sunAtk + atkGain);
+        this.addPopup(s.x, s.z, `☀ 攻击 +${Math.round(atkGain * 100)}%`, '#ffe066', s.big ? 1.5 : 1.15);
         this.spawnParticles(s.x, s.z, s.big ? 12 : 6, 'spark', '#ffe066');
         this.sfx.sun();
       } else if (s.live <= 0) {

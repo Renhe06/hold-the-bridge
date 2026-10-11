@@ -656,9 +656,14 @@ function syncHud() {
     game.wave > 0 && st !== STATE.START ? `${game.wave}/${CFG.level.waves}` : `0/${CFG.level.waves}`
   );
 
-  // 武器质变等级
+  // 武器质变等级（第三关还挂上"阳光攒出来的攻击加成"，让成长看得见）
   const ti = game.weapon.tierIdx;
-  setText(el.tierLabel, 'tn', game.tier.name);
+  const sunAtk = game.sunAtk || 0;
+  setText(
+    el.tierLabel,
+    'tn',
+    sunAtk > 0.001 ? `${game.tier.name} · 攻+${Math.round(sunAtk * 100)}%` : game.tier.name
+  );
   if (cache.tc !== ti) {
     cache.tc = ti;
     el.tierLabel.className = 'tier' + (ti > 0 ? ' t' + (ti + 1) : '');
