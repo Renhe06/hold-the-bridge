@@ -150,9 +150,9 @@ export const CFG = {
   // 让"刚出怪时"的远处丧尸也不再是一个小点。
   // body 决定渲染用的躯干形状：normal / fat（胖）/ wide（宽肩大块头）
   kinds: {
-    walker: { size: 0.26, speedMul: 1.0, hpMul: 1.0, score: 10, body: 'normal', color: '#7e9a52', dark: '#3f5129' },
-    runner: { size: 0.235, speedMul: 1.7, hpMul: 0.6, score: 14, body: 'normal', color: '#b06442', dark: '#5c3121' },
-    brute: { size: 0.36, speedMul: 0.62, hpMul: 3.2, score: 26, body: 'wide', color: '#77879b', dark: '#3a4551' },
+    walker: { size: 0.26, speedMul: 1.0, hpMul: 1.0, score: 10, body: 'normal', color: '#7e9a52', dark: '#3f5129', ocean: { color: '#5fae9c', dark: '#27564c', animal: 'fish' } },
+    runner: { size: 0.235, speedMul: 1.7, hpMul: 0.6, score: 14, body: 'normal', color: '#b06442', dark: '#5c3121', ocean: { color: '#e08a6a', dark: '#7a4028', animal: 'squid' } },
+    brute: { size: 0.36, speedMul: 0.62, hpMul: 3.2, score: 26, body: 'wide', color: '#77879b', dark: '#3a4551', ocean: { color: '#8fa8c2', dark: '#3b5470', animal: 'crab' } },
     // 血量倍数和体型倍数（0.60 / 0.26 ≈ 2.3）对齐；原来写 5 会在第 5 波插一个血量尖峰
     // 用户要求：BOSS 体型再翻一倍（0.6 → 1.2）、血条更厚（hpMul 3.2 → 6.5）、
     // 走得更慢（speedMul 0.46 → 0.38）。
@@ -185,13 +185,15 @@ export const CFG = {
       body: 'wide',
       color: '#a2594a',
       dark: '#4c261f',
+      // 第二关：鲨鱼王（灰蓝、三角背鳍、血盆大口）
+      ocean: { color: '#6f93ab', dark: '#2b4a5e', animal: 'shark' },
     },
     // 吐酸者：停在远处往桥上喷酸液，逼玩家走位而不是站着对射
-    spitter: { size: 0.26, speedMul: 0.9, hpMul: 1.1, score: 24, body: 'fat', spit: true, color: '#8fbe3f', dark: '#42591d' },
+    spitter: { size: 0.26, speedMul: 0.9, hpMul: 1.1, score: 24, body: 'fat', spit: true, color: '#8fbe3f', dark: '#42591d', ocean: { color: '#e8c24a', dark: '#7a5f16', animal: 'puffer' } },
     // 铁盾兵：正面带盾，前 3 发子弹伤害减半并会破盾
-    shielded: { size: 0.28, speedMul: 0.8, hpMul: 1.4, score: 26, body: 'normal', shield: 3, color: '#8d8f7a', dark: '#45473a' },
+    shielded: { size: 0.28, speedMul: 0.8, hpMul: 1.4, score: 26, body: 'normal', shield: 3, color: '#8d8f7a', dark: '#45473a', ocean: { color: '#7fae86', dark: '#37543c', animal: 'turtle' } },
     // 分裂者：死后裂成两只小兵，越打越多，逼你换目标优先级
-    splitter: { size: 0.3, speedMul: 0.95, hpMul: 1.7, score: 18, body: 'fat', split: 2, color: '#9a6bb5', dark: '#4a2f5c' },
+    splitter: { size: 0.3, speedMul: 0.95, hpMul: 1.7, score: 18, body: 'fat', split: 2, color: '#9a6bb5', dark: '#4a2f5c', ocean: { color: '#c98bd8', dark: '#5d3a6b', animal: 'jelly' } },
   },
 
   // BOSS 的必杀导弹（m02878 加、m03096 改）：落点 = 它开火那一刻你站的位置，
@@ -203,6 +205,27 @@ export const CFG = {
     warn: 1.5, // 预警时长：地面红圈从大缩到小，缩到底就砸下来
     radius: 0.16, // 命中半径（世界单位；英雄身位 halfWidth 只有 0.075）
     lethal: true, // 打中直接死（不消耗护盾、不吃无敌帧）
+  },
+
+  // ---- 第二关专属机制 ----
+  // 用户 m01451：第二关要"玩法更多更爽"。两条新玩法都挂在海洋主题上：
+  // ① 水雷（升级项 mine）：每波开始时在你前方布几颗，敌人踩上就炸，
+  //    让"往前压"这件事多一层收益（也是唯一一个会自己造伤害的地面物）；
+  // ② 河豚爆裂（基础机制）：第二关的吐酸者换成河豚，死了会炸开一片，
+  //    所以"先点掉远处的河豚"会带出一串连锁击杀。
+  mine: {
+    count: 3, // 每层升级每波布几颗
+    radius: 0.6, // 触发半径（世界单位，比桥面半宽还宽，故意做宽松）
+    size: 0.075, // 画多大（世界单位半径）——别拿 radius 当绘制尺寸
+    damage: 3, // 爆炸伤害
+    blastR: 0.75, // 伤害范围（横向半径）
+    zFrom: 14, // 布在英雄前方 zFrom~zTo 之间（英雄一般在 10 附近，太靠前会把水雷摆到脸上）
+    zTo: 30,
+    live: 30, // 一颗雷最多活这么久（秒），免得攒满整座桥
+  },
+  puffer: {
+    blastR: 0.6,
+    blastDmg: 2,
   },
 
   // 从第几波开始出现特殊怪
@@ -281,12 +304,37 @@ export const CFG = {
   score: { perWave: 50 },
 
   // ---- 关卡与金币 ----
-  // 第一关 15 波，清完就结算：按得分的这个比例发金币。
-  // 金币先只做"攒着"，留给以后主界面里的商店花。
-  level: {
-    waves: 15,
-    coinRatio: 0.08, // 得分 × 8% = 金币（4000 分 → 320 金币）
-  },
+  // 一关 15 波，清完就结算：按得分的这个比例发金币。
+  // 金币是跨局的，先只做"攒着"，留给以后主界面里的商店花。
+  //
+  // 用户 m01451/m01453：第二关换成"疯狂水世界"——蓝色水域主题、丧尸融合海洋动物、
+  // 图片人物当主角、奖励墙也带海洋元素，通关第一关后从结算面板进去。
+  // theme 指向下面的 CFG.themes，skin 决定丧尸/英雄画成哪一套。
+  levels: [
+    {
+      id: 1,
+      name: '血色大桥',
+      hud: '第 1 关 · 血色大桥',
+      waves: 15,
+      coinRatio: 0.08, // 得分 × 8% = 金币（4000 分 → 320 金币）
+      theme: 'city',
+      skin: null, // 城市丧尸 + 蓝衣英雄
+    },
+    {
+      id: 2,
+      name: '疯狂水世界',
+      hud: '第 2 关 · 疯狂水世界',
+      waves: 15,
+      coinRatio: 0.1,
+      theme: 'water',
+      skin: 'ocean', // 海洋动物化的丧尸 + 图片人物主角
+    },
+  ],
+  levelIndex: 0,
+  // 当前关卡的快捷引用（初始化时 = levels[0]）。全工程都读 CFG.level.xxx，
+  // 所以切关卡只调 setLevel()，其余代码一行都不用改。
+  level: null,
+  theme: null,
 
   // ---- 存档 ----
   storageKey: 'hold-the-bridge:best',
@@ -339,4 +387,110 @@ export const UPGRADES = [
   { id: 'pulse', name: '过载脉冲', desc: '每 6.5 秒释放冲击波，伤害全场敌人', tag: '特效', max: 4, op: '+', amt: '脉冲', short: '自动 AOE', apply: { pulse: 1 } },
   { id: 'chargeMul', name: '超导电容', desc: '空袭充能速度 ×1.4', tag: '特效', max: 4, op: '×', amt: '1.4', short: '充能速度', apply: { chargeMul: 1.4 } },
   { id: 'strikeMul', name: '重装弹头', desc: '空袭伤害 ×1.5', tag: '特效', max: 4, op: '×', amt: '1.5', short: '空袭伤害', apply: { strikeMul: 1.5 } },
+
+  // ---- 第二关专属（l2: true，只在"疯狂水世界"的奖励门里出现）----
+  // 一部分是海洋味道的数值加成（比第一关更猛，因为海里的怪也更猛），
+  // 一部分是本关独有的新玩法（水雷 / 气泡护盾）。
+  { id: 'deepSea', name: '深海弹头', desc: '子弹伤害 +2', tag: '伤害', max: 6, op: '+', amt: '2', short: '子弹伤害', apply: { damage: 2 }, l2: true },
+  { id: 'current', name: '洋流加速', desc: '射速 ×1.25', tag: '射速', max: 5, op: '×', amt: '1.25', short: '射速', apply: { rateMul: 1.25 }, l2: true },
+  { id: 'coralArmor', name: '珊瑚装甲', desc: '生命上限 +2，并回满生命', tag: '生存', max: 3, op: '+', amt: '2', short: '生命上限', apply: { maxHp: 2, healFull: true }, l2: true },
+  { id: 'bubbleShield', name: '气泡护盾', desc: '每波开始时获得 2 层护盾', tag: '生存', max: 3, op: '+', amt: '2', short: '每波护盾', apply: { shieldPerWave: 2 }, l2: true },
+  { id: 'mine', name: '布设水雷', desc: '每波开始时在前方布 3 颗水雷，敌人碰到就炸', tag: '特效', max: 3, op: '+', amt: '3 颗', short: '水雷', apply: { mine: 1 }, l2: true },
+  { id: 'torpedo', name: '鱼类鱼雷', desc: '空袭伤害 ×1.6', tag: '特效', max: 3, op: '×', amt: '1.6', short: '空袭伤害', apply: { strikeMul: 1.6 }, l2: true },
 ];
+
+// ============================================================
+//  主题配色（用户 m01451：第二关"背景换成疯狂水世界风格"）
+//
+//  渲染器不再写死颜色，全部读 CFG.theme.xxx。city 那一套就是第一关原来的
+//  字面量 1:1 搬过来的（所以第一关画面一模一样），water 是新做的水世界。
+// ============================================================
+CFG.themes = {
+  // 第一关：血色大桥（夜晚、城市天际线、橙色光污染）
+  city: {
+    sky: ['#04060c', '#0a1019', '#151727', '#2a1c22'],
+    pollute: ['rgba(255,150,90,0.20)', 'rgba(180,90,110,0.09)'],
+    starRGB: '220,235,255',
+    skyDeco: 'stars',
+    moon: '#cfd9e2',
+    moonSpot: 'rgba(120,135,150,0.30)',
+    skyline: 'city',
+    horizon: ['rgba(255,120,80,0)', 'rgba(255,110,70,0.16)', 'rgba(255,80,60,0)'],
+    sea: ['#0d1420', '#080c15', '#03050a'],
+    foam: ['rgba(255,150,90,0)', 'rgba(255,170,110,', 'rgba(255,150,90,0)'],
+    deck: ['#0f1218', '#1b1f26', '#262b33', '#30363f'],
+    seam: 'rgba(0,0,0,0.20)',
+    dash: 'rgba(226,206,140,0.30)',
+    edge: ['rgba(180,150,70,0.10)', 'rgba(226,196,110,0.34)', 'rgba(240,214,130,0.5)'],
+    railBar: 'rgba(96,106,120,0.85)',
+    railPost: 'rgba(80,88,100,0.9)',
+    railTop: 'rgba(150,110,80,0.5)',
+    haze: ['rgba(20,24,34,0.72)', 'rgba(18,22,32,0.30)', 'rgba(16,20,30,0)'],
+    fog: ['rgba(26,30,40,0.96)', 'rgba(24,28,38,0.80)', 'rgba(22,26,36,0.34)', 'rgba(20,24,34,0)'],
+    stain: ['#3d0808', '#8d1010'],
+    dust: '#9aa7bd',
+    lamp: ['rgba(255,238,190,0.15)', 'rgba(255,238,190,0)'],
+    panel: 'rgba(10,14,22,0.72)',
+  },
+
+  // 第二关：疯狂水世界（水世界乐园：蓝白格子墙 + 水草 + 气泡 + 木栈道）
+  // 关键词：亮、蓝、湿。雾是水汽（不是夜雾），桥面是湿木板，护栏是白色塑料，
+  // 头顶黄圈是救生圈配色 —— 一眼就和第一关不是一个地方。
+  water: {
+    sky: ['#0a3f6b', '#12699b', '#2b9bd0', '#9be8ff'],
+    pollute: ['rgba(160,240,255,0.22)', 'rgba(70,180,255,0.12)'],
+    starRGB: '235,250,255',
+    skyDeco: 'bubbles',
+    moon: '#eafbff',
+    moonSpot: 'rgba(140,200,225,0.30)',
+    skyline: 'reef',
+    horizon: ['rgba(120,230,255,0)', 'rgba(120,220,255,0.22)', 'rgba(90,200,255,0)'],
+    sea: ['#1e86b4', '#12618c', '#0a3f5e'],
+    foam: ['rgba(255,255,255,0)', 'rgba(228,252,255,', 'rgba(255,255,255,0)'],
+    deck: ['#7a5b3e', '#96714b', '#b08a5c', '#c9a273'],
+    seam: 'rgba(60,34,14,0.30)',
+    dash: 'rgba(255,255,255,0.26)',
+    edge: ['rgba(255,255,255,0.10)', 'rgba(220,250,255,0.34)', 'rgba(255,255,255,0.5)'],
+    railBar: 'rgba(238,252,255,0.9)',
+    railPost: 'rgba(205,236,248,0.95)',
+    railTop: 'rgba(255,206,92,0.6)',
+    haze: ['rgba(178,232,248,0.60)', 'rgba(160,218,240,0.28)', 'rgba(150,210,236,0)'],
+    fog: ['rgba(196,240,252,0.95)', 'rgba(184,232,248,0.78)', 'rgba(172,222,242,0.32)', 'rgba(160,214,238,0)'],
+    stain: ['#3a1010', '#7c1a1a'],
+    dust: '#ffffff',
+    lamp: ['rgba(255,246,214,0.18)', 'rgba(255,246,214,0)'],
+    panel: 'rgba(6,32,46,0.72)',
+    bubble: 'rgba(240,253,255,',
+    reef: {
+      wallA: '#2f7fd0',
+      wallB: '#ffffff',
+      weed: '#3fbf8f',
+      weedDark: '#1d7a58',
+      fish: ['#ffd166', '#ff8fab', '#7df9ff'],
+    },
+  },
+};
+
+// 当前关卡 + 主题：初始化成第一关，切关卡只调 setLevel()
+CFG.level = CFG.levels[0];
+CFG.theme = CFG.themes[CFG.level.theme] || CFG.themes.city;
+
+/**
+ * 切换关卡（0 = 第一关 / 1 = 疯狂水世界）。
+ * CFG.level 与 CFG.theme 一起换，渲染器和玩法逻辑都跟着变。
+ */
+export function setLevel(idx) {
+  const i = Math.max(0, Math.min(CFG.levels.length - 1, idx | 0));
+  CFG.levelIndex = i;
+  CFG.level = CFG.levels[i];
+  CFG.theme = CFG.themes[CFG.level.theme] || CFG.themes.city;
+  return CFG.level;
+}
+
+/**
+ * 按"关卡 id"找关卡（id 从 1 开始，和数组下标不是一回事，
+ * 结算面板要按下一关的 id 拿名字，别再拿 id 当下标用）。
+ */
+export function findLevel(id) {
+  return CFG.levels.find((l) => l.id === id) || null;
+}

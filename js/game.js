@@ -12,15 +12,16 @@
 //   3. 僵尸体型整体放大一档
 // ============================================================
 
-import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave } from './config.js';
+import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave, setLevel, findLevel } from './config.js';
 import { clamp, rand, sample } from './util.js';
 
 export const STATE = {
   START: 'start',
   PREP: 'prep', // 备战：奖励门滑过来的这段时间
+  TALK: 'talk', // 第二关的进场对话（看完才开打）
   FIGHT: 'fight',
   OVER: 'over', // 桥头失守
-  CLEAR: 'clear', // 第一关通关（结算金币）
+  CLEAR: 'clear', // 通关（结算金币）
 };
 
 export class Game {
@@ -85,6 +86,9 @@ export class Game {
     this.stains = []; // 桥面上的血泊（这一波留下的痕迹）
     this.spits = []; // 吐酸者的酸液
     this.strikes = []; // 空袭中还在天上飞的导弹
+    this.mines = []; // 第二关的水雷（吃到"布水雷"奖励后每波撒几颗）
+    this.mineStacks = 0;
+    this.mineSeq = 0;
     this.plane = null; // 空袭时横穿夜空的轰炸机
     this.shout = null; // 角色当前喊的那句话（连杀里程碑等）
     this.mod = null; // 本波词条
@@ -130,13 +134,36 @@ export class Game {
     };
   }
 
-  /** 开始新一局（点击"开始挑战"/"再来一局"时调用） */
-  newRun() {
+  /**
+   * 开始新一局（点击"开始挑战"/"再来一局"时调用）。
+   * levelIdx 省略 = 用当前关卡；主界面"开始挑战"永远传 0（第一关）。
+   */
+  newRun(levelIdx) {
+    setLevel(levelIdx == null ? CFG.levelIndex : levelIdx);
     this.reset();
     this.state = STATE.PREP;
     this.prepT = CFG.wave.prepTime;
     this.pulseT = CFG.weapon.pulseInterval;
     // 第一波之前也给一对奖励门：让玩家在没有任何压力时先学会"走位选奖励"
+    this.openGates();
+  }
+
+  /**
+   * 进第二关：先播进场对话（STATE.TALK），玩家点"疯狂水世界启动！"才 releaseTalk() 开打。
+   */
+  beginLevel(idx) {
+    setLevel(idx);
+    this.reset();
+    this.state = STATE.TALK;
+  }
+
+  /** 进场对话看完 → 照常备战 */
+  releaseTalk() {
+    if (this.state !== STATE.TALK) return;
+    this.reset();
+    this.state = STATE.PREP;
+    this.prepT = CFG.wave.prepTime;
+    this.pulseT = CFG.weapon.pulseInterval;
     this.openGates();
   }
 
@@ -223,6 +250,7 @@ export class Game {
     }
     if (fighting) {
       this.updateEnemies(dt);
+      this.updateMines(dt);
     }
 
     // 连杀断链
@@ -324,6 +352,9 @@ export class Game {
       this.player.shield = Math.min(6, this.player.shield + this.player.shieldPerWave);
     }
 
+    // 第二关专属玩法：吃到"布水雷"奖励后，每波开局在桥面上撒几颗
+    if (CFG.level.skin === 'ocean' && this.mineStacks > 0) this.placeMines();
+
     this.state = STATE.FIGHT;
     this.waveBanner = bossWave ? 2.8 : hordeWave ? 2.5 : M ? 2.4 : 2.2;
     this.pulseT = CFG.weapon.pulseInterval;
@@ -359,7 +390,7 @@ export class Game {
     // 结果是一群脆皮围着你咬），而这一波要的是"一枪一个"的割草爽感，
     // 所以直接反算倍率，让它们正好 H.hpTarget 点血（词条倍率仍会作用于它）。
     const baseHp = W.baseHp + (w - 1) * W.hpPerWave;
-    const hpScale = H.hpTarget / baseHp;
+    const hpScale = H.hpTarget / (baseHp * ((this.mod && this.mod.hpMul) || 1));
     for (let i = 0; i < n; i++) {
       const lane = i % lanes;
       const rank = Math.floor(i / lanes);
@@ -387,6 +418,79 @@ export class Game {
         color: '#9aa7bd',
         add: false,
       });
+    }
+  }
+
+  // ---------------------------------------------------------
+  //  第二关专属玩法：水雷 / 河豚
+  // ---------------------------------------------------------
+
+  /**
+   * 布水雷：吃到"布水雷"奖励后每波开局撒一批（mineStacks 可叠加）。
+   * 横向别贴边（贴边玩家绕一下就没用），纵向撒在桥面中段，
+   * 让"提前投资"真的有回报：怪物一头撞上来。
+   */
+  placeMines() {
+    const M = CFG.mine;
+    const roadHalf = this.cam.roadHalf;
+    const n = Math.min(18, M.count * this.mineStacks);
+    // 纵向必须撒在英雄"前面的走廊"里：z 比英雄还小的话，
+    // 水雷会跑到镜头和英雄之间，一颗浮球能被放大到糊满整个屏幕（踩过）。
+    const z0 = Math.max(M.zFrom, this.player.z + 2.4);
+    const z1 = Math.max(z0 + 1, M.zTo);
+    for (let i = 0; i < n; i++) {
+      this.mines.push({
+        id: (this.mineSeq += 1),
+        x: rand(-0.72, 0.72) * roadHalf,
+        z: rand(z0, z1),
+        t: 0,
+        life: M.live,
+        dead: false,
+        phase: rand(0, Math.PI * 2),
+      });
+    }
+    this.addPopup(this.player.x, this.player.z + 2.4, '水雷已布好', '#7df9ff', 1.2);
+  }
+
+  /** 水雷：谁先踩上来就炸谁（一颗只炸一次），到点没炸就失效 */
+  updateMines(dt) {
+    if (!this.mines.length) return;
+    for (const m of this.mines) {
+      if (m.dead) continue;
+      m.t += dt;
+      if (m.t >= m.life) {
+        m.dead = true;
+        this.spawnParticles(m.x, m.z, 6, 'spark', '#7df9ff');
+        continue;
+      }
+      for (const e of this.enemies) {
+        if (e.dead) continue;
+        // 判定做得宽松一点：这是提前投资，不该因为怪恰好擦边而过就白布一颗
+        if (Math.abs(e.z - m.z) > 0.5 + e.size * 0.5) continue;
+        if (Math.abs(e.x - m.x) > 0.45 + e.size * 0.4) continue;
+        m.dead = true;
+        this.explodeMine(m);
+        break;
+      }
+    }
+    this.mines = this.mines.filter((m) => !m.dead);
+  }
+
+  /** 水雷爆炸：一圈水花 + 范围伤害（伤害数值见 CFG.mine） */
+  explodeMine(m) {
+    const M = CFG.mine;
+    this.rings.push({ x: m.x, z: m.z, t: 0, life: 0.45, maxR: M.blastR * 1.5, color: '#7df9ff' });
+    this.spawnParticles(m.x, m.z, 18, 'spark', '#7df9ff');
+    this.flash = Math.max(this.flash, 0.22);
+    this.shake = Math.max(this.shake, 9);
+    this.sfx.bomb();
+    this.addPopup(m.x, m.z, '水雷命中！', '#7df9ff', 1.15);
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      if (Math.abs(e.z - m.z) > M.blastR * 1.6 || Math.abs(e.x - m.x) > M.blastR) continue;
+      e.hp -= M.damage;
+      e.hurtT = 0.12;
+      if (e.hp <= 0) this.killEnemy(e);
     }
   }
 
@@ -516,6 +620,11 @@ export class Game {
     const stopGap = K.stopGap != null ? K.stopGap : K.spit ? CFG.spitter.gap : W.stopGap;
     const stopJit = K.spit || K.stopGap != null ? 0 : rand(0, W.stopJitter);
 
+    // 第二关（海洋皮肤）：同一种怪换成"僵尸 + 海洋动物"的融合体 ——
+    // 主色/暗色来自该怪海洋配色，animal 决定 render 里追加哪些动物部件
+    // （鱼鳍、章鱼触手、蟹钳、鲨鱼背鳍与尖牙、河豚刺、龟壳、水母伞盖）。
+    const skin = CFG.level.skin === 'ocean' && K.ocean ? K.ocean : null;
+
     this.enemies.push({
       id: this.nextId++,
       kind,
@@ -526,8 +635,9 @@ export class Game {
       maxHp: hp,
       speed,
       size: K.size,
-      color: K.color,
-      dark: K.dark,
+      color: skin ? skin.color : K.color,
+      dark: skin ? skin.dark : K.dark,
+      animal: skin ? skin.animal : null,
       halfW: K.size * 0.32,
       // 能"咬到"你的宽度。默认跟体型走，但 BOSS 体型太大（1.2 → 0.38）
       // 会盖满整条桥，所以它单独给一个窄值：身体很大很好打，想咬你只有中间一小段
@@ -584,17 +694,19 @@ export class Game {
   }
 
   /**
-   * 第一关通关：按得分结算金币（比例见 CFG.level.coinRatio）。
-   * 金币是"跨局"的，存在本地，留给以后主界面的商店花。
+   * 通关：按得分结算金币（比例见 CFG.level.coinRatio）。
+   * 金币是"跨局"的，存在本地，留给主界面的商店花。
+   * 第二关通关后 clearedLevel 变成 2，主界面的第三关才会"即将开放"。
    */
   levelClear() {
+    const L = CFG.level;
     this.state = STATE.CLEAR;
     this.gates = null;
     this.shake = 20;
     this.flash = 0.9;
-    const coins = Math.max(1, Math.round(this.score * CFG.level.coinRatio));
+    const coins = Math.max(1, Math.round(this.score * L.coinRatio));
     this.coins += coins;
-    this.clearedLevel = Math.max(this.clearedLevel, 1);
+    this.clearedLevel = Math.max(this.clearedLevel, L.id);
     this._saveCoins();
     this._saveProgress();
     if (this.score > this.best) {
@@ -611,9 +723,12 @@ export class Game {
       kills: this.kills,
       combo: this.comboBest,
       wave: this.wave,
+      level: L.id,
+      levelName: L.name,
+      nextLevel: findLevel(L.id + 1) ? L.id + 1 : 0, // 下一关 id（没有就是 0）
     };
     this.sfx.victory();
-    this.addPopup(0, this.player.z + 3, `第一关通关！+${coins} 金币`, '#ffd166', 2.0);
+    this.addPopup(0, this.player.z + 3, `${L.name}通关！+${coins} 金币`, '#ffd166', 2.0);
   }
 
   // ---------------------------------------------------------
@@ -622,7 +737,10 @@ export class Game {
 
   /** 从可用加成里抽两块，摆在桥的左右半边 */
   openGates() {
-    const avail = UPGRADES.filter((u) => (this.stacks[u.id] || 0) < u.max);
+    // 第二关专属加成（l2: true）只在"疯狂水世界"里出现；
+    // 第一关的奖励池保持原样，免得一关里突然冒出没见过的水雷/鱼雷。
+    const pool = CFG.level.skin === 'ocean' ? UPGRADES : UPGRADES.filter((u) => !u.l2);
+    const avail = pool.filter((u) => (this.stacks[u.id] || 0) < u.max);
     if (avail.length === 0) {
       this.gates = null;
       return;
@@ -691,6 +809,7 @@ export class Game {
     }
     if (a.chargeMul) this.energyMul *= a.chargeMul;
     if (a.strikeMul) this.strikeMul *= a.strikeMul;
+    if (a.mine) this.mineStacks += a.mine; // 第二关：每波布水雷
 
     if (OFFENSIVE_KEYS.includes(u.id)) this.offensivePoints += 1;
     this.updateTier();
@@ -788,7 +907,7 @@ export class Game {
     this.sfx.shoot(w.tierIdx);
   }
 
-  bite(e) {
+  bite(e, dmg = 1) {
     const pl = this.player;
     if (pl.iframe > 0) return;
     pl.iframe = CFG.hero.iframe;
@@ -802,7 +921,7 @@ export class Game {
       return;
     }
 
-    pl.hp -= 1;
+    pl.hp -= dmg;
     pl.hurt = 1;
     this.combo = 0; // 被咬断连杀：贪和稳之间的张力靠这一条
     this.comboT = 0;
@@ -1051,6 +1170,31 @@ export class Game {
       }
       this.rings.push({ x: e.x, z: e.z + 1.9, t: 0, life: 0.5, maxR: 0.62, color: '#c89bff' });
       this.spawnParticles(e.x, e.z, 14, 'spark', '#c89bff');
+    }
+
+    // 第二关（海洋皮肤）：吐酸者换成河豚 —— 打爆它会"鼓刺炸开"，
+    // 贴脸打死就会连自己一起炸。这是"别站太前"的一条新压力，也是海洋玩法的爽点。
+    if (alive && CFG.level.skin === 'ocean' && e.kind === 'spitter') {
+      const P = CFG.puffer;
+      this.rings.push({ x: e.x, z: e.z, t: 0, life: 0.42, maxR: P.blastR * 1.6, color: '#ffd166' });
+      this.spawnParticles(e.x, e.z, 16, 'spark', '#ffd166');
+      this.flash = Math.max(this.flash, 0.3);
+      this.shake = Math.max(this.shake, 12);
+      this.sfx.bomb();
+      this.addPopup(e.x, e.z, '河豚炸开！', '#ffd166', 1.2);
+      const pl = this.player;
+      if (Math.abs(pl.z - e.z) <= P.blastR + 0.45 && Math.abs(pl.x - e.x) <= P.blastR) {
+        this.bite(e, P.blastDmg);
+      }
+      // 顺手把周围的小怪也掀一下（爆炸就该是范围伤害）。
+      // 河豚本身不参与连锁（否则一群河豚会互相引爆，瞬间雪崩）。
+      for (const o of this.enemies) {
+        if (o.dead || o === e || o.kind === 'spitter') continue;
+        if (Math.abs(o.z - e.z) > P.blastR * 1.2 || Math.abs(o.x - e.x) > P.blastR * 0.8) continue;
+        o.hp -= 1;
+        o.hurtT = 0.12;
+        if (o.hp <= 0) this.killEnemy(o);
+      }
     }
 
     if (this.player.dropChance > 0 && Math.random() < this.player.dropChance) {

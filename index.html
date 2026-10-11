@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<!-- build: 2026-10-11 12:41:37 -->
+<!-- build: 2026-10-11 13:26:38 -->
 <meta charset="UTF-8" />
 <title>守桥 · 丧尸围城</title>
 
@@ -60,7 +60,7 @@
         <button class="menu-btn" id="menuRole"><b>角 色</b><i>切换出战英雄</i></button>
         <button class="menu-btn" id="menuWeapon"><b>武 器</b><i>切换主武器</i></button>
         <button class="menu-btn" id="menuShop"><b>商 店</b><i>金币买装备</i></button>
-        <button class="menu-btn" id="menuLevel"><b>关 卡</b><i>第一关 · 15 波</i></button>
+        <button class="menu-btn" id="menuLevel"><b>关 卡</b><i id="menuLevelNote">第一关 · 15 波</i></button>
       </div>
       <p class="menu-hint" id="menuHint"></p>
       <button class="btn primary" id="startBtn">开 始 挑 战</button>
@@ -84,7 +84,17 @@
           <li>每 5 波来一波<b>尸潮</b>（第 5 / 10 波）：一大片一枪一个的<b>人海</b>给你割草；
             <b>BOSS 只在最后一波（第 15 波）出</b>，体型巨大、走得很慢、够不到你，但会不停放小崽子 —— 血条在屏幕顶部。
             它血量掉到 <b>3/4</b> 时会放一发<b>必杀导弹</b>：地上先出现红圈（1.5 秒），<b>被打中直接死</b>，挪出圈就躲掉了</li>
-          <li>打完<b>第 15 波</b>就通关第一关：按得分结算<b>金币</b>（上方主界面能看到金币数，商店以后用得上）</li>
+          <li>打完<b>第 15 波</b>就通关第一关：按得分结算<b>金币</b>（通关面板上的「疯狂水世界 · 启动 →」直接进第二关）</li>
+        </ul>
+        <h3>第二关 · 疯狂水世界</h3>
+        <ul class="howto">
+          <li>通关第一关后解锁。开场先来一小段对话：点「疯狂水世界 · 启动！」开打，不想打就点「返回主界面」</li>
+          <li>整体换成海底：礁石格子墙、水草和游鱼、木栈道；僵尸全变成<b>海洋动物</b> —— 鱼 / 鱿鱼 / 螃蟹 / 鲨鱼 / 河豚 / 海龟 / 水母</li>
+          <li>英雄换成照片里那位大叔（秃头、淡紫背心、鱼叉枪），连奖励门和血条都带上海洋元素</li>
+          <li><b>新玩法 · 水雷</b>：吃到「布水雷」奖励后，每波开始前在桥面撒红色小浮球，僵尸踩上去就炸</li>
+          <li><b>新玩法 · 河豚</b>：第二关的吐酸者（河豚）死时会炸开一圈，<b>贴脸打死自己也要掉 2 血</b>，离远点或用水雷更划算</li>
+          <li>第二关专属奖励：<b>深海弹</b>（伤害 +2）、<b>洋流</b>（射速）、<b>珊瑚护甲</b>（血上限）、<b>气泡护盾</b>、<b>布水雷</b>、<b>鱼雷</b>（空袭伤害 ×1.6）</li>
+          <li>金币按第二关得分的 <b>10%</b> 结算（第一关是 8%）</li>
         </ul>
         <h3>装到桌面（推荐）</h3>
         <ul class="howto">
@@ -113,6 +123,25 @@
     </div>
   </div>
 
+  <!-- ============ 第二关进场对话（第一关通关面板点「疯狂水世界 →」后进来） ============ -->
+  <div class="overlay talk" id="talkOverlay">
+    <div class="panel talk-panel">
+      <div class="talk-head">
+        <img class="talk-portrait" id="talkPortrait" src="./img/hero-uncle.jpg" alt="英雄" />
+        <div class="talk-who">
+          <div class="talk-name" id="talkName">英 雄</div>
+          <div class="talk-stamp" id="talkStamp">01 / 03</div>
+        </div>
+      </div>
+      <p class="talk-text" id="talkText"></p>
+      <div class="talk-more" id="talkMore">▼ 点一下继续</div>
+      <div class="talk-actions" id="talkActions">
+        <button class="btn primary" id="talkStart">疯 狂 水 世 界 · 启 动 ！</button>
+        <button class="btn ghost" id="talkMenu">返 回 主 界 面</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ 结束界面 ============ -->
   <div class="overlay" id="overOverlay">
     <div class="panel">
@@ -129,10 +158,10 @@
     </div>
   </div>
 
-  <!-- ============ 第一关通关结算（15 波打完，按得分发金币） ============ -->
+  <!-- ============ 通关结算（15 波打完，按得分发金币；第二关就从这里进） ============ -->
   <div class="overlay" id="clearOverlay">
     <div class="panel">
-      <h2 class="over-title win">第 一 关 · 通 关</h2>
+      <h2 class="over-title win" id="clearTitle">第 一 关 · 通 关</h2>
       <div class="coin-big"><span>+</span><b id="clearCoins">0</b><span>金币</span></div>
       <div class="stats">
         <div class="stat"><i>本关得分</i><b id="clearScore">0</b></div>
@@ -140,6 +169,7 @@
         <div class="stat"><i>最高连杀</i><b id="clearCombo">0</b></div>
         <div class="stat"><i>金币总数</i><b id="clearTotal">0</b></div>
       </div>
+      <button class="btn primary hidden" id="clearNext">疯 狂 水 世 界 →</button>
       <button class="btn primary" id="clearAgain">再 玩 一 次</button>
       <button class="btn ghost" id="clearMenu">返 回 主 界 面</button>
     </div>

@@ -8,7 +8,7 @@
 //  断网时又还能打开，离线能力一点没少。
 // ============================================================
 
-const CACHE = 'hold-the-bridge-v2';
+const CACHE = 'hold-the-bridge-v3';
 
 const ASSETS = [
   './',
@@ -16,6 +16,7 @@ const ASSETS = [
   './styles.css',
   './manifest.webmanifest',
   './guide.html',
+  './img/hero-uncle.jpg',
   './js/main.js',
   './js/config.js',
   './js/util.js',

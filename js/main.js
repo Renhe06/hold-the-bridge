@@ -7,7 +7,7 @@ import { Camera } from './camera.js';
 import { Sound } from './audio.js';
 import { Game, STATE } from './game.js';
 import { Renderer, TAG_COLOR } from './render.js';
-import { CFG, isHordeWave, isBossWave } from './config.js';
+import { CFG, isHordeWave, isBossWave, findLevel } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,6 +30,7 @@ const el = {
   menuWeapon: $('menuWeapon'),
   menuShop: $('menuShop'),
   menuLevel: $('menuLevel'),
+  menuLevelNote: $('menuLevelNote'),
   guideOverlay: $('guideOverlay'),
   guideBtn: $('guideBtn'),
   guideClose: $('guideClose'),
@@ -50,6 +51,17 @@ const el = {
   clearTotal: $('clearTotal'),
   clearAgain: $('clearAgain'),
   clearMenu: $('clearMenu'),
+  clearNext: $('clearNext'),
+  clearTitle: $('clearTitle'),
+  talkOverlay: $('talkOverlay'),
+  talkPortrait: $('talkPortrait'),
+  talkName: $('talkName'),
+  talkText: $('talkText'),
+  talkStamp: $('talkStamp'),
+  talkMore: $('talkMore'),
+  talkActions: $('talkActions'),
+  talkStart: $('talkStart'),
+  talkMenu: $('talkMenu'),
 };
 
 // ---------------------------------------------------------
@@ -191,9 +203,49 @@ function startGame() {
   sfx.unlock();
   sfx.uiClick();
   hideGuide();
-  game.newRun();
+  game.newRun(0); // 主界面的「开始挑战」永远从第一关开始
 }
 onTap(el.startBtn, startGame);
+
+// ---- 第二关进场对话 ----
+// 用户 m01451：进第二关要有一段简短对话（英雄报告城市守住了 → 说明海洋还有僵尸威胁），
+// 然后弹「疯狂水世界启动！」或「返回主界面」。台词就三句，点一下翻一句，翻完才出按钮。
+const TALK_LINES = [
+  { who: '英 雄', text: '司令 —— 城市守住了！桥还在我们手里，清理工作已经收尾。' },
+  { who: '司 令', text: '干得好。可海面上不太平：声呐里全是心跳，它们从海里爬上来了。' },
+  { who: '英 雄', text: '……那就下水。把我的鱼叉枪修好，我这就去码头。' },
+];
+let talkIdx = 0;
+
+function renderTalk() {
+  const line = TALK_LINES[Math.min(talkIdx, TALK_LINES.length - 1)];
+  setText(el.talkName, 'tkN', line.who);
+  setText(el.talkText, 'tkT', line.text);
+  setText(el.talkStamp, 'tkS', `${String(Math.min(talkIdx + 1, TALK_LINES.length)).padStart(2, '0')} / 0${TALK_LINES.length}`);
+  const done = talkIdx >= TALK_LINES.length;
+  el.talkMore.classList.toggle('hidden', done);
+  el.talkActions.classList.toggle('show', done);
+}
+
+function talkNext() {
+  if (talkIdx >= TALK_LINES.length) return; // 翻完了，后面的按钮自己接事件
+  sfx.unlock();
+  sfx.uiClick();
+  talkIdx += 1;
+  renderTalk();
+}
+onTap(el.talkOverlay, talkNext);
+
+onTap(el.talkStart, (e) => {
+  e.stopPropagation();
+  sfx.uiClick();
+  game.releaseTalk();
+});
+onTap(el.talkMenu, (e) => {
+  e.stopPropagation();
+  sfx.uiClick();
+  game.backToMenu();
+});
 
 // ---- 使用说明弹窗 ----
 // 第一次进来自动弹一次（本地记一笔），之后只能从首页的「使用说明」按钮打开
@@ -231,12 +283,19 @@ onTap(el.againBtn, () => {
 onTap(el.clearAgain, () => {
   if (performance.now() - clearAt < 600) return;
   sfx.uiClick();
-  game.newRun();
+  game.newRun(0);
 });
 onTap(el.clearMenu, () => {
   if (performance.now() - clearAt < 600) return;
   sfx.uiClick();
   game.backToMenu();
+});
+// 「疯狂水世界 →」：进第二关（先进对话，对话看完才开打）
+onTap(el.clearNext, () => {
+  if (performance.now() - clearAt < 600) return;
+  const next = (game.lastReward && game.lastReward.nextLevel) || 1;
+  sfx.uiClick();
+  game.beginLevel(next);
 });
 
 // ---- 主界面四个入口 ----
@@ -326,14 +385,20 @@ function showHint(text, color = '#ffd166') {
   gainT = 1.6;
 }
 
-/** 第一关通关结算面板 */
+/** 通关结算面板（第一关 / 第二关共用，按钮按"有没有下一关"变） */
 function showClear() {
   const r = game.lastReward || { score: game.score, coins: 0, total: game.coins, kills: game.kills, combo: game.comboBest };
+  setText(el.clearTitle, 'cTi', `${r.levelName || '本 关'} · 通 关`);
   setText(el.clearCoins, 'cC', String(r.coins));
   setText(el.clearScore, 'cS', String(r.score));
   setText(el.clearKills, 'cK', String(r.kills));
   setText(el.clearCombo, 'cX', String(r.combo || 0));
   setText(el.clearTotal, 'cT', String(r.total));
+  // 有下一关就顶一个主按钮出来，把「再玩一次」降级成次要按钮
+  const nl = findLevel(r.nextLevel);
+  el.clearNext.classList.toggle('hidden', !nl);
+  el.clearNext.textContent = nl ? `${nl.name} →` : '';
+  el.clearAgain.className = nl ? 'btn ghost' : 'btn primary';
   clearAt = performance.now();
 }
 
@@ -345,14 +410,21 @@ function syncState() {
   if (st !== lastState) {
     if (st === STATE.OVER) showGameOver();
     if (st === STATE.CLEAR) showClear();
+    if (st === STATE.TALK) {
+      talkIdx = 0;
+      renderTalk();
+    }
     if (st === STATE.START) {
       setText(el.startBest, 'sB', String(game.best));
       setText(el.startCoins, 'sC', String(game.coins));
+      // 关卡入口显示进度（通关第一关后主界面能看出来第二关解锁了）
+      setText(el.menuLevelNote, 'mL', game.clearedLevel >= 1 ? '第二关 · 已解锁' : '第一关 · 15 波');
     }
 
     el.startOverlay.classList.toggle('show', st === STATE.START);
     el.overOverlay.classList.toggle('show', st === STATE.OVER);
     el.clearOverlay.classList.toggle('show', st === STATE.CLEAR);
+    el.talkOverlay.classList.toggle('show', st === STATE.TALK);
     lastState = st;
   }
 }

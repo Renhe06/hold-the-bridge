@@ -262,10 +262,13 @@ let sawShielded = false;
 let sawSplitter = false;
 let corpsesSeen = 0;
 const modsSeen = new Set();
-{
-  const origBite = game.bite.bind(game);
-  game.bite = (e) => { bites++; origBite(e); };
-}
+// 机器人统计"被咬了几口"用的计数器：**必须把 dmg 原样传下去**。
+// 这里踩过一次坑：写成 (e) => { bites++; origBite(e) } 之后，
+// 后面所有走 bite(e, dmg) 的调用（河豚爆裂的 2 点伤害）都会被悄悄改成 1 点，
+// 而且包装一直留在实例上，让"伤害是否正确"的断言失真。
+const botOrigBite = game.bite.bind(game);
+game.bite = (e, dmg) => { bites++; return botOrigBite(e, dmg); };
+
 try {
   let held = false;
   let frames = 0;
@@ -372,6 +375,7 @@ try {
   failures++;
   notes.push(`  ✗ 战斗循环抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : err}`);
 }
+game.bite = botOrigBite; // 统计用的包装到此为止，后面的段落要测真实伤害
 
 // ---------------------------------------------------------
 // -- 3b. v3 新系统逐个点名（连杀 / 空袭 / 三种新怪 / 五种词条）--
@@ -781,6 +785,138 @@ try {
 } catch (err) {
   failures++;
   notes.push(`  ✗ 本轮新玩法抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : err}`);
+}
+
+// ---------------------------------------------------------
+// -- 3d. 第二关「疯狂水世界」：进场对话 / 海洋皮肤 / 水雷 / 河豚 --
+// ---------------------------------------------------------
+try {
+  const { CFG: C2, setLevel: setLv } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
+  const mk2 = (kind, dz = 4) => {
+    game.spawnEnemy(kind, 0, game.player.z + dz, 1);
+    return game.enemies[game.enemies.length - 1];
+  };
+  const wipe = () => {
+    game.enemies.length = 0;
+    game.spawnQueue.length = 0;
+    game.bullets.length = 0;
+    game.mines.length = 0;
+    game.player.hp = 50;
+    game.player.iframe = 0;
+    game.player.shield = 0;
+  };
+
+  // (a) 进场对话：英雄报"城市守住了" → 司令说海里还有东西 → 英雄要下水
+  game.beginLevel(1);
+  step();
+  ok(game.state === STATE.TALK, '第二关进来先停在对话（state=talk），不直接开打');
+  ok(ELS.get('talkOverlay').classList.contains('show'), '进场对话弹窗已弹出');
+  ok(!ELS.get('talkActions').classList.contains('show'), '对话没翻完时不显示两个选择按钮');
+  const line1 = String(ELS.get('talkText').textContent);
+  ok(line1.length > 0, `第一句已经填上：${line1}`);
+  // onTap 有 300ms 误触去重：两次点击之间得把时钟推过去，否则第二下会被吞掉
+  const tapTalk = () => {
+    tap('talkOverlay');
+    for (let i = 0; i < 25; i++) step();
+  };
+  tapTalk();
+  ok(String(ELS.get('talkText').textContent) !== line1, '点一下就翻到下一句');
+  let guard = 0;
+  while (!ELS.get('talkActions').classList.contains('show') && guard++ < 6) tapTalk();
+  ok(ELS.get('talkActions').classList.contains('show'), `翻完全部台词才出按钮（共点了 ${guard + 2} 下）`);
+  ok(String(ELS.get('talkStamp').textContent).includes('03 / 03'), `对话进度 03 / 03（实际 ${ELS.get('talkStamp').textContent}）`);
+  ok(!!ELS.get('talkStart') && !!ELS.get('talkMenu'), '两个按钮都在 DOM 里：启动 / 返回主界面');
+  tap('talkStart');
+  step();
+  ok(game.state === STATE.PREP, '点「疯狂水世界 · 启动！」直接进备战');
+  ok(!ELS.get('talkOverlay').classList.contains('show'), '进场后对话弹窗收起');
+  ok(C2.level.skin === 'ocean' && C2.level.id === 2, `当前关卡切到了第 2 关（${C2.level.name}）`);
+  ok(C2.theme.skyDeco === 'bubbles', '当前主题换成海洋版（天上冒气泡）');
+
+  // (b) 海洋皮肤：七种怪全都挂上动物部件 + ocean 配色
+  game.state = STATE.FIGHT;
+  wipe();
+  const oceanKinds = [];
+  for (const kind of ['walker', 'runner', 'brute', 'spitter', 'shielded', 'splitter', 'boss']) {
+    const e = mk2(kind, 4 + oceanKinds.length * 1.2);
+    const skin = C2.kinds[kind].ocean;
+    if (e.animal === skin.animal && e.color === skin.color && e.dark === skin.dark) oceanKinds.push(kind);
+  }
+  ok(oceanKinds.length === 7, `七种怪都换了海洋动物（walker=鱼/runner=鱿/brute=蟹/boss=鲨/spitter=河豚/shielded=龟/splitter=水母）`);
+
+  // (c) 奖励池：l2 专属（水雷/鱼雷）只在第二关出现
+  const drawGates = (n) => {
+    const seen = new Set();
+    for (let i = 0; i < n; i++) {
+      game.stacks = {};
+      game.openGates();
+      seen.add(game.gates.left.id);
+      seen.add(game.gates.right.id);
+    }
+    return seen;
+  };
+  const l2seen = drawGates(60);
+  ok(l2seen.has('mine') && l2seen.has('torpedo'), `第二关抽得到 l2 专属奖励（${[...l2seen].filter((x) => ['mine', 'torpedo', 'deepSea', 'current', 'coralArmor', 'bubbleShield'].includes(x)).join('/')}）`);
+  setLv(0);
+  const l1seen = drawGates(60);
+  ok(!l1seen.has('mine') && !l1seen.has('torpedo') && !l1seen.has('deepSea'),
+    '第一关抽不到 l2 专属奖励（池子里没有没见过的水雷/鱼雷）');
+
+  // (d) 水雷：一层升级每波 3 颗，布在英雄前面，怪踩上去就炸
+  setLv(1);
+  game.reset();
+  game.state = STATE.FIGHT;
+  game.player.z = 10;
+  game.player.x = 0;
+  game.mineStacks = 2;
+  game.placeMines();
+  ok(game.mines.length === C2.mine.count * 2, `吃到两层「布水雷」后一波撒 ${game.mines.length} 颗`);
+  ok(game.mines.every((m) => m.z > game.player.z + 2), '水雷全在英雄前面（不会跑到镜头和英雄之间挡住画面）');
+  const victim = mk2('walker', 4);
+  victim.hp = 20;
+  victim.maxHp = 20;
+  victim.x = game.mines[0].x;
+  victim.z = game.mines[0].z;
+  const one = game.mines[0];
+  game.mines = [one]; // 只留一颗，免得同时踩响两颗（判定半径有 0.6 那么宽松）
+  game.updateMines(0.016);
+  ok(victim.hp === 20 - C2.mine.damage, `怪踩上去扣 ${C2.mine.damage} 血（20 → ${victim.hp}）`);
+  ok(game.mines.length === 0, '炸过的那颗从场上消失');
+
+  // (e) 河豚：第二关的吐酸者死了会炸，第一关不会
+  game.reset();
+  game.state = STATE.FIGHT;
+  wipe();
+  game.player.hp = 4;
+  const puffer = mk2('spitter', 0.2);
+  puffer.x = 0;
+  game.killEnemy(puffer);
+  ok(game.player.hp === 4 - C2.puffer.blastDmg,
+    `河豚贴脸炸开，玩家扣 ${C2.puffer.blastDmg} 血（4 → ${game.player.hp}）`);
+  setLv(0);
+  game.reset();
+  game.state = STATE.FIGHT;
+  wipe();
+  game.player.hp = 4;
+  const sp2 = mk2('spitter', 0.2);
+  sp2.x = 0;
+  game.killEnemy(sp2);
+  ok(game.player.hp === 4, '第一关的吐酸者死了不会炸伤玩家（河豚机制只在第二关）');
+
+  // (f) 切回第一关，皮肤和玩法都复原
+  wipe();
+  const back = mk2('walker', 4);
+  ok(back.animal === null && back.color === C2.kinds.walker.color, '切回第一关，小兵的颜色和部件复原');
+  ok(game.mineStacks === 0 || C2.level.skin !== 'ocean', '第一关不再布水雷');
+
+  // 收尾：回到第一关的开局状态，别影响第 4~8 段
+  game.newRun(0);
+  game.enemies.length = 0;
+  game.spawnQueue.length = 0;
+  game.mines.length = 0;
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ 第二关（疯狂水世界）抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : err}`);
 }
 
 // -- 4. 全部升级逐个生效 --

@@ -65,6 +65,7 @@ export class Renderer {
     this.canvas.style.height = cssH + 'px';
     this._bakeSky();
     this._bakeCity();
+    this._bakedTheme = CFG.level.theme;
     return this;
   }
 
@@ -105,36 +106,52 @@ export class Renderer {
     c.height = Math.max(1, h);
     const g = c.getContext('2d');
 
+    const T = CFG.theme;
     const sky = g.createLinearGradient(0, 0, 0, h);
-    sky.addColorStop(0, '#04060c');
-    sky.addColorStop(0.5, '#0a1019');
-    sky.addColorStop(0.82, '#151727');
-    sky.addColorStop(1, '#2a1c22');
+    const skyStops = [0, 0.5, 0.82, 1];
+    T.sky.forEach((c, i) => sky.addColorStop(skyStops[i], c));
     g.fillStyle = sky;
     g.fillRect(0, 0, w, h);
 
-    // 地平线城市光污染
+    // 地平线光污染（第一关是城市的橙光，水世界是池底漫上来的蓝白水汽）
     const pollute = g.createRadialGradient(w * 0.5, h, 0, w * 0.5, h, w * 0.72);
-    pollute.addColorStop(0, 'rgba(255,150,90,0.20)');
-    pollute.addColorStop(0.45, 'rgba(180,90,110,0.09)');
+    pollute.addColorStop(0, T.pollute[0]);
+    pollute.addColorStop(0.45, T.pollute[1]);
     pollute.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = pollute;
     g.fillRect(0, 0, w, h);
 
     const rnd = mulberry32(20260416);
-    // 星星
-    for (let i = 0; i < 150; i++) {
-      const x = rnd() * w;
-      const y = rnd() * (h - 14) * 0.92;
-      const a = 0.15 + rnd() * 0.7;
-      const r = 0.4 + rnd() * 1.05;
-      g.fillStyle = `rgba(220,235,255,${a * (1 - y / h) + 0.06})`;
-      g.beginPath();
-      g.arc(x, y, r, 0, TAU);
-      g.fill();
+    if (T.skyDeco === 'bubbles') {
+      // 水世界：天上飘的是往上冒的气泡（不是星星）
+      for (let i = 0; i < 80; i++) {
+        const x = rnd() * w;
+        const y = rnd() * h;
+        const r = 1.4 + rnd() * 5.5;
+        const a = 0.1 + rnd() * 0.26;
+        g.fillStyle = `${T.bubble}${a})`;
+        g.beginPath();
+        g.arc(x, y, r, 0, TAU);
+        g.fill();
+        g.strokeStyle = `rgba(255,255,255,${a})`;
+        g.lineWidth = 1;
+        g.stroke();
+      }
+    } else {
+      // 星星
+      for (let i = 0; i < 150; i++) {
+        const x = rnd() * w;
+        const y = rnd() * (h - 14) * 0.92;
+        const a = 0.15 + rnd() * 0.7;
+        const r = 0.4 + rnd() * 1.05;
+        g.fillStyle = `rgba(${T.starRGB},${a * (1 - y / h) + 0.06})`;
+        g.beginPath();
+        g.arc(x, y, r, 0, TAU);
+        g.fill();
+      }
     }
 
-    // 月亮
+    // 月亮（在水世界里它读作一盏大射灯 / 大气泡）
     const mx = w * 0.72;
     const my = h * 0.34;
     const mr = Math.max(13, w * 0.055);
@@ -145,11 +162,11 @@ export class Renderer {
     g.fillStyle = halo;
     g.fillRect(mx - mr * 5.2, my - mr * 5.2, mr * 10.4, mr * 10.4);
 
-    g.fillStyle = '#cfd9e2';
+    g.fillStyle = T.moon;
     g.beginPath();
     g.arc(mx, my, mr, 0, TAU);
     g.fill();
-    g.fillStyle = 'rgba(120,135,150,0.30)';
+    g.fillStyle = T.moonSpot;
     g.beginPath();
     g.arc(mx - mr * 0.28, my - mr * 0.2, mr * 0.2, 0, TAU);
     g.arc(mx + mr * 0.3, my + mr * 0.26, mr * 0.14, 0, TAU);
@@ -169,6 +186,76 @@ export class Renderer {
     c.height = h;
     const g = c.getContext('2d');
     const rnd = mulberry32(778899);
+    const T = CFG.theme;
+
+    // 疯狂水世界：远景是乐园的蓝白格子展墙 + 水草 + 游鱼 + 大气泡。
+    // 观感直接抄参考图（摊位立牌）里那块背景：蓝白棋盘格 + 海洋元素。
+    if (T.skyline === 'reef') {
+      const cell = Math.max(14, Math.round(w / 12));
+      for (let j = 0; j * cell < h; j++) {
+        for (let i = 0; i * cell < w; i++) {
+          const on = (i + j) % 2 === 0;
+          g.fillStyle = on ? T.reef.wallA : T.reef.wallB;
+          g.globalAlpha = on ? 0.5 : 0.38;
+          g.fillRect(i * cell, j * cell, cell + 1, cell + 1);
+        }
+      }
+      g.globalAlpha = 1;
+      // 水草：从底部往上长的波浪带
+      g.lineCap = 'round';
+      for (let i = 0; i < 10; i++) {
+        const x = rnd() * w;
+        const hh = 40 + rnd() * 90;
+        g.strokeStyle = rnd() > 0.5 ? T.reef.weed : T.reef.weedDark;
+        g.lineWidth = 3 + rnd() * 4;
+        g.beginPath();
+        g.moveTo(x, h);
+        for (let k = 1; k <= 4; k++) {
+          g.lineTo(x + Math.sin(k * 1.3 + i) * 9, h - (hh * k) / 4);
+        }
+        g.stroke();
+      }
+      // 游鱼：简笔小鱼剪影（有朝向，像在游）
+      for (let i = 0; i < 7; i++) {
+        const x = 20 + rnd() * (w - 40);
+        const y = 16 + rnd() * (h - 50);
+        const s = 7 + rnd() * 11;
+        const dir = rnd() > 0.5 ? 1 : -1;
+        g.fillStyle = T.reef.fish[i % T.reef.fish.length];
+        g.globalAlpha = 0.8;
+        g.beginPath();
+        g.ellipse(x, y, s, s * 0.55, 0, 0, TAU);
+        g.fill();
+        g.beginPath();
+        g.moveTo(x - dir * s, y);
+        g.lineTo(x - dir * s * 1.9, y - s * 0.5);
+        g.lineTo(x - dir * s * 1.9, y + s * 0.5);
+        g.closePath();
+        g.fill();
+        g.globalAlpha = 1;
+      }
+      // 大气泡
+      for (let i = 0; i < 14; i++) {
+        const x = rnd() * w;
+        const y = rnd() * h;
+        const r = 4 + rnd() * 12;
+        g.strokeStyle = 'rgba(255,255,255,0.5)';
+        g.lineWidth = 1.6;
+        g.beginPath();
+        g.arc(x, y, r, 0, TAU);
+        g.stroke();
+      }
+      // 底部压一层水雾，和地平线接得住
+      const wet = g.createLinearGradient(0, h - 90, 0, h);
+      wet.addColorStop(0, 'rgba(180,235,250,0)');
+      wet.addColorStop(1, 'rgba(150,215,240,0.85)');
+      g.fillStyle = wet;
+      g.fillRect(0, 0, w, h);
+
+      this.cityCanvas = c;
+      this.cityH = h;
+      return;
+    }
 
     let x = -20;
     const bars = [];
@@ -230,6 +317,14 @@ export class Renderer {
     }
     ctx.translate(ox, oy);
 
+    // 换关卡（第一关 ↔ 疯狂水世界）时重烘焙天空/远景。
+    // 它们只在 resize 时算过，不跟着主题重做的话第二关会顶着第一关的夜空开局。
+    if (this._bakedTheme !== CFG.level.theme) {
+      this._bakeSky();
+      this._bakeCity();
+      this._bakedTheme = CFG.level.theme;
+    }
+
     this._drawBackdrop(ctx, w, h);
     this._drawPlane(ctx, game);
     this._drawWater(ctx, w, h);
@@ -250,31 +345,33 @@ export class Renderer {
   }
 
   _drawBackdrop(ctx, w, h) {
+    const T = CFG.theme;
     const horizon = this.cam.horizonY;
     ctx.drawImage(this.skyCanvas, 0, 0, w, this.skyH);
     ctx.fillStyle = '#05070c';
     ctx.fillRect(0, 0, w, 0);
-    // 城市剪影，底部贴地平线
+    // 城市剪影 / 水世界展墙，底部贴地平线
     ctx.drawImage(this.cityCanvas, 0, horizon - this.cityH + 3, w, this.cityH);
-    // 地平线霓虹底光
+    // 地平线底光（第一关是霓虹，水世界是水汽）
     const g = ctx.createLinearGradient(0, horizon - 26, 0, horizon + 12);
-    g.addColorStop(0, 'rgba(255,120,80,0)');
-    g.addColorStop(0.65, 'rgba(255,110,70,0.16)');
-    g.addColorStop(1, 'rgba(255,80,60,0)');
+    g.addColorStop(0, T.horizon[0]);
+    g.addColorStop(0.65, T.horizon[1]);
+    g.addColorStop(1, T.horizon[2]);
     ctx.fillStyle = g;
     ctx.fillRect(0, horizon - 26, w, 38);
   }
 
   _drawWater(ctx, w, h) {
+    const T = CFG.theme;
     const horizon = this.cam.horizonY;
     const g = ctx.createLinearGradient(0, horizon, 0, h);
-    g.addColorStop(0, '#0d1420');
-    g.addColorStop(0.35, '#080c15');
-    g.addColorStop(1, '#03050a');
+    g.addColorStop(0, T.sea[0]);
+    g.addColorStop(0.35, T.sea[1]);
+    g.addColorStop(1, T.sea[2]);
     ctx.fillStyle = g;
     ctx.fillRect(0, horizon, w, h - horizon);
 
-    // 水面碎光
+    // 水面碎光（第一关是橙色反光，水世界是白色浪花）
     const t = this.time;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -285,9 +382,9 @@ export class Renderer {
       const cw = w * (0.22 + 0.34 * sway);
       const cx = w * 0.5 + Math.sin(t * 0.35 + i * 0.9) * w * 0.16;
       const g2 = ctx.createLinearGradient(cx - cw / 2, 0, cx + cw / 2, 0);
-      g2.addColorStop(0, 'rgba(255,150,90,0)');
-      g2.addColorStop(0.5, `rgba(255,170,110,${a})`);
-      g2.addColorStop(1, 'rgba(255,150,90,0)');
+      g2.addColorStop(0, T.foam[0]);
+      g2.addColorStop(0.5, `${T.foam[1]}${a})`);
+      g2.addColorStop(1, T.foam[2]);
       ctx.fillStyle = g2;
       ctx.fillRect(cx - cw / 2, yy, cw, 1.5);
     }
@@ -295,6 +392,7 @@ export class Renderer {
   }
 
   _drawDeck(ctx) {
+    const T = CFG.theme;
     const cam = this.cam;
     // 近端画到 deckNearZ（比英雄能退到的最深处还近），否则英雄脚底下会露黑边
     const zN = CFG.deckNearZ;
@@ -314,15 +412,15 @@ export class Renderer {
     ctx.lineTo(fl.x, fl.y);
     ctx.closePath();
     const g = ctx.createLinearGradient(0, fl.y, 0, nl.y);
-    g.addColorStop(0, '#0f1218');
-    g.addColorStop(0.25, '#1b1f26');
-    g.addColorStop(0.6, '#262b33');
-    g.addColorStop(1, '#30363f');
+    g.addColorStop(0, T.deck[0]);
+    g.addColorStop(0.25, T.deck[1]);
+    g.addColorStop(0.6, T.deck[2]);
+    g.addColorStop(1, T.deck[3]);
     ctx.fillStyle = g;
     ctx.fill();
 
     // 伸缩缝（给纵深提供参照物）
-    ctx.fillStyle = 'rgba(0,0,0,0.20)';
+    ctx.fillStyle = T.seam;
     for (let z = zN + 1.2; z < 96; z += 2.2) {
       const a = cam.project(-RH, z);
       const b = cam.project(RH, z);
@@ -339,7 +437,7 @@ export class Renderer {
     }
 
     // 中央虚线
-    ctx.fillStyle = 'rgba(226,206,140,0.30)';
+    ctx.fillStyle = T.dash;
     for (let z = zN + 1.4; z < 92; z += 3.1) {
       const z2 = z + 1.55;
       const a = cam.project(-0.013, z);
@@ -371,9 +469,9 @@ export class Renderer {
       ctx.lineTo(d.x, d.y);
       ctx.closePath();
       const eg = ctx.createLinearGradient(0, c.y, 0, a.y);
-      eg.addColorStop(0, 'rgba(180,150,70,0.10)');
-      eg.addColorStop(0.5, 'rgba(226,196,110,0.34)');
-      eg.addColorStop(1, 'rgba(240,214,130,0.5)');
+      eg.addColorStop(0, T.edge[0]);
+      eg.addColorStop(0.5, T.edge[1]);
+      eg.addColorStop(1, T.edge[2]);
       ctx.fillStyle = eg;
       ctx.fill();
     }
@@ -396,7 +494,7 @@ export class Renderer {
           ctx.lineTo(p.x, y);
         }
       }
-      ctx.strokeStyle = 'rgba(96,106,120,0.85)';
+      ctx.strokeStyle = T.railBar;
       ctx.lineWidth = Math.max(0.8, cam.scaleNear * 0.012);
       ctx.stroke();
 
@@ -406,10 +504,10 @@ export class Renderer {
         const top = p.y - railH * p.s;
         const wdt = Math.max(0.7, 0.014 * p.s);
         if (p.y - top < 0.7) continue;
-        ctx.fillStyle = 'rgba(80,88,100,0.9)';
+        ctx.fillStyle = T.railPost;
         ctx.fillRect(p.x - wdt / 2, top, wdt, p.y - top);
-        // 锈迹高光
-        ctx.fillStyle = 'rgba(150,110,80,0.5)';
+        // 立柱顶上的反光（第一关是锈迹，水世界是救生圈黄圈）
+        ctx.fillStyle = T.railTop;
         ctx.fillRect(p.x - wdt / 2, top, wdt, Math.max(0.6, (p.y - top) * 0.22));
       }
     }
@@ -417,25 +515,27 @@ export class Renderer {
 
   /** 淡淡的空气感，压在地平线附近 */
   _drawHaze(ctx, w) {
+    const T = CFG.theme;
     const horizon = this.cam.horizonY;
     const bottom = horizon + this.h * 0.30;
     const g = ctx.createLinearGradient(0, horizon - 4, 0, bottom);
-    g.addColorStop(0, 'rgba(20,24,34,0.72)');
-    g.addColorStop(0.45, 'rgba(18,22,32,0.30)');
-    g.addColorStop(1, 'rgba(16,20,30,0)');
+    g.addColorStop(0, T.haze[0]);
+    g.addColorStop(0.45, T.haze[1]);
+    g.addColorStop(1, T.haze[2]);
     ctx.fillStyle = g;
     ctx.fillRect(0, horizon - 4, w, bottom - horizon + 4);
   }
 
-  /** 浓雾：盖在远景丧尸身上，让他们"从雾里走出来" */
+  /** 浓雾：盖在远景丧尸身上，让他们"从雾里走出来"（水世界里这层是水汽） */
   _drawFog(ctx, w) {
+    const T = CFG.theme;
     const horizon = this.cam.horizonY;
     const bottom = horizon + this.h * CFG.fogTo;
     const g = ctx.createLinearGradient(0, horizon - 6, 0, bottom);
-    g.addColorStop(0, 'rgba(26,30,40,0.96)');
-    g.addColorStop(0.3, 'rgba(24,28,38,0.80)');
-    g.addColorStop(0.7, 'rgba(22,26,36,0.34)');
-    g.addColorStop(1, 'rgba(20,24,34,0)');
+    g.addColorStop(0, T.fog[0]);
+    g.addColorStop(0.3, T.fog[1]);
+    g.addColorStop(0.7, T.fog[2]);
+    g.addColorStop(1, T.fog[3]);
     ctx.fillStyle = g;
     ctx.fillRect(0, horizon - 6, w, bottom - horizon + 6);
   }
@@ -472,18 +572,19 @@ export class Renderer {
    * 这一层是"打击爽感"的一半：打完一波回头一看，桥面全是血和尸体。
    */
   _drawGround(ctx, game) {
+    const T = CFG.theme;
     const cam = this.cam;
 
     // 血泊（这一波留下的，越打越脏）
     for (const s of game.stains) {
       const p = cam.project(s.x, s.z);
       ctx.globalAlpha = s.a * 0.75;
-      ctx.fillStyle = '#3d0808';
+      ctx.fillStyle = T.stain[0];
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, s.r * p.s * 0.5, s.r * p.s * 0.2, 0, 0, TAU);
       ctx.fill();
       ctx.globalAlpha = s.a * 0.5;
-      ctx.fillStyle = '#8d1010';
+      ctx.fillStyle = T.stain[1];
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, s.r * p.s * 0.3, s.r * p.s * 0.12, 0, 0, TAU);
       ctx.fill();
@@ -520,6 +621,36 @@ export class Renderer {
       ctx.lineWidth = Math.max(1, 1.2 + k * 2.2);
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, r, r * 0.38, 0, 0, TAU);
+      ctx.stroke();
+    }
+
+    // 水雷（第二关升级项"布设水雷"）：一颗浮在桥面上的红色浮球，带触角和呼吸光
+    for (const m of game.mines) {
+      const p = cam.project(m.x, m.z);
+      // 注意：CFG.mine.radius(0.6) 是"踩上来的判定半径"，比桥还宽（桥面半宽才 0.35），
+      // 拿它当绘制半径会画出一颗糊满屏幕的红球（踩过），画多大事单独定。
+      const r = p.s * CFG.mine.size;
+      if (r < 1) continue;
+      const pulse = 0.7 + 0.3 * Math.sin(this.time * 6 + m.z);
+      this._drawGlow(p.x, p.y - r * 0.5, r * 1.7, '#ff6a4a', 0.3 * pulse);
+      // 触角
+      ctx.strokeStyle = '#3a1a14';
+      ctx.lineWidth = Math.max(1, r * 0.13);
+      for (let k = 0; k < 6; k++) {
+        const a2 = (k / 6) * TAU + this.time * 0.6;
+        ctx.beginPath();
+        ctx.moveTo(p.x + Math.cos(a2) * r * 0.88, p.y - r * 0.5 + Math.sin(a2) * r * 0.88);
+        ctx.lineTo(p.x + Math.cos(a2) * r * 1.5, p.y - r * 0.5 + Math.sin(a2) * r * 1.5);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#e8503c';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - r * 0.5, r, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,240,220,0.9)';
+      ctx.lineWidth = Math.max(1, r * 0.22);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - r * 0.5, r, Math.PI * 0.18, Math.PI * 0.82);
       ctx.stroke();
     }
   }
@@ -920,6 +1051,9 @@ export class Renderer {
 
     this._zombieBody(ctx, H, col, dark, e.phase, e.kind, isWind);
 
+    // 第二关：挂上海洋动物的部件（鱼鳍 / 触手 / 蟹钳 / 背鳍 / 河豚刺 / 龟壳 / 水母伞）
+    if (e.animal) this._oceanBits(ctx, H, e, col, dark);
+
     // 背上的鼓包：吐酸者的酸囊
     if (e.spit) {
       const sacY = -0.86 * H;
@@ -931,8 +1065,7 @@ export class Renderer {
     }
 
     // 铁盾兵：正面一块盾牌，破盾后留裂纹
-    if (e.maxShield > 0 && e.shield > 0) {
-      const w = H * 0.62;
+    if (e.maxShield > 0 && e.shield > 0) {      const w = H * 0.62;
       const hh = H * 0.62;
       const top = -0.78 * H;
       const g = ctx.createLinearGradient(-w / 2, top, w / 2, top + hh);
@@ -962,6 +1095,213 @@ export class Renderer {
         ctx.moveTo(-w * 0.34, top + hh * 0.24);
         ctx.lineTo(w * 0.06, top + hh * 0.5);
         ctx.lineTo(-w * 0.2, top + hh * 0.78);
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  // ---------------------------------------------------------
+  //  第二关：海洋动物部件
+  //
+  //  用户 m01451："僵尸融合海洋动物形象"。做法是**不重画身体**，只在
+  //  _zombieBody 画完的人形上挂几块动物部件（鳍/触手/钳/壳/刺/伞），
+  //  这样冰冻结霜、燃烧、受击白闪这些统一作用在身体色上的效果全都还在，
+  //  而且远处只看剪影也能一眼认出"这是海里的东西"。
+  //  局部坐标和 _zombieBody 一致：脚底是原点，头在 -H，躯干 -0.42H ~ -0.70H。
+  // ---------------------------------------------------------
+
+  _oceanBits(ctx, H, e, col, dark) {
+    const a = e.animal;
+    const headY = -0.815 * H;
+    const headR = 0.11 * H;
+    const t = this.time * 2.6 + e.phase;
+    const fin = mix(col, '#ffffff', 0.32);
+
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    if (a === 'fish') {
+      // 背鳍（头顶）+ 尾鳍（腰后）+ 两腮
+      ctx.fillStyle = fin;
+      ctx.beginPath();
+      ctx.moveTo(-0.02 * H, headY - headR * 0.8);
+      ctx.lineTo(0.03 * H, headY - headR * 2.6);
+      ctx.lineTo(0.12 * H, headY - headR * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = dark;
+      ctx.beginPath();
+      ctx.moveTo(0, -0.40 * H);
+      ctx.lineTo(-0.22 * H, -0.48 * H + Math.sin(t) * 0.02 * H);
+      ctx.lineTo(0, -0.28 * H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 0.022 * H;
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(s * 0.045 * H, -0.6 * H, 0.075 * H, -0.45, 0.75);
+        ctx.stroke();
+      }
+    } else if (a === 'squid') {
+      // 尖头 + 四条飘动的触手
+      ctx.fillStyle = fin;
+      ctx.beginPath();
+      ctx.moveTo(-headR * 0.9, headY - headR * 0.5);
+      ctx.lineTo(0, headY - headR * 2.9);
+      ctx.lineTo(headR * 0.9, headY - headR * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = mix(col, dark, 0.4);
+      ctx.lineWidth = 0.035 * H;
+      for (let i = 0; i < 4; i++) {
+        const x0 = (-0.11 + i * 0.073) * H;
+        ctx.beginPath();
+        ctx.moveTo(x0, -0.40 * H);
+        ctx.quadraticCurveTo(
+          x0 + Math.sin(t + i) * 0.04 * H,
+          -0.25 * H,
+          x0 + Math.sin(t + i * 1.7) * 0.07 * H,
+          -0.06 * H
+        );
+        ctx.stroke();
+      }
+    } else if (a === 'crab') {
+      // 两只大钳子 + 背上的甲壳棱
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 0.05 * H;
+      for (const s of [-1, 1]) {
+        const ax = s * 0.3 * H;
+        const ay = -0.56 * H + Math.sin(t + (s > 0 ? 1 : 0)) * 0.02 * H;
+        ctx.beginPath();
+        ctx.moveTo(s * 0.16 * H, -0.66 * H);
+        ctx.lineTo(ax, ay);
+        ctx.stroke();
+        ctx.fillStyle = mix(col, '#ffffff', 0.15);
+        ctx.beginPath();
+        ctx.ellipse(ax, ay, 0.075 * H, 0.055 * H, s * 0.5, 0, TAU);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(ax + s * 0.05 * H, ay - 0.03 * H);
+        ctx.lineTo(ax + s * 0.13 * H, ay - 0.07 * H);
+        ctx.lineTo(ax + s * 0.11 * H, ay + 0.01 * H);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.strokeStyle = mix(col, '#000000', 0.25);
+      ctx.lineWidth = 0.016 * H;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(0, -0.56 * H, (0.1 + i * 0.045) * H, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.stroke();
+      }
+    } else if (a === 'shark') {
+      // 大背鳍 + 血盆大口 + 三道鳃裂
+      ctx.fillStyle = mix(col, '#4a6b80', 0.5);
+      ctx.beginPath();
+      ctx.moveTo(-0.03 * H, headY - headR * 0.6);
+      ctx.lineTo(0.02 * H, headY - headR * 3.6);
+      ctx.lineTo(0.22 * H, headY - headR * 0.3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = mix(col, '#ffffff', 0.2);
+      ctx.lineWidth = 0.012 * H;
+      ctx.stroke();
+      // 嘴（三排尖牙）
+      const my = headY + headR * 0.42;
+      ctx.fillStyle = '#f4f7fa';
+      for (let i = -3; i <= 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * headR * 0.34 - headR * 0.1, my);
+        ctx.lineTo(i * headR * 0.34, my - headR * 0.42);
+        ctx.lineTo(i * headR * 0.34 + headR * 0.1, my);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 0.02 * H;
+      for (const s of [-1, 1]) {
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.moveTo(s * 0.06 * H, (-0.68 + i * 0.05) * H);
+          ctx.lineTo(s * 0.1 * H, (-0.66 + i * 0.05) * H);
+          ctx.stroke();
+        }
+      }
+      // 尾鳍
+      ctx.fillStyle = mix(col, '#4a6b80', 0.4);
+      ctx.beginPath();
+      ctx.moveTo(0, -0.36 * H);
+      ctx.lineTo(-0.26 * H, -0.5 * H);
+      ctx.lineTo(-0.2 * H, -0.3 * H);
+      ctx.closePath();
+      ctx.fill();
+    } else if (a === 'puffer') {
+      // 河豚刺（球形一圈刺）+ 鼓起来的头
+      ctx.strokeStyle = mix(dark, '#ffffff', 0.25);
+      ctx.lineWidth = 0.02 * H;
+      for (let i = 0; i < 12; i++) {
+        const ang = (i / 12) * TAU;
+        const cx = Math.cos(ang) * 0.19 * H;
+        const cy = -0.55 * H + Math.sin(ang) * 0.16 * H;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx * 1.32, -0.55 * H + (cy + 0.55 * H) * 1.32);
+        ctx.stroke();
+      }
+      for (let i = 0; i < 7; i++) {
+        const ang = (i / 7) * TAU;
+        const cx = Math.cos(ang) * headR * 1.05;
+        const cy = headY + Math.sin(ang) * headR * 1.05;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx * 1.5, headY + Math.sin(ang) * headR * 1.5);
+        ctx.stroke();
+      }
+    } else if (a === 'turtle') {
+      // 龟壳（盖住躯干）+ 两侧鳍肢
+      ctx.fillStyle = mix(col, '#2f6b45', 0.55);
+      ctx.beginPath();
+      ctx.ellipse(0, -0.56 * H, 0.22 * H, 0.19 * H, 0, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(20,50,35,0.85)';
+      ctx.lineWidth = 0.016 * H;
+      ctx.stroke();
+      for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.ellipse(0, -0.56 * H, 0.2 * H, 0.17 * H, 0, (i / 4) * TAU, (i / 4) * TAU + 1.1);
+        ctx.stroke();
+      }
+      ctx.fillStyle = mix(col, '#ffffff', 0.2);
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.ellipse(s * 0.26 * H, -0.42 * H, 0.09 * H, 0.04 * H, s * 0.4, 0, TAU);
+        ctx.fill();
+      }
+    } else if (a === 'jelly') {
+      // 水母伞盖（罩在头上）+ 六条长触手
+      ctx.fillStyle = mix(col, '#ffffff', 0.22);
+      ctx.beginPath();
+      ctx.ellipse(0, headY - headR * 0.2, headR * 1.5, headR * 1.15, 0, Math.PI, TAU);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = 0.012 * H;
+      ctx.stroke();
+      ctx.strokeStyle = mix(col, dark, 0.35);
+      ctx.lineWidth = 0.028 * H;
+      for (let i = 0; i < 6; i++) {
+        const x0 = (-0.14 + i * 0.056) * H;
+        ctx.beginPath();
+        ctx.moveTo(x0, -0.30 * H);
+        ctx.quadraticCurveTo(
+          x0 + Math.sin(t + i * 1.3) * 0.05 * H,
+          -0.16 * H,
+          x0 + Math.sin(t + i * 1.3) * 0.09 * H,
+          -0.02 * H
+        );
         ctx.stroke();
       }
     }
@@ -1111,6 +1451,14 @@ export class Renderer {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
+    // 第二关（疯狂水世界）换成图片人物主角：照着参考图画的扁平大叔
+    if (CFG.level.skin === 'ocean') {
+      this._heroWater(ctx, H, sw, pl);
+      ctx.restore();
+      this._heroShieldAndFlash(ctx, game, p, feet, H);
+      return;
+    }
+
     const DARK = '#16222f';
     const COAT = '#35618f';
     const COAT_D = '#1e3a56';
@@ -1207,8 +1555,121 @@ export class Renderer {
     }
 
     ctx.restore();
+    this._heroShieldAndFlash(ctx, game, p, feet, H);
+  }
 
-    // 护盾
+  /**
+   * 第二关主角：照着参考图（摊位立牌上那位大叔）画的扁平背影 ——
+   * 秃头 + 两侧络腮胡 + 淡紫灰背心（带污渍）+ 大肚子 + 深色短裤 + 光腿，
+   * 手里换成鱼叉枪。用户 m01451 要"人物换成图片人物"，抠图没抠干净（见 viz 记录），
+   * 所以游戏内是照着他画的扁平版，照片本身用在进场对话里当立绘。
+   */
+  _heroWater(ctx, H, sw, pl) {
+    const SKIN = '#e8b98f';
+    const SKIN_D = '#bd8a61';
+    const TANK = '#d7d3e6';
+    const TANK_D = '#9d98b5';
+    const SHORTS = '#3d2c4a';
+    const HAIR = '#8d6a53';
+
+    // 腿（光腿）
+    ctx.strokeStyle = SKIN_D;
+    ctx.lineWidth = H * 0.115;
+    for (const s of [-1, 1]) {
+      const fx = s * H * 0.07 + s * sw * H * 0.09;
+      ctx.beginPath();
+      ctx.moveTo(s * H * 0.055, -H * 0.4);
+      ctx.lineTo(fx, -H * 0.03);
+      ctx.stroke();
+    }
+    // 深色短裤
+    ctx.fillStyle = SHORTS;
+    roundRect(ctx, -H * 0.14, -H * 0.48, H * 0.28, H * 0.17, H * 0.03);
+    ctx.fill();
+    // 大肚子（背心）：躯干 + 一个鼓出来的椭圆
+    ctx.fillStyle = TANK;
+    ctx.beginPath();
+    ctx.moveTo(-H * 0.125, -H * 0.46);
+    ctx.lineTo(-H * 0.14, -H * 0.7);
+    ctx.lineTo(H * 0.14, -H * 0.7);
+    ctx.lineTo(H * 0.125, -H * 0.46);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(0, -H * 0.55, H * 0.155, H * 0.125, 0, 0, TAU);
+    ctx.fill();
+    // 背心的阴影 + 一块污渍（参考图里那件带污迹的背心）
+    ctx.fillStyle = TANK_D;
+    ctx.beginPath();
+    ctx.moveTo(-H * 0.13, -H * 0.47);
+    ctx.lineTo(-H * 0.115, -H * 0.6);
+    ctx.lineTo(-H * 0.045, -H * 0.58);
+    ctx.lineTo(-H * 0.05, -H * 0.47);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(120,90,40,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(H * 0.06, -H * 0.5, H * 0.035, H * 0.022, 0.4, 0, TAU);
+    ctx.fill();
+
+    // 两条胳膊（光膀子）
+    ctx.strokeStyle = SKIN;
+    ctx.lineWidth = H * 0.075;
+    ctx.beginPath();
+    ctx.moveTo(-H * 0.128, -H * 0.68);
+    ctx.lineTo(-H * 0.19, -H * 0.44 + sw * H * 0.03);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(H * 0.128, -H * 0.68);
+    ctx.lineTo(H * 0.15, -H * 0.52);
+    ctx.stroke();
+
+    // 鱼叉枪
+    const gy = -H * 0.5;
+    ctx.fillStyle = '#2c3b48';
+    roundRect(ctx, H * 0.04, gy - H * 0.021, H * 0.26, H * 0.042, H * 0.018);
+    ctx.fill();
+    ctx.fillStyle = '#cfd8e0';
+    ctx.beginPath();
+    ctx.moveTo(H * 0.3, gy);
+    ctx.lineTo(H * 0.37, gy - H * 0.032);
+    ctx.lineTo(H * 0.37, gy + H * 0.032);
+    ctx.closePath();
+    ctx.fill();
+
+    // 秃头 + 两侧络腮胡
+    const headY = -H * 0.8;
+    const headR = H * 0.115;
+    ctx.fillStyle = SKIN_D; // 脖子
+    roundRect(ctx, -headR * 0.5, headY + headR * 0.5, headR, headR * 0.8, headR * 0.2);
+    ctx.fill();
+    ctx.fillStyle = SKIN;
+    ctx.beginPath();
+    ctx.arc(0, headY, headR, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,240,220,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(-headR * 0.2, headY - headR * 0.4, headR * 0.42, headR * 0.24, -0.5, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = HAIR;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(s * headR * 0.74, headY + headR * 0.16, headR * 0.32, headR * 0.46, s * 0.2, 0, TAU);
+      ctx.fill();
+    }
+
+    // 枪口火光
+    if (pl.muzzle > 0) {
+      const mx = H * 0.37;
+      const mr = H * (0.1 + pl.muzzle * 0.16);
+      this._drawGlow(mx, gy, mr, '#ffc86a', pl.muzzle);
+      this._drawGlow(mx, gy, mr * 0.45, '#fff3d0', pl.muzzle);
+    }
+  }
+
+  /** 护盾圈 + 受击白闪：两套英雄画法（蓝衣士兵 / 水世界大叔）共用 */
+  _heroShieldAndFlash(ctx, game, p, feet, H) {
+    const pl = game.player;
     if (pl.shield > 0) {
       ctx.strokeStyle = `rgba(125,249,255,${0.30 + 0.16 * Math.sin(this.time * 5)})`;
       ctx.lineWidth = Math.max(1.2, H * 0.02);
@@ -1216,8 +1677,6 @@ export class Renderer {
       ctx.ellipse(p.x, feet - H * 0.5, H * 0.34, H * 0.60, 0, 0, TAU);
       ctx.stroke();
     }
-
-    // 受击白闪
     if (pl.hurt > 0.02) {
       ctx.globalAlpha = pl.hurt * 0.55;
       this._drawGlow(p.x, feet - H * 0.5, H * 0.8, '#ff5040', 1);
@@ -1234,6 +1693,8 @@ export class Renderer {
   // ---------------------------------------------------------
 
   _drawGates(ctx, game, g) {
+    const T = CFG.theme;
+    const ocean = CFG.level.skin === 'ocean';
     const cam = this.cam;
     const RH = cam.roadHalf;
     const pw = RH * CFG.gate.panelHalfRatio; // 面板半宽（世界单位）
@@ -1271,13 +1732,41 @@ export class Renderer {
       roundRect(ctx, cx - pwPx + pad, top, pwPx * 2 - pad * 2, ph, ph * 0.09);
       const pg = ctx.createLinearGradient(0, top, 0, p.y);
       pg.addColorStop(0, rgba(col, active ? 0.42 : 0.24));
-      pg.addColorStop(0.55, 'rgba(10,14,22,0.72)');
+      pg.addColorStop(0.55, T.panel);
       pg.addColorStop(1, rgba(col, active ? 0.28 : 0.14));
       ctx.fillStyle = pg;
       ctx.fill();
       ctx.strokeStyle = rgba(col, active ? 0.95 : 0.5);
       ctx.lineWidth = Math.max(1.2, ph * 0.022);
       ctx.stroke();
+
+      // 海洋元素的奖励墙（用户 m01451）：面板上挂一条小鱼 + 冒几颗气泡
+      if (ocean) {
+        const fs = ph * 0.16;
+        const fx = cx + (side < 0 ? -pwPx * 0.62 : pwPx * 0.62);
+        const fy = top + ph * 0.16;
+        ctx.fillStyle = rgba('#7df9ff', active ? 0.95 : 0.6);
+        ctx.beginPath();
+        ctx.ellipse(fx, fy, fs, fs * 0.55, 0, 0, TAU);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(fx - side * fs, fy);
+        ctx.lineTo(fx - side * fs * 2, fy - fs * 0.5);
+        ctx.lineTo(fx - side * fs * 2, fy + fs * 0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#0a2a38';
+        ctx.beginPath();
+        ctx.arc(fx + side * fs * 0.45, fy - fs * 0.1, Math.max(0.8, fs * 0.14), 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = rgba('#ffffff', active ? 0.7 : 0.4);
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.arc(cx - side * pwPx * 0.3, top + ph * (0.24 + i * 0.2), ph * (0.035 + i * 0.012), 0, TAU);
+          ctx.stroke();
+        }
+      }
 
       // 面板内的一圈内描边，增强"卡片"感
       roundRect(ctx, cx - pwPx + pad * 2, top + ph * 0.08, pwPx * 2 - pad * 4, ph * 0.84, ph * 0.07);
