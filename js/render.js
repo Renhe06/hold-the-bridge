@@ -2334,9 +2334,13 @@ export class Renderer {
       const k = clamp(s.t / s.fall, 0, 1);
       const p = cam.project(s.x, s.z);
       const flat = clamp(CFG.camHeight / s.z, 0.06, 0.42);
-      const r = Math.max(3, S.size * p.s * (s.big ? S.bigMul : 1));
+      // 阳光是"贴在草坪上的小图标"，不能跟着透视疯长：它现在就掉在英雄脚边
+      // （z 可能只比英雄靠后半个身位），按 p.s 直算是 90px 半径 —— 一整轮太阳
+      // 糊在屏幕上，比英雄还大。改成以英雄所在深度为基准、按远近只做轻微缩放。
+      const persp = clamp(p.s / cam.scaleNear, 0.52, 1);
+      const r = Math.max(3, S.size * cam.scaleNear * persp * (s.big ? S.bigMul : 1));
       const cx = p.x;
-      const cy = p.y - (1 - k) * 9 * p.s * 0.5;
+      const cy = p.y - (1 - k) * r * 11; // 还没落地就画在落点上方（从天而降）
       const pulse = 1 + Math.sin(s.phase) * 0.06;
 
       // 落点影子（越接近落地越实）

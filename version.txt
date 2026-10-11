@@ -1,3 +1,3 @@
-version v1.0.3
-build   2026-10-11 18:12:47
-msg     fix audio: recover after iOS interruption/background (audioSession playback, wake, status line)
+version v1.0.4
+build   2026-10-11 18:18:57
+msg     fix lv3: suns now land inside the walkable band (was out of reach), wider lawn roam, smaller sun sprite

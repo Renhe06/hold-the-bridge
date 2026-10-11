@@ -12,7 +12,7 @@
 //   3. 僵尸体型整体放大一档
 // ============================================================
 
-import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave, setLevel, findLevel, isPvz, pvzPlant } from './config.js';
+import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave, setLevel, findLevel, isPvz, pvzPlant, heroZRange } from './config.js';
 import { clamp, rand, sample } from './util.js';
 
 export const STATE = {
@@ -259,7 +259,8 @@ export class Game {
     const wz = this._dragWorldZ + dz;
 
     this.player.targetX = this.cam.clampToRoad(wx, CFG.hero.halfWidth);
-    this.player.targetZ = clamp(wz, CFG.zNear - CFG.hero.zBack, CFG.zNear + CFG.hero.zFwd);
+    const [zMin, zMax] = heroZRange();
+    this.player.targetZ = clamp(wz, zMin, zMax);
   }
 
   pointerUp() {
@@ -964,7 +965,9 @@ export class Game {
     pl.x += (pl.targetX - pl.x) * kx;
     pl.z += (pl.targetZ - pl.z) * kz;
     pl.x = this.cam.clampToRoad(pl.x, CFG.hero.halfWidth);
-    pl.z = clamp(pl.z, CFG.zNear - CFG.hero.zBack, CFG.zNear + CFG.hero.zFwd);
+    const [zMin, zMax] = heroZRange();
+    pl.z = clamp(pl.z, zMin, zMax);
+    pl.targetZ = clamp(pl.targetZ, zMin, zMax);
 
     // 走路动画：有位移才摆腿
     const dx = pl.targetX - pl.x;
@@ -979,7 +982,8 @@ export class Game {
 
   /** 越靠前打得越疼：把"前进"变成一个真实的取舍，而不是纯风险 */
   forwardBonus() {
-    return 1 + CFG.hero.fwdDamage * Math.max(0, this.player.z - CFG.zNear);
+    const raw = CFG.hero.fwdDamage * Math.max(0, this.player.z - CFG.zNear);
+    return 1 + Math.min(raw, CFG.hero.fwdDamageMax);
   }
 
   updateFiring(dt) {
@@ -1743,7 +1747,7 @@ export class Game {
     const big = this.sunSeq % S.bigEvery === 0; // 每 5 个来一个大的
     this.suns.push({
       x: rand(-0.72, 0.72) * this.cam.roadHalf,
-      z: this.player.z + rand(3.0, 8.5),
+      z: this.sunZ(),
       t: -delay,
       fall: 1.25,
       live: S.live,
@@ -1752,6 +1756,32 @@ export class Game {
       phase: rand(0, Math.PI * 2),
       dead: false,
     });
+  }
+
+  /**
+   * 阳光落在哪条 z 上。
+   *
+   * 【用户实测 bug】以前是 `player.z + rand(3.0, 8.5)`：英雄前后只能走
+   * 1.8 / 2.8 世界单位，阳光却落在 3 米开外，屏幕上明明看得见，走到最前面
+   * 还差着好几米 —— "阳光根本捡不到"。
+   *
+   * 现在只从 [英雄走得到的区间] 里挑点，并且离英雄至少 S.gap：
+   * 理想是落在前面 1.8~3.6，夹到边界变成"贴脸"时（人已经在最前面/最后面），
+   * 就改落在另一侧，保证每个阳光都要挪一两步才捡得到（走位 = 收益）。
+   */
+  sunZ() {
+    const S = CFG.pvz.sun;
+    const [zMin, zMax] = heroZRange();
+    const lo = zMin + 0.35;
+    const hi = zMax - 0.35;
+    const pl = this.player.z;
+    let z = clamp(pl + rand(S.aheadMin, S.aheadMax), lo, hi);
+    if (Math.abs(z - pl) < S.gap) {
+      // 夹完之后离人太近（站在区间两头就会这样）：掉到另一侧，逼你转身走两步
+      z = pl > (lo + hi) / 2 ? clamp(pl - rand(S.gap + 0.6, S.gap + 1.6), lo, hi)
+                             : clamp(pl + rand(S.gap + 0.6, S.gap + 1.6), lo, hi);
+    }
+    return z;
   }
 
   updateSuns(dt) {
@@ -1780,7 +1810,7 @@ export class Game {
 
       const dx = pl.x - s.x;
       const dz = pl.z - s.z;
-      if (Math.abs(dx) < 0.24 && Math.abs(dz) < 0.6) {
+      if (Math.abs(dx) < S.pickX && Math.abs(dz) < S.pickZ) {
         s.dead = true;
         const gain = S.charge * (s.big ? S.bigMul : 1) * this.sunMul;
         this.gainEnergy(gain);

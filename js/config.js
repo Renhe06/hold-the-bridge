@@ -34,7 +34,9 @@ export const CFG = {
     zFwd: 2.8, // 相对基准能前进多少世界单位
     dragZScale: 0.62, // 纵向拖动 → 前后位移的换算折扣（1 = 完全 1:1）
     // 越靠前伤害越高：给"前进"一个理由，也和"靠前更危险"形成取舍
-    fwdDamage: 0.07, // 每前进 1 世界单位的伤害加成（最多 +19.6%）
+    fwdDamage: 0.07, // 每前进 1 世界单位的伤害加成
+    fwdDamageMax: 0.196, // 加成封顶（= 第一关 2.8 × 0.07）。关卡可以给更宽的
+    //                     活动范围（见 levels[].roam），但站前排的收益不跟着膨胀
     hp: 4,
     iframe: 0.8, // 被咬后的无敌时间
   },
@@ -246,15 +248,25 @@ export const CFG = {
     // calm = 倒数喊完之后再留多久备战（这段时间里第一对奖励门滑到面前让你挑）
     alert: { alarm: 1.3, step: 0.75, calm: 2.6 },
     // 阳光：隔一会儿掉一个，落地后躺着等你走去捡（走位 = 收益）
+    // 【用户实测 bug】以前落点是"英雄当前位置 + 3.0~8.5"，而英雄前后只能走
+    // 1.8/2.8 —— 阳光落在走不到的地方，屏幕上看得见、走过去差着半米也捡不着。
+    // 现在落点先算"英雄走得到的那条 z 区间"（见 heroZRange），再夹进去。
     sun: {
       first: 3.0,
       every: 6.0,
       live: 16, // 躺多久消失
       drift: 0.22, // 左右飘的速度，别掉成一条直线
-      size: 0.085, // 画多大（世界单位）
+      size: 0.052, // 画多大（世界单位）。以前是 0.085：掉得远的时候看着还行，
+      //              现在阳光就掉在英雄脚边（近处 scale 更大），0.085 会画成一个
+      //              比英雄还大的太阳糊在屏幕上。捡的判定另算（pickX/pickZ）。
       charge: 12, // 捡到一个充多少能量
       bigEvery: 5, // 每 5 个里有一个大的
       bigMul: 1.7, // 大的画多大、充多少（倍率）
+      aheadMin: 1.8, // 落点理想上在英雄前面多远（下界）
+      aheadMax: 3.6, // 上界；超出活动范围就往回夹
+      gap: 1.0, // 至少离英雄这么远 —— 逼你挪两步，不许站着白捡
+      pickX: 0.28, // 弯腰捡的判定：左右各多少世界单位
+      pickZ: 0.8, // 前后各多少世界单位（手机上给宽一点，别让人怀疑人生）
     },
     // 弹道属性：走 e.slowT / e.burnT 那套现成机制（和升级里的液氮弹/燃烧弹同一套字段）
     ice: { slowMul: 0.45, time: 2.2, color: '#8fe8ff', glow: '#2aa8ff' },
@@ -382,6 +394,9 @@ export const CFG = {
       theme: 'lawn',
       skin: 'pvz', // 植物大战僵尸的僵尸种类 + 豌豆射手主角
       intro: 'dave', // 戴夫先喊一句「歪比巴布」，点掉之后走"警报 + 321"开场
+      // 草坪比桥上宽敞：前后活动范围放到 3.0 / 4.6，阳光掉下来才有得捡。
+      // （桥上那 1.8/2.8 是第一关调了很久的手感，别动它。）
+      roam: { zBack: 3.0, zFwd: 4.6 },
     },
   ],
   levelIndex: 0,
@@ -624,6 +639,20 @@ export function setLevel(idx) {
   CFG.level = CFG.levels[i];
   CFG.theme = CFG.themes[CFG.level.theme] || CFG.themes.city;
   return CFG.level;
+}
+
+/**
+ * 英雄能站的那条 z 区间 [zBack 端, zFwd 端]，供 updatePlayer 夹取、
+ * 也供"掉下来的阳光"算出走得到的落点。
+ *
+ * 关卡可以用 levels[].roam = { zBack, zFwd } 覆盖（草坪比桥上宽敞），
+ * 没写就用 CFG.hero 的通用值 —— 桥上那套是第一关调出来的手感。
+ */
+export function heroZRange() {
+  const r = (CFG.level && CFG.level.roam) || CFG.hero;
+  const back = r.zBack != null ? r.zBack : CFG.hero.zBack;
+  const fwd = r.zFwd != null ? r.zFwd : CFG.hero.zFwd;
+  return [CFG.zNear - back, CFG.zNear + fwd];
 }
 
 /**

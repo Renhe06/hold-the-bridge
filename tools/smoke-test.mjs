@@ -980,7 +980,7 @@ try {
 // -- 3f. 第三关「疯狂草坪」：戴夫开场 / 警报倒数 / 豌豆射手 / 阳光 / 樱桃炸弹 --
 // ---------------------------------------------------------
 try {
-  const { CFG: C3, setLevel: setLv3 } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
+  const { CFG: C3, setLevel: setLv3, heroZRange } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
   const mk3 = (kind, dz = 4) => {
     game.spawnEnemy(kind, 0, game.player.z + dz, 1);
     return game.enemies[game.enemies.length - 1];
@@ -1102,6 +1102,45 @@ try {
   game.updateSuns(0.016);
   ok(game.suns.length === 0, '走过去就自动把阳光捡了');
   ok(game.energy > 0, `捡到阳光加了能量（energy=${game.energy}）`);
+
+  // (g2) 阳光必须落在"走得到"的地方 —— 用户实测 bug 的回归测试。
+  // 以前落点是「英雄 z + 3.0~8.5」，而英雄最多往前走 2.8 世界单位，
+  // 于是阳光掉在走不到的位置上：屏幕上看得见、走到最前面还差好几米，等于白掉。
+  {
+    const [zMin, zMax] = heroZRange();
+    let inBand = true;
+    let minGap = Infinity;
+    for (const pz of [zMin, (zMin + zMax) / 2, zMax]) {
+      for (let i = 0; i < 30; i++) {
+        game.player.z = pz;
+        const z = game.sunZ();
+        if (z < zMin - 1e-9 || z > zMax + 1e-9) inBand = false;
+        minGap = Math.min(minGap, Math.abs(z - pz));
+      }
+    }
+    ok(inBand, `阳光都落在英雄活动范围 [${zMin.toFixed(1)}, ${zMax.toFixed(1)}] 之内`);
+    ok(minGap >= C3.pvz.sun.gap - 1e-9,
+      `阳光不会掉在脚边（最近 ${minGap.toFixed(2)} ≥ ${C3.pvz.sun.gap}，逼你挪两步）`);
+
+    // 落在范围内还不够 —— 得真的走得到、捡得着。专挑"人已经贴在范围最前面"
+    // 这种以前最惨的情况：连掉 12 个，每个都站上去捡，一个都不能漏。
+    let picked = 0;
+    for (let i = 0; i < 12; i++) {
+      game.player.z = zMax;
+      game.player.targetZ = zMax;
+      game.suns.length = 0;
+      game.sunT = 99; // 别让"自然掉落"在 updateSuns 里又塞一个进来
+      game.spawnSun();
+      const s = game.suns[0];
+      s.t = s.fall + 0.2; // 落地，进入能捡的阶段
+      game.energy = 0;
+      game.player.x = s.x;
+      game.player.z = Math.max(zMin, Math.min(zMax, s.z)); // 走过去
+      game.updateSuns(0.016);
+      if (game.energy > 0) picked++;
+    }
+    ok(picked === 12, `贴在活动范围最前面掉的阳光也捡得着（12/12）`);
+  }
 
   // (h) 樱桃炸弹：能量满了落在人堆中心，引信烧完炸开
   game.reset();
