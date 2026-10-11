@@ -935,7 +935,8 @@ try {
   }
   ok(oceanKinds.length === 7, `七种怪都换了海洋动物（walker=鱼/runner=鱿/brute=蟹/boss=鲨/spitter=河豚/shielded=龟/splitter=水母）`);
 
-  // (c) 奖励池：l2 专属（水雷/鱼雷）只在第二关出现
+  // (c) 奖励池：l2 专属（水雷/鱼雷/洋流/珊瑚/气泡）只在第二关出现
+  //     【m02685】"子弹伤害 +2"（深海弹头）与"子弹溅射"（高爆弹头）已从池子里删掉
   const drawGates = (n) => {
     const seen = new Set();
     for (let i = 0; i < n; i++) {
@@ -947,7 +948,7 @@ try {
     return seen;
   };
   const l2seen = drawGates(60);
-  ok(l2seen.has('mine') && l2seen.has('torpedo'), `第二关抽得到 l2 专属奖励（${[...l2seen].filter((x) => ['mine', 'torpedo', 'deepSea', 'current', 'coralArmor', 'bubbleShield'].includes(x)).join('/')}）`);
+  ok(l2seen.has('mine') && l2seen.has('torpedo'), `第二关抽得到 l2 专属奖励（${[...l2seen].filter((x) => ['mine', 'torpedo', 'current', 'coralArmor', 'bubbleShield'].includes(x)).join('/')}）`);
   setLv(0);
   const l1seen = drawGates(60);
   ok(!l1seen.has('mine') && !l1seen.has('torpedo') && !l1seen.has('deepSea'),
@@ -1150,8 +1151,12 @@ try {
   //      【m02633】第二颗（效果弹）只有正常豌豆 30% 的伤害
   {
     const { CFG: PZ, UPGRADES } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
-    ok(!UPGRADES.some((u) => u.id === 'pulse'), '奖励墙里已经把「过载脉冲」摘掉了（m02503 去掉脉冲 AOE）');
-    ok(!UPGRADES.some((u) => u.id === 'sunflower'), '奖励墙里也没有「阳光 +1」了（m02403）');
+    const removed = ['pulse', 'sunflower', 'splash', 'deepSea'];
+    ok(
+      removed.every((id) => !UPGRADES.some((u) => u.id === id)),
+      `奖励墙里已经摘掉这几条：${removed.join(' / ')}（脉冲 AOE、阳光 +1、子弹溅射、子弹伤害 +2）`
+    );
+    ok(UPGRADES.some((u) => u.id === 'damage' && u.apply.damage === 1), '子弹伤害只保留通用那条 +1（火力强化）');
 
     // 带属性那条吐两颗：第一颗普通、第二颗才带寒冰（且只有 30% 伤害）
     game.weapon.bullets = 1;

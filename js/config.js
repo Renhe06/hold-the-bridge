@@ -304,8 +304,8 @@ export const CFG = {
     fire: { dps: 1.6, time: 2.4, color: '#ff9a3c', glow: '#ff4d16' },
     // 【m02633】带属性的那条弹道"一发吐两颗"，但**第二颗（效果弹）只有 30% 伤害**。
     // 用户原话："把炎火/寒冰的那颗豆的攻击改为正常豆的30%，不然又无敌了"。
-    // 也就是说冰火是"多一份 30% 的火力 + 一份控制/持续伤害"，而不是直接翻倍 ——
-    // 冰火铺满（3 条变 5 颗、5 条变 9 颗）时总伤害是 ×1.6 左右，还是质变、但不再无敌。
+    // n 条弹道全带上属性 = 打出去 2n 颗（n 颗普通 + n 颗 30%），总伤害正好 ×1.3：
+    // 质变还是质变（多了减速/燃烧这份控制），但不再是"白送一倍火力"。
     laneDmgMul: 0.3,
     // 樱桃炸弹（大招）：比空袭的散弹大得多的一发，落在你点的地方
     cherry: {
@@ -508,7 +508,9 @@ export const WEAPON_TIERS = [
 
 // 哪些升级算作"攻击类"，用于推进武器质变
 // （iceLane/fireLane 是第三关给单条弹道加属性的，本质也是进攻手段，算进去）
-export const OFFENSIVE_KEYS = ['damage', 'rateMul', 'pierce', 'bullets', 'crit', 'critMul', 'bulletSpeedMul', 'splash', 'iceLane', 'fireLane'];
+// 【m02685】'splash'（高爆弹头）已从奖励墙删掉，这里也一并去掉；
+// 溅射机制本身还在 —— 它是武器质变自带的（等离子 0.035 / 毁灭者 0.06，见 WEAPON_TIERS）。
+export const OFFENSIVE_KEYS = ['damage', 'rateMul', 'pierce', 'bullets', 'crit', 'critMul', 'bulletSpeedMul', 'iceLane', 'fireLane'];
 
 // ---- 第三关：主角变身豌豆射手 ----
 // 用户 m02771 的原话是"弹道 +1 换双头豌豆射手，以此类推"，所以这里的档位
@@ -549,7 +551,9 @@ export const UPGRADES = [
   { id: 'bullets', name: '双管齐射', desc: '弹道 +1，同时射出多颗子弹', tag: '弹道', max: 4, op: '+', amt: '1', short: '弹道数', apply: { bullets: 1 } },
   { id: 'crit', name: '致命一击', desc: '暴击率 +12%', tag: '伤害', max: 6, op: '+', amt: '12%', short: '暴击率', apply: { crit: 0.12 } },
   { id: 'critMul', name: '破坏者', desc: '暴击伤害 +60%', tag: '伤害', max: 5, op: '+', amt: '60%', short: '暴击伤害', apply: { critMul: 0.6 } },
-  { id: 'splash', name: '高爆弹头', desc: '子弹附带溅射伤害', tag: '特效', max: 5, op: '+', amt: '范围', short: '溅射伤害', apply: { splash: 0.03 } },
+  // 【m02685】用户要求删掉"子弹溅射"（原 { id: 'splash', name: '高爆弹头',
+  // desc: '子弹附带溅射伤害', max: 5, apply: { splash: 0.03 } }）；
+  // splashDamage() 那套机制留着给武器质变用（等离子 / 毁灭者自带溅射）。
   { id: 'ice', name: '液氮弹', desc: '命中减速敌人 45%', tag: '特效', max: 2, op: '−', amt: '35%', short: '敌人速度', apply: { ice: 1 } },
   { id: 'burn', name: '燃烧弹', desc: '命中点燃敌人，持续掉血', tag: '特效', max: 4, op: '+', amt: '点燃', short: '持续伤害', apply: { burn: 1 } },
   { id: 'bulletSpeedMul', name: '高速弹药', desc: '子弹飞行速度 ×1.22', tag: '弹道', max: 4, op: '×', amt: '1.22', short: '子弹速度', apply: { bulletSpeedMul: 1.22 } },
@@ -566,7 +570,8 @@ export const UPGRADES = [
   // ---- 第二关专属（l2: true，只在"疯狂水世界"的奖励门里出现）----
   // 一部分是海洋味道的数值加成（比第一关更猛，因为海里的怪也更猛），
   // 一部分是本关独有的新玩法（水雷 / 气泡护盾）。
-  { id: 'deepSea', name: '深海弹头', desc: '子弹伤害 +2', tag: '伤害', max: 6, op: '+', amt: '2', short: '子弹伤害', apply: { damage: 2 }, l2: true },
+  // 【m02685】用户要求删掉"子弹伤害 +2"（原 { id: 'deepSea', name: '深海弹头',
+  // apply: { damage: 2 } }）—— 伤害只保留通用那条 +1（火力强化）。
   { id: 'current', name: '洋流加速', desc: '射速 ×1.25', tag: '射速', max: 5, op: '×', amt: '1.25', short: '射速', apply: { rateMul: 1.25 }, l2: true },
   { id: 'coralArmor', name: '珊瑚装甲', desc: '生命上限 +2，并回满生命', tag: '生存', max: 3, op: '+', amt: '2', short: '生命上限', apply: { maxHp: 2, healFull: true }, l2: true },
   { id: 'bubbleShield', name: '气泡护盾', desc: '每波开始时获得 2 层护盾', tag: '生存', max: 3, op: '+', amt: '2', short: '每波护盾', apply: { shieldPerWave: 2 }, l2: true },
