@@ -478,7 +478,8 @@ function syncState() {
       setText(el.startBest, 'sB', String(game.best));
       setText(el.startCoins, 'sC', String(game.coins));
       // 关卡入口显示进度（通关第一关后主界面能看出来第二关解锁了）
-      setText(el.menuLevelNote, 'mL', game.clearedLevel >= 1 ? '第二关 · 已解锁' : '第一关 · 15 波');
+      // 「关卡」那格的角标：点开是选关面板，所以这里只说到"能选几关"
+      setText(el.menuLevelNote, 'mL', game.clearedLevel >= 1 ? '第 1~2 关 可选' : '第 1 关 可打');
     }
 
     el.startOverlay.classList.toggle('show', st === STATE.START);
