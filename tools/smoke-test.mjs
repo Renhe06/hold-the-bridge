@@ -1015,7 +1015,7 @@ try {
 // -- 3f. 第三关「疯狂草坪」：戴夫开场 / 警报倒数 / 豌豆射手 / 阳光 / 樱桃炸弹 --
 // ---------------------------------------------------------
 try {
-  const { CFG: C3, setLevel: setLv3, heroZRange } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
+  const { CFG: C3, setLevel: setLv3, heroZRange, waveKind, waveTuning, specialWave } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
   const mk3 = (kind, dz = 4) => {
     game.spawnEnemy(kind, 0, game.player.z + dz, 1);
     return game.enemies[game.enemies.length - 1];
@@ -1511,9 +1511,10 @@ try {
       `血条写着第二形态：${renderer.bossBar && renderer.bossBar.label}`
     );
 
-    // 难度 +30%：同一只怪，第三关的血量正好是第一关的 diff 倍
+    // 难度：同一只怪，第三关的血量正好是第一关的"关卡 diff 之比"
     //（双方都清掉波次词条，不然词条自带的 hpMul 会混进倍率里；
-    //  波次取第 10 波、拿巨人比 —— 第 1 波的 baseHp 是个位数，四舍五入会让倍率失真）
+    //  波次取第 10 波、拿巨人比 —— 第 1 波的 baseHp 是个位数，四舍五入会让倍率失真；
+    //  第 10 波两关都是割草槽，波型倍率一样，正好抵消）
     game.reset();
     setLv3(2);
     game.wave = 10;
@@ -1526,9 +1527,10 @@ try {
     game.mod = null;
     game.enemies.length = 0;
     const w1 = mk3('brute', 6);
+    const diffRatio = C3.levels[2].diff / C3.levels[0].diff;
     ok(
-      Math.abs(hp3 / w1.maxHp - C3.levels[2].diff) < 0.02,
-      `第三关整体加难：巨人血量 ×${(hp3 / w1.maxHp).toFixed(2)}（配置 ${C3.levels[2].diff}；${hp3} / ${w1.maxHp}）`
+      Math.abs(hp3 / w1.maxHp - diffRatio) < 0.02,
+      `第三关整体比第一关难：巨人血量 ×${(hp3 / w1.maxHp).toFixed(2)}（配置 diff ${C3.levels[0].diff} → ${C3.levels[2].diff}；${hp3} / ${w1.maxHp}）`
     );
 
     // ---- 【m02762】每波血量复利 +2% ----
@@ -1572,19 +1574,161 @@ try {
       `第 15 波的人海仍然一枪一个（hp=${lateHorde[0] && lateHorde[0].hp}，${lateHorde.length} 只）`
     );
 
-    // ---- 【m02762】第三关出怪量每波缓慢递增（不卡在全局上限 26 上）----
-    game.mod = null;
-    setLv3(2);
-    const count3 = [10, 12, 15].map((w) => game.waveCount(w));
-    setLv3(0);
-    const count1 = [10, 15].map((w) => game.waveCount(w));
+    // ---- 波次节奏：2 波割草 + 1 波紧张 ----
+    const kinds = [];
+    for (let w = 1; w <= 15; w++) kinds.push(waveKind(w));
+    const tenseWaves = [];
+    const mowWaves = [];
+    kinds.forEach((k, i) => (k === 'tense' ? tenseWaves : mowWaves).push(i + 1));
     ok(
-      count3[0] < count3[1] && count3[1] < count3[2],
-      `第三关出怪量每波都在涨（第 10/12/15 波 = ${count3.join(' / ')} 只）`
+      tenseWaves.join(',') === '3,6,9,12,15' && mowWaves.length === 10,
+      `波型真的按 2 割草 + 1 紧张循环（割草 ${mowWaves.length} 波、紧张第 ${tenseWaves.join('/')} 波）`
     );
     ok(
-      count3[2] > count1[1],
-      `第三关最后一波比第一关多（${count3[2]} vs ${count1[1]} 只）`
+      mowWaves.includes(5) && mowWaves.includes(10),
+      `第 5 / 10 波的人海正好落在割草槽里（超级割草：第 ${mowWaves.filter((w) => w % 5 === 0).join('/')} 波）`
+    );
+    // 割草 vs 紧张：同一个关卡，割草一定"更多、更脆、来得更快"，紧张"少而厚、慢慢压"
+    game.mod = null;
+    setLv3(2);
+    const mowC11 = game.waveCount(11);
+    const tenseC12 = game.waveCount(12);
+    game.wave = 11;
+    game.enemies.length = 0;
+    const hpMow = mk3('walker', 4).maxHp;
+    game.wave = 12;
+    game.enemies.length = 0;
+    const hpTense = mk3('walker', 4).maxHp;
+    const T3 = C3.wave;
+    ok(mowC11 > tenseC12, `割草波比紧张波多（第 11 波 ${mowC11} 只 vs 第 12 波 ${tenseC12} 只）`);
+    ok(
+      hpTense > hpMow,
+      `紧张波的怪比割草波厚（第 12 波 ${hpTense} 血 vs 第 11 波 ${hpMow} 血；割草 ×${T3.mow.hpMul} / 紧张 ×${T3.tense.hpMul}）`
+    );
+    ok(
+      T3.mow.gapMul < 1 && T3.tense.gapMul > 1 && T3.mow.prep < T3.tense.prep,
+      `割草来得快、紧张慢慢压（出怪间隔 ×${T3.mow.gapMul} vs ×${T3.tense.gapMul}，备战 ${T3.mow.prep}s vs ${T3.tense.prep}s）`
+    );
+
+    // 精英只在紧张波出场：那一波多一只血厚、体型大、分高的"领队"
+    game.mod = null;
+    setLv3(0);
+    game.enemies.length = 0;
+    game.spawnQueue.length = 0;
+    game.wave = 11;
+    game.startWave(); // → 第 12 波（紧张）
+    const elites12 = game.enemies.filter((e) => e.elite);
+    ok(elites12.length === 1, `紧张波（第 ${game.wave} 波）带队一只精英（场上 ${elites12.length} 只）`);
+    ok(
+      elites12[0] && elites12[0].size > C3.kinds[elites12[0].kind].size && elites12[0].score > C3.kinds[elites12[0].kind].score,
+      `精英更大只、分更高（${elites12[0] && elites12[0].kind}：size ${C3.kinds[elites12[0].kind].size} → ${elites12[0] && elites12[0].size.toFixed(2)}，分 ×${T3.tense.eliteScoreMul}）`
+    );
+    ok(
+      game.waveTag && /精\s*英/.test(game.waveTag.text),
+      `紧张波的横幅写着精英波：${game.waveTag && game.waveTag.text} / ${game.waveTag && game.waveTag.desc}`
+    );
+    game.enemies.length = 0;
+    game.spawnQueue.length = 0;
+    game.wave = 10;
+    game.startWave(); // → 第 11 波（割草）
+    ok(
+      game.enemies.filter((e) => e.elite).length === 0,
+      `割草波不带队精英（第 ${game.wave} 波场上 ${game.enemies.length} 只，精英 0 只）`
+    );
+    ok(
+      game.waveTag && /割\s*草/.test(game.waveTag.text),
+      `割草波的横幅写着割草波：${game.waveTag && game.waveTag.text} / ${game.waveTag && game.waveTag.desc}`
+    );
+
+    // 精英的种类按波次升级（eliteLadder）：前期的紧张波只派个跑得快的，
+    // 巨人精英留到第 9 波 —— 不然第 6 波就被一只巨人顶在脸上，前期直接变墙。
+    game.enemies.length = 0;
+    game.spawnQueue.length = 0;
+    game.wave = 5;
+    game.startWave(); // → 第 6 波（紧张）
+    const elite6 = game.enemies.find((e) => e.elite);
+    game.enemies.length = 0;
+    game.spawnQueue.length = 0;
+    game.wave = 8;
+    game.startWave(); // → 第 9 波（紧张）
+    const elite9 = game.enemies.find((e) => e.elite);
+    ok(
+      !!elite6 && !!elite9 && elite6.kind !== elite9.kind && elite9.kind === 'brute',
+      `精英的种类按波次升级（第 6 波带队的是 ${elite6 && elite6.kind}，第 9 波起换成 ${elite9 && elite9.kind}）`
+    );
+
+    // 关卡专属大场面：第 8 / 13 波各是一场有名字的戏（第一关 = 狂奔潮 / 迷雾压桥）
+    setLv3(0);
+    game.mod = null;
+    game.enemies.length = 0;
+    game.spawnQueue.length = 0;
+    game.wave = 7;
+    game.startWave(); // → 第 8 波「狂奔潮」
+    const q8 = game.spawnQueue.slice();
+    ok(
+      q8.length > 0 && q8.every((k) => k === 'runner'),
+      `第 8 波「狂奔潮」全员狂奔（${q8.length} 只全是 runner）`
+    );
+    ok(
+      game.waveTag && game.waveTag.text === '狂奔潮' && !!game.waveTag.desc,
+      `横幅报出专属波名与说明：${game.waveTag && game.waveTag.text} · ${game.waveTag && game.waveTag.desc}`
+    );
+    game.enemies.length = 0;
+    game.spawnQueue.length = 0;
+    game.wave = 12;
+    game.startWave(); // → 第 13 波「迷雾压桥」
+    ok(game.fogMul > 1.4, `第 13 波「迷雾压桥」把能见度压下去（fogMul ${game.fogMul}）`);
+    ok(
+      game.waveTag && game.waveTag.text === '迷雾压桥',
+      `第 13 波的横幅：${game.waveTag && game.waveTag.text} · ${game.waveTag && game.waveTag.desc}`
+    );
+
+    // 前两关原来一样软（探针里前四波逐字相同）：现在按"血 × 人数"的综合压力一关比一关硬
+    setLv3(0);
+    const diff1 = C3.level.diff;
+    const cd1 = C3.level.countDiff;
+    const press1 = diff1 * cd1;
+    setLv3(1);
+    const diff2 = C3.level.diff;
+    const cd2 = C3.level.countDiff;
+    const press2 = diff2 * cd2;
+    setLv3(2);
+    const press3 = C3.level.diff * C3.level.countDiff;
+    ok(
+      diff1 > 1 && press2 > press1 && press3 > press2,
+      `难度一关比一关硬（综合压力 第一关 ×${press1.toFixed(2)} → 第二关 ×${press2.toFixed(2)} → 第三关 ×${press3.toFixed(2)}；血 diff ${diff1} / ${diff2}，人数 ×${cd1} / ×${cd2}）`
+    );
+    setLv3(2);
+    game.mod = null;
+    const c3w1 = game.waveCount(1);
+    const first3 = C3.level.firstCount;
+    setLv3(0);
+    game.mod = null;
+    const c1w1 = game.waveCount(1);
+    ok(
+      first3 > C3.wave.firstCount && c3w1 > c1w1,
+      `第三关第一波就比第一关厚（配置 firstCount ${first3} vs 全局 ${C3.wave.firstCount}；第 1 波 ${c3w1} 只 vs ${c1w1} 只）`
+    );
+
+    // ---- 【m02762】第三关出怪量每波缓慢递增（不卡在全局上限 26 上）----
+    // 波型会让相邻两波忽多忽少（割草 ×1.45 / 紧张 ×0.78）：要比就比同波型的几波 ——
+    // 割草取第 7 / 11 / 14 波（避开第 8 / 13 波的专属大场面），紧张取第 9 / 12 / 15 波。
+    game.mod = null;
+    setLv3(2);
+    const mowCount3 = [7, 11, 14].map((w) => game.waveCount(w));
+    const tenseCount3 = [9, 12, 15].map((w) => game.waveCount(w));
+    setLv3(0);
+    const mowCount1 = [7, 11, 14].map((w) => game.waveCount(w));
+    ok(
+      mowCount3[0] < mowCount3[1] &&
+        mowCount3[1] < mowCount3[2] &&
+        tenseCount3[0] < tenseCount3[1] &&
+        tenseCount3[1] < tenseCount3[2],
+      `第三关出怪量每波都在涨（割草第 7/11/14 波 = ${mowCount3.join(' / ')} 只；紧张第 9/12/15 波 = ${tenseCount3.join(' / ')} 只）`
+    );
+    ok(
+      mowCount3[2] > mowCount1[2],
+      `第三关最后一波（割草槽第 14 波）比第一关多（${mowCount3[2]} vs ${mowCount1[2]} 只）`
     );
   }
 

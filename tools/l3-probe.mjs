@@ -2,7 +2,7 @@
 //  关卡试玩机器人：让"会闪避的机器人"从头打到通（或被打死），
 //  用来量"难度调完到底还能不能打" —— 冒烟测试只验机制，验不了手感。
 //
-//  用法：node tools/l3-probe.mjs [关卡号=3] [分钟上限=7]
+//  用法：node tools/l3-probe.mjs [关卡号=3] [分钟上限=7] [随机种子=20261011]
 //  例子：node tools/l3-probe.mjs 3 8     第三关打 8 分钟
 //
 //  跑法跟 smoke-test.mjs 保持一致：50ms 一步、定种 RNG，
@@ -16,8 +16,10 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LEVEL = Math.max(1, Math.min(10, +(process.argv[2] || 3)));
 const MINUTES = Math.max(1, Math.min(30, +(process.argv[3] || 7)));
 
-// 定种 RNG：同一关每次跑出来的成绩可比（不然难度改了也不知道是谁的功劳）
-let seed = 20261011 >>> 0;
+// 定种 RNG：同一关 + 同一种子每次跑出来的成绩可比。换第 4 个参数就能抽样 ——
+// 单看一个种子会被"蝴蝶效应"带偏（改一点点出怪数，后面的奖励抽取全跟着变）。
+let seed = (+(process.argv[4] || 20261011)) >>> 0;
+const SEED = seed;
 Math.random = () => {
   seed = (seed + 0x6d2b79f5) >>> 0;
   let t = seed;
@@ -90,7 +92,7 @@ function botTargetX() {
 // ---- 开打 ----
 console.log(`== 试玩：第 ${LEVEL} 关「${lv.name}」==`);
 console.log(`   难度：diff ${lv.diff || 1} × 出怪 ${lv.countDiff || 1}` +
-  `${lv.bossEvolve ? ' · BOSS 会进化' : ''} | 上限 ${MINUTES} 分钟\n`);
+  `${lv.bossEvolve ? ' · BOSS 会进化' : ''} | 上限 ${MINUTES} 分钟 | 种子 ${SEED}\n`);
 
 game.beginLevel(LEVEL - 1);
 game.releaseTalk();

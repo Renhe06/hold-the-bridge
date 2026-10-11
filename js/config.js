@@ -101,7 +101,42 @@ export const CFG = {
     // 所以从这一版起 BOSS 只在关卡最后一波（第 15 波）出场，中间两次只来人海。
     // 判定统一走下面的 isHordeWave() / isBossWave()，别再各自算 % 5。
     hordeEvery: 5,
-    prepTime: 2.4, // 波次之间的备战时间
+    // ---- 波次节奏：2 波割草 + 1 波紧张 ----
+    // cycle[(w-1) % 3]：mow = 割草波（多、脆、来得快，抬手就是一梭子扫倒一片），
+    // tense = 紧张波（数量少但每只都厚，还带队一只精英，逼你走位 + 集中火力）。
+    // 算一下落点：紧张波 = 第 3 / 6 / 9 / 12 / 15 波；
+    // 人海波（第 5 / 10 波）正好落在割草槽里（(5-1)%3=1、(10-1)%3=0）=
+    // "超级割草"；第 15 波既是紧张槽也是 BOSS 波 —— 节奏是"扫两波、紧一下"的循环。
+    // 另外词条"每 3 波来一个"（modEvery 3 / modPhase 2），落在每组的第二波上：
+    //   第 2 波 割草+词条 → 第 3 波 紧张 → 第 5/6、8/9 … 一组组往上推。
+    // 故意不和紧张波叠：词条的血量倍率压在紧张波的血量倍率上，第 3 波会直接打不动。
+    cycle: ['mow', 'mow', 'tense'],
+    mow: {
+      label: '割草波',
+      countMul: 1.45, // 数量更多：屏幕上得有一片才叫割草
+      hpMul: 0.6, // 更脆：一枪一个才有扫射的爽感
+      gapMul: 0.72, // 出得更快，成群压过来
+      specialMul: 0.3, // 铁桶 / 吐酸 / 巨人 / 分裂者少出，专心扫小兵
+      prep: 1.7, // 备战短，节奏别断
+    },
+    tense: {
+      label: '精英波',
+      countMul: 0.72, // 数量少（紧张波是"质"的尖峰，不是"量"的尖峰）
+      hpMul: 1.4, // 但每只都厚（1.5 时紧张波太像一堵墙，收一点）
+      gapMul: 1.3, // 慢慢来，持续施压
+      speedMul: 1.08, // 跑得更急
+      specialMul: 2.4, // 精英混编：铁桶 / 吐酸 / 巨人 / 分裂者都来
+      prep: 3.0, // 给你 3 秒喘口气、想清楚站位
+      // 带队的那只"精英"：血厚、体型大、分高，脚下一圈金环
+      eliteHpMul: 1.9,
+      eliteSizeMul: 1.18,
+      eliteScoreMul: 3,
+      // 精英的种类跟着波次升级（前三组的紧张波只派个跑得快的）：
+      // 第 6 波就塞一只巨人精英的话，玩家手里只有两三个奖励，抽样里一半的局
+      // 都死在第 6 波 —— 巨人精英留到第 9 波（也就是第三组）才出场。
+      eliteLadder: [[9, 'brute'], [0, 'runner']],
+    },
+    prepTime: 2.4, // 波次之间的备战时间（割草/紧张各有各的 prep，见上面两块）
     zombieSpeed: 6.4,
     speedPerWave: 0.13,
     speedPerWaveMax: 2.4,
@@ -416,8 +451,14 @@ export const CFG = {
   ],
 
   // ---- 波次词条 ----
-  // 每 modEvery 波给这一波加一个随机词条，让每一局的中段节奏都不一样
+  // 每隔 modEvery 波给这一波加一个随机词条，让每一局的中段节奏都不一样。
+  // modPhase 决定落在"第几波"：w % modEvery === modPhase。
+  // 取 2 是有意的 —— 波型是"割草 / 割草+词条 / 紧张"的三波一组（见 CFG.wave.cycle）：
+  //   第 1 波 割草（轻松上手）→ 第 2 波 割草 + 词条（有花样）→ 第 3 波 紧张（精英带队）
+  // 词条绝不和紧张波叠在一起：像"厚皮"（血 ×1.6）压在紧张波（血 ×1.5）上就是 ×2.4，
+  // 第 3 波那种时候玩家手里只有两三个奖励，直接打不动（冒烟里的机器人当场阵亡）。
   modEvery: 3,
+  modPhase: 2,
   mods: [
     { id: 'rage', name: '狂暴', desc: '丧尸速度 +25%', color: '#ff7a5c', speedMul: 1.25, scoreMul: 1.25 },
     { id: 'thick', name: '厚皮', desc: '丧尸血量 +60%', color: '#ffd166', hpMul: 1.6, scoreMul: 1.4 },
@@ -445,6 +486,17 @@ export const CFG = {
       coinRatio: 0.08, // 得分 × 8% = 金币（4000 分 → 320 金币）
       theme: 'city',
       skin: null, // 城市丧尸 + 蓝衣英雄
+      // 第一关是新手关（原来 diff 1、出怪不加倍）：打起来像散步，探针机器人
+      // 全程 0 掉血。加上波次节奏之后血只轻推一点、人数推多一点（人多才有被围住的
+      // 压力）—— diff 打在每只怪的血上、countDiff 打在每波出怪数上。
+      diff: 1.15,
+      countDiff: 1.18,
+      // 关卡专属"大场面"：第 8 / 13 波本来是割草槽，这里换成有名字的两场戏。
+      // 一关里两次"这一波不一样"的高光，横幅会报出名字与说明。
+      specialWaves: {
+        8: { label: '狂奔潮', desc: '全员狂奔 · 别让它们贴脸', kind: 'runner', countMul: 1.3, color: '#7dffcf' },
+        13: { label: '迷雾压桥', desc: '浓雾压桥 · 只能看清眼前', fog: 1.7, color: '#c86bff' },
+      },
     },
     {
       id: 2,
@@ -455,6 +507,16 @@ export const CFG = {
       theme: 'water',
       skin: 'ocean', // 海洋动物化的丧尸 + 图片人物主角
       intro: true, // 进来先播一段进场对话（STATE.TALK），点「疯狂水世界 · 启动！」才开打
+      // 原来第二关只是"第一关换张皮"：探针里前四波的用时与击杀数和第一关逐字相同、
+      // 也照样 0 掉血。这里比第一关硬一档（但别追平第三关：第二关的奖励池被 5 条
+      // 专属奖励稀释，火力天然弱一截）—— diff 1.2 打在血上、countDiff 1.15 打在人数上。
+      diff: 1.2,
+      countDiff: 1.15,
+      // 第二关专属大场面：鲨鱼（巨人）群 + 酸液潮（吐酸者）—— 都跟"水"有关
+      specialWaves: {
+        8: { label: '鲨鱼群', desc: '巨人鲨成群 · 皮糙肉厚', kind: 'brute', countMul: 0.7, color: '#7fd8ff' },
+        13: { label: '酸液潮', desc: '远程齐射 · 别站着不动', kind: 'spitter', countMul: 0.9, color: '#a6ff6b' },
+      },
     },
     {
       // 用户 m02771：第三关做植物大战僵尸风格 —— 戴夫开场、警报 + 321 倒计时、
@@ -477,12 +539,21 @@ export const CFG = {
       // 【用户 m02762】"第三关每一波难度应该是缓慢递增的，僵尸数量增加"。
       // 原来出怪量走全局的 countPerWave 2 / maxCount 26：第 12 波就顶到上限、
       // 后面只剩血量在涨（玩到后期又变无敌）。第三关单独放宽两处：
-      //   countPerWave   每波多 2.6 只（全局 2）
-      //   countMaxPerWave 单波上限也跟着每波 +0.5（26 → 第 15 波 33），
+      //   countPerWave   每波多 2.2 只（全局 2）
+      //   countMaxPerWave 单波上限也跟着每波 +0.4（26 → 第 15 波 31.6），
       //                   所以到最后一波还在慢慢加人，不会卡在上限上。
-      // 最终同屏出怪量 = min(上限, 5 + (w-1)×2.6) × countDiff 1.15 ≈ 第 15 波 38。
-      countPerWave: 2.6,
-      countMaxPerWave: 0.5,
+      // 每波出怪量（含第一波：firstCount 8，前五波也是硬的）先算
+      //   min(上限, 8 + (w-1)×2.2)
+      // 再乘波型倍率（割草 ×1.45 / 紧张 ×0.72，见 CFG.wave.mow / tense），
+      // 最后乘 countDiff 1.15 —— 第 1 波 ≈ 13 只、第 15 波 ≈ 44 只。
+      firstCount: 8, // 第三关第一波就该是硬的（原来走全局 5，前五波太软）
+      countPerWave: 2.2,
+      countMaxPerWave: 0.3,
+      // 第三关专属大场面：铁桶潮（全员铁桶）+ 巨人潮（巨人成群）
+      specialWaves: {
+        8: { label: '铁桶潮', desc: '全员铁桶 · 先破盾再打', kind: 'shielded', countMul: 1.15, color: '#c9d6e6' },
+        13: { label: '巨人潮', desc: '巨人成群 · 火力拉满', kind: 'brute', countMul: 0.85, color: '#ff9f5a' },
+      },
       // 【用户 m02128】第三关的 BOSS 走得太磨蹭（从出场到停线要十几秒，
       // 玩家一边等它一边把小兵清完了）。1.45 倍：两种形态都快起来，
       // 博士自己还额外吃 boss2.speedMul（见 spawnEnemy / evolveBoss）。
@@ -512,6 +583,15 @@ export const isHordeWave = (w) => w > 0 && w % CFG.wave.hordeEvery === 0;
 // BOSS 波：只在每一关的最后一波出场（第一关 = 第 15 波）。清完这一波就结算通关，
 // 所以"最后来一只大的"这件事刚好成立；第 5 / 10 波只来人海，不再夹带 BOSS。
 export const isBossWave = (w) => w > 0 && w % CFG.level.waves === 0;
+
+// ---- 波次节奏：2 波割草 + 1 波紧张（见 CFG.wave.cycle / mow / tense）----
+// 波型判定同样只留这一处出口，game.js / render.js / 探针都读它，别再各自取模。
+export const waveKind = (w) => CFG.wave.cycle[(Math.max(1, w | 0) - 1) % CFG.wave.cycle.length];
+// 这一波的波型参数块（割草 / 紧张）：数量、血量、出怪间隔、特殊怪概率、备战时间。
+export const waveTuning = (w) => CFG.wave[waveKind(w)] || null;
+// 关卡专属"大场面"（levels[i].specialWaves = { 8: {...}, 13: {...} }）；
+// 没配的关卡返回 null，一切照旧走波型。
+export const specialWave = (w) => ((CFG.level && CFG.level.specialWaves) || {})[w] || null;
 
 // 武器质变阶梯：按"攻击类升级"累计点数解锁，纯视觉 + 轻微加成
 export const WEAPON_TIERS = [

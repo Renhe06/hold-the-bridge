@@ -1188,9 +1188,9 @@ export class Renderer {
     if (fade <= 0.02) return;
 
     if (H < 1.6) {
-      // 太远：画一个小点，省性能也避免糊成一团
+      // 太远：画一个小点，省性能也避免糊成一团（精英的点是金的，远远就能认出来）
       ctx.globalAlpha = fade * 0.75;
-      this._drawGlow(p.x, p.y - H * 0.5, Math.max(0.9, H * 0.7), '#ff5a3c', 0.6);
+      this._drawGlow(p.x, p.y - H * 0.5, Math.max(0.9, H * 0.7), e.elite ? '#ffd666' : '#ff5a3c', 0.6);
       ctx.globalAlpha = 1;
       return;
     }
@@ -1222,6 +1222,18 @@ export class Renderer {
     ctx.beginPath();
     ctx.ellipse(p.x, p.y, H * 0.27 * v, H * 0.085, 0, 0, TAU);
     ctx.fill();
+
+    // 紧张波的"领队精英"（game.spawnElite）：脚下一圈脉动的金环 + 头顶一道金光。
+    // 一屏尸群里必须一眼认出"这只得先打"，所以用金色（和红色预警、白色受击都区分得开）。
+    if (e.elite) {
+      const puls = 0.5 + 0.5 * Math.sin(e.phase * 2.4 + (this.game ? this.game.time : 0) * 5);
+      ctx.strokeStyle = `rgba(255,214,102,${(0.55 + 0.35 * puls) * fade})`;
+      ctx.lineWidth = Math.max(2, H * 0.022);
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, H * (0.33 + 0.025 * puls) * v, H * (0.115 + 0.008 * puls), 0, 0, TAU);
+      ctx.stroke();
+      this._drawGlow(p.x, p.y - H * 0.52, H * 0.3, '#ffd666', (0.3 + 0.16 * puls) * fade);
+    }
 
     ctx.translate(p.x, p.y);
 
@@ -2750,8 +2762,24 @@ export class Renderer {
       ctx.fillStyle = bossWave ? '#ff5a4a' : hordeWave ? '#8bf58b' : '#ffe9a8';
       ctx.fillText(txt, w / 2, yy);
       let subY = yy + w * 0.08;
-      // BOSS 只在最后一波；第 5/10 波只来人海，横幅要说清楚区别
-      if (bossWave) {
+      // 副标题直接读 game.waveTag（在 startWave 里按"这一波是什么"算好的）：
+      // BOSS / 专属大场面（带名字和说明）/ 人海 / 精英波 / 割草波。
+      // 没有 waveTag 时（老存档 / 测试桩）退回原来的按波数判断。
+      const tag = game.waveTag;
+      if (tag) {
+        ctx.font = `700 ${Math.round(w * 0.05)}px ${FONT}`;
+        ctx.strokeText(tag.text, w / 2, subY);
+        ctx.fillStyle = tag.color || '#ffe9a8';
+        ctx.fillText(tag.text, w / 2, subY);
+        subY += w * 0.07;
+        if (tag.desc) {
+          ctx.font = `600 ${Math.round(w * 0.04)}px ${FONT}`;
+          ctx.strokeText(tag.desc, w / 2, subY);
+          ctx.fillStyle = 'rgba(232,238,246,0.92)';
+          ctx.fillText(tag.desc, w / 2, subY);
+          subY += w * 0.058;
+        }
+      } else if (bossWave) {
         ctx.font = `700 ${Math.round(w * 0.05)}px ${FONT}`;
         ctx.strokeText('BOSS 来袭', w / 2, subY);
         ctx.fillText('BOSS 来袭', w / 2, subY);

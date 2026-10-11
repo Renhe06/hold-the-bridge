@@ -12,7 +12,7 @@
 //   3. 僵尸体型整体放大一档
 // ============================================================
 
-import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave, setLevel, findLevel, isPvz, pvzPlant, heroZRange } from './config.js';
+import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, pvzPlant, heroZRange } from './config.js';
 import { clamp, rand, pickWeighted } from './util.js';
 
 export const STATE = {
@@ -49,6 +49,9 @@ export class Game {
     this.spawnQueue = [];
     this.spawnT = 0;
     this.spawnGap = CFG.wave.spawnGap;
+    // 波型（割草 / 紧张）挂在本波上的临时倍率与横幅文案，见 startWave
+    this.waveSpeedMul = 1;
+    this.waveTag = null;
     this.enemies = [];
     this.bullets = [];
     this.particles = [];
@@ -391,10 +394,18 @@ export class Game {
     this.wave += 1;
     const w = this.wave;
 
-    // 每 modEvery 波来一个词条：让每一局的中段节奏都不一样
-    this.mod = w % CFG.modEvery === 0 ? this.rollMod() : null;
-    this.fogMul = this.mod && this.mod.fog ? this.mod.fog : 1;
+    // 每 modEvery 波来一个词条（落在每组的第二波上：w % 3 === 2，见 config 的 modPhase）
+    this.mod = w % CFG.modEvery === CFG.modPhase ? this.rollMod() : null;
     const M = this.mod;
+
+    // ---- 波型：2 波割草 + 1 波紧张（见 CFG.wave.cycle / mow / tense）----
+    // 紧张波落在第 3 / 6 / 9 / 12 / 15 波；词条压在前一波（第 2 / 5 / 8 / 11 / 14 波），
+    // 所以三波一组的节奏是"扫草 → 有花样 → 精英带队"。
+    const kindName = waveKind(w);
+    const T = waveTuning(w); // 这一波的波型参数块（割草 / 紧张）
+    const S = specialWave(w); // 关卡专属大场面（第 8 / 13 波）
+    // 浓雾：词条"血月浓雾"与第一关专属的"迷雾压桥"都压能见度
+    this.fogMul = (S && S.fog) || (M && M.fog) || 1;
 
     let count = this.waveCount(w);
 
@@ -405,30 +416,39 @@ export class Game {
     // 人海波另外铺一片人海（spawnHorde），所以常规出怪砍到三分之一
     if (hordeWave) count = Math.max(3, Math.round(count * CFG.bossHorde.queueMul));
 
+    // 特殊怪的概率倍率：割草波少出（专心扫小兵）、紧张波多出（精英混编）
+    const sm = (T && T.specialMul) || 1;
     const queue = [];
     for (let i = 0; i < count; i++) {
       let kind = 'walker';
-      if (M && M.allRunner) {
+      if (S && S.kind) {
+        // 专属大场面：这一波就是同一种怪（狂奔潮 / 鲨鱼群 / 铁桶潮…）
+        kind = S.kind;
+      } else if (M && M.allRunner) {
         // 词条"疾行者"：几乎全是跑步的，节奏立刻变快
         kind = w >= CFG.bruteFrom && Math.random() < 0.14 ? 'brute' : 'runner';
       } else {
         if (w >= CFG.runnerFrom && Math.random() < Math.min(0.4, 0.1 + w * 0.02)) kind = 'runner';
-        if (w >= CFG.bruteFrom && Math.random() < Math.min(0.26, 0.05 + w * 0.015)) kind = 'brute';
-        if (w >= CFG.spitterFrom && Math.random() < 0.13) kind = 'spitter';
-        if (w >= CFG.shieldedFrom && Math.random() < 0.13) kind = 'shielded';
-        if (w >= CFG.splitterFrom && Math.random() < 0.11) kind = 'splitter';
+        if (w >= CFG.bruteFrom && Math.random() < Math.min(0.5, Math.min(0.26, 0.05 + w * 0.015) * sm)) kind = 'brute';
+        if (w >= CFG.spitterFrom && Math.random() < Math.min(0.5, 0.13 * sm)) kind = 'spitter';
+        if (w >= CFG.shieldedFrom && Math.random() < Math.min(0.5, 0.13 * sm)) kind = 'shielded';
+        if (w >= CFG.splitterFrom && Math.random() < Math.min(0.5, 0.11 * sm)) kind = 'splitter';
       }
       queue.push(kind);
     }
     // 特殊怪保证有戏份：该出场之后的每一波至少来一只
-    if (w >= CFG.spitterFrom && !queue.includes('spitter')) queue.push('spitter');
-    if (w >= CFG.splitterFrom && !queue.includes('splitter')) queue.push('splitter');
+    // （专属大场面那一波本来就只有一种怪，不加"保底"）
+    if (!S && w >= CFG.spitterFrom && !queue.includes('spitter')) queue.push('spitter');
+    if (!S && w >= CFG.splitterFrom && !queue.includes('splitter')) queue.push('splitter');
 
     // BOSS 不走常规出怪队列：它和人海同一帧出场（见下面 spawnHorde），
     // 所以这里不再 queue.push('boss')
     this.spawnQueue = queue;
     this.spawnT = 0;
-    this.spawnGap = Math.max(W.spawnGapMin, W.spawnGap - (w - 1) * W.spawnGapDecay);
+    // 出怪间隔：基础值随波次缩短，再乘波型倍率（割草来得更快、紧张慢慢压）
+    this.spawnGap = Math.max(W.spawnGapMin, W.spawnGap - (w - 1) * W.spawnGapDecay) * ((T && T.gapMul) || 1);
+    // 波型的速度倍率（紧张波 1.08：跑得更急），spawnEnemy 里统一乘上
+    this.waveSpeedMul = ((T && T.speedMul) || 1) * ((S && S.speedMul) || 1);
 
     if (this.player.shieldPerWave > 0) {
       this.player.shield = Math.min(6, this.player.shield + this.player.shieldPerWave);
@@ -446,6 +466,17 @@ export class Game {
     this.state = STATE.FIGHT;
     this.waveBanner = bossWave ? 2.8 : hordeWave ? 2.5 : M ? 2.4 : 2.2;
     this.pulseT = CFG.weapon.pulseInterval;
+    // 横幅副标题：一句话说清"这一波是什么"（BOSS / 专属大场面 / 人海 / 精英 / 割草），
+    // render 只负责照着画，不再自己按波数判断
+    this.waveTag = bossWave
+      ? { text: 'BOSS 来袭', color: '#ff5a4a' }
+      : S
+        ? { text: S.label, desc: S.desc, color: S.color || '#ffd166' }
+        : hordeWave
+          ? { text: '尸 潮 来 袭', color: '#8bf58b' }
+          : kindName === 'tense'
+            ? { text: '精 英 波', desc: '皮厚一倍 · 带队一只精英', color: '#ffd166' }
+            : { text: '割 草 波', desc: '一枪一个 · 放心扫', color: '#8bf58b' };
     this.sfx.waveStart(w);
     if (hordeWave) {
       // 这一波开场就要是这个画面：桥面最前面铺满密密麻麻的小兵，
@@ -458,6 +489,35 @@ export class Game {
       this.sfx.bossSpawn();
       this.say('BRING IT ON!', '#ff6b4a');
     }
+    // 紧张波：队里压阵的那只"精英"（血厚、体型大、分高，脚下一圈金环）。
+    // BOSS 波不另出精英 —— 那一波已经有主角了。
+    if (kindName === 'tense' && !bossWave) {
+      this.spawnElite(w);
+      this.sfx.alarm();
+      this.say('精英来了！', '#ffd166');
+    }
+  }
+
+  /**
+   * 紧张波的"领队精英"：一只血厚、体型大、分数高的怪（脚下一圈金环，见 render）。
+   * 倍数统一读 CFG.wave.tense，别把 1.9 / 1.18 / 3 这些数字写死在两处。
+   * 种类读 CFG.wave.tense.eliteLadder（按波次升级：跑步的 → 巨人）。
+   */
+  spawnElite(w) {
+    const T = CFG.wave.tense;
+    const ladder = T.eliteLadder || [[0, 'walker']];
+    const kind = (ladder.find(([from]) => w >= from) || [0, 'walker'])[1];
+    const e = this.spawnEnemy(kind, null, null, T.eliteHpMul);
+    e.elite = true;
+    e.size *= T.eliteSizeMul;
+    e.halfW *= T.eliteSizeMul;
+    e.biteHalfW *= T.eliteSizeMul;
+    e.zdepth *= T.eliteSizeMul;
+    // 体型大了就站远一点，别糊在玩家脸上；分数按 eliteScoreMul 补上
+    e.stopGap += 0.35;
+    e.stopZ = CFG.zNear + e.stopGap + e.stopJit;
+    e.score = Math.round(e.score * T.eliteScoreMul);
+    return e;
   }
 
   /**
@@ -478,11 +538,17 @@ export class Game {
   waveCount(w) {
     const W = CFG.wave;
     const L = CFG.level || {};
+    const T = waveTuning(w);
+    const S = specialWave(w);
     const per = L.countPerWave || W.countPerWave;
+    // 第一波出几只：关卡可以用 levels[].firstCount 单独定（第三关 8）
+    const first = L.firstCount || W.firstCount;
     let cap = L.countMax || W.maxCount;
     if (L.countMaxPerWave) cap += (w - 1) * L.countMaxPerWave;
     const M = this.mod;
-    const n = Math.round(Math.min(cap, W.firstCount + (w - 1) * per) * ((M && M.countMul) || 1));
+    // 波型倍率（割草 ×1.45 多而脆、紧张 ×0.78 少而厚）+ 专属大场面自己的倍率
+    const mul = ((T && T.countMul) || 1) * ((S && S.countMul) || 1);
+    const n = Math.round(Math.min(cap, first + (w - 1) * per) * ((M && M.countMul) || 1) * mul);
     // levels[].countDiff：关卡整体难度里的"出怪量"那一半（第三关 m01503 要 +30%）
     return Math.max(1, Math.round(n * (L.countDiff || 1)));
   }
@@ -508,7 +574,9 @@ export class Game {
     // 除上 levels[].diff：spawnEnemy 会把 diff 乘回血量，人海要的是"正好 hpTarget 点血"，
     // 所以这里先把它约掉 —— 否则第三关（diff 1.3）的人海就不是一枪一个了。
     // 【m02762】每波的 +2% 复利也一并约掉：人海是给你割草的，不能越到后面越皮厚。
-    const hpScale = H.hpTarget / (baseHp * ((this.mod && this.mod.hpMul) || 1) * ((CFG.level && CFG.level.diff) || 1) * this.hpGrow());
+    // 波型的血量倍率（割草 ×0.6）同样约掉：人海永远"正好一枪一个"。
+    const T = waveTuning(w);
+    const hpScale = H.hpTarget / (baseHp * ((this.mod && this.mod.hpMul) || 1) * ((T && T.hpMul) || 1) * ((CFG.level && CFG.level.diff) || 1) * this.hpGrow());
     for (let i = 0; i < n; i++) {
       const lane = i % lanes;
       const rank = Math.floor(i / lanes);
@@ -656,7 +724,9 @@ export class Game {
     const baseHp = CFG.wave.baseHp + (this.wave - 1) * CFG.wave.hpPerWave;
     // 除上 levels[].diff：这里是"一枪一个"的脆皮崽子，血量要正好落在 hpTarget
     // 【m02762】每波的 +2% 复利同样约掉
-    const hpScale = H.hpTarget / (baseHp * ((CFG.level && CFG.level.diff) || 1) * this.hpGrow());
+    // 波型血量倍率（最后一波是紧张波 ×1.5）也约掉：崽子必须还是一枪一个
+    const T = waveTuning(this.wave);
+    const hpScale = H.hpTarget / (baseHp * ((CFG.level && CFG.level.diff) || 1) * ((T && T.hpMul) || 1) * this.hpGrow());
     const roadHalf = this.cam.roadHalf;
     const n = Math.max(1, count || K.spawnCount);
     for (let i = 0; i < n; i++) {
@@ -879,8 +949,10 @@ export class Game {
     // 人海仍然"一枪一个"，被加难的只是常规怪和 BOSS。
     const diff = (CFG.level && CFG.level.diff) || 1;
     // 【m02762】每波复利 +2%（见 CFG.wave.hpWaveGrow）：常规怪一起吃
-    let hp = Math.max(1, Math.round(baseHp * K.hpMul * ((M && M.hpMul) || 1) * (hpScale || 1) * diff * this.hpGrow()));
-    let speed = (W.zombieSpeed + Math.min(W.speedPerWaveMax, (w - 1) * W.speedPerWave)) * K.speedMul;
+    // 波型血量倍率：割草波 ×0.6（一枪一个才爽）、紧张波 ×1.5（每只都厚）
+    const T = waveTuning(w);
+    let hp = Math.max(1, Math.round(baseHp * K.hpMul * ((M && M.hpMul) || 1) * ((T && T.hpMul) || 1) * (hpScale || 1) * diff * this.hpGrow()));
+    let speed = (W.zombieSpeed + Math.min(W.speedPerWaveMax, (w - 1) * W.speedPerWave)) * K.speedMul * (this.waveSpeedMul || 1);
     if (M && M.speedMul) speed *= M.speedMul;
     // 【m02128】关卡级的 BOSS 速度倍率（第三关的 BOSS 走得太磨蹭）：
     // 只打在 BOSS 身上，小兵的节奏不动。
@@ -979,7 +1051,9 @@ export class Game {
     }
     this.openGates();
     this.state = STATE.PREP;
-    this.prepT = CFG.wave.prepTime;
+    // 备战时间跟着"下一波"的波型走：割草 1.7s（别断节奏）、紧张 3.0s（喘口气、想站位）
+    const nextT = waveTuning(this.wave + 1);
+    this.prepT = (nextT && nextT.prep) || CFG.wave.prepTime;
   }
 
   /**
