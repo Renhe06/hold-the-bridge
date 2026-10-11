@@ -8,14 +8,13 @@
 //  断网时又还能打开，离线能力一点没少。
 // ============================================================
 
-const CACHE = 'hold-the-bridge-v4';
+const CACHE = 'hold-the-bridge-v1.0.1';
 
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './manifest.webmanifest',
-  './guide.html',
   './img/hero-uncle.jpg',
   './js/main.js',
   './js/config.js',
@@ -71,14 +70,9 @@ self.addEventListener('fetch', (e) => {
         return res;
       })
       .catch(() =>
-        // 断网兜底：请求说明页就给说明页，其余一律给游戏本体
-        caches
-          .match(req)
-          .then(
-            (hit) =>
-              hit ||
-              caches.match(url.pathname.endsWith('/guide.html') ? './guide.html' : './index.html')
-          )
+        // 断网兜底：缓存里没有就一律回游戏本体
+        // （原先还判过一个独立的说明页，用户 m02534 说整合进游戏里了，那个文件已经删掉）
+        caches.match(req).then((hit) => hit || caches.match('./index.html'))
       )
   );
 });

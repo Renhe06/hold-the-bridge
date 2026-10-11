@@ -287,13 +287,74 @@ html, body {
 }
 
 .tiny { margin-top: 14px; font-size: 11px; color: #6d7684; line-height: 1.5; }
-/* 开始界面底部的「使用说明」链接：要能被点中（给足触摸高度），但别抢主按钮的视线 */
-.tiny a {
-  color: #9fc4e8;
-  text-decoration: none;
-  border-bottom: 1px solid rgba(159, 196, 232, 0.45);
-  padding: 6px 2px;
+
+/* 免费声明 + 可转发的网址：网址只当文字写出来，不做成链接（点了不跳转） */
+.tiny.free { margin-top: 10px; color: #7b8698; }
+.tiny .url {
   display: inline-block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  letter-spacing: 0.4px;
+  color: #9fc4e8;
+  word-break: break-all;
+}
+
+/* 右下角版本号：主界面专用（放在 #startOverlay 里，遮罩一藏它就跟着没了）。
+   位置靠遮罩自身的 padding 让出安全区，所以这里只再加一点点余量，
+   免得贴在 iPhone 的圆角上被切掉。 */
+.build {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: rgba(190, 210, 230, 0.4);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ---------------- 局内左下角：返回 / 暂停 ----------------
+   底部右侧是画布上画的「空袭」，顶部左侧是静音，所以这两个放左下角；
+   底部同样让出 safe-area，避免 iPhone 的圆角/横条切到按钮 */
+.ingame {
+  position: absolute;
+  left: calc(var(--safe-l) + 12px);
+  bottom: calc(var(--safe-b) + 14px);
+  display: none;
+  gap: 8px;
+  z-index: 12;
+}
+.ingame.show { display: flex; }
+
+.ig-btn {
+  min-width: 56px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(12, 16, 24, 0.5);
+  color: #cfe0f0;
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 1px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+.ig-btn:active { transform: scale(0.94); }
+/* 「返回」第二次点才真的走，第一次先变成这样提醒玩家 */
+.ig-btn.warn {
+  color: #ffd0c0;
+  border-color: rgba(255, 130, 90, 0.55);
+  background: rgba(60, 22, 16, 0.6);
+}
+
+/* ---------------- 暂停面板 ---------------- */
+.overlay.pause { z-index: 16; }
+
+.pause-tip {
+  margin: 4px 0 18px;
+  font-size: 13px;
+  color: #8fa3b8;
 }
 
 /* ---------------- 次级按钮 ---------------- */

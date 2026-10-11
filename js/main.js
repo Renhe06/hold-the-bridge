@@ -76,6 +76,13 @@ const el = {
   lv8: $('lv8'),
   lv9: $('lv9'),
   lv10: $('lv10'),
+  // 局内左下角：返回主界面 / 暂停；以及暂停面板
+  ingameBtns: $('ingameBtns'),
+  backBtn: $('backBtn'),
+  pauseBtn: $('pauseBtn'),
+  pauseOverlay: $('pauseOverlay'),
+  resumeBtn: $('resumeBtn'),
+  pauseMenu: $('pauseMenu'),
 };
 
 // ---------------------------------------------------------
@@ -196,10 +203,6 @@ function onTap(node, fn) {
   // 初始值若为 0 会把加载后 300ms 内的第一次点击吞掉
   let last = -Infinity;
   node.addEventListener('pointerdown', (e) => {
-    // 遮罩里放了 <a>（开始界面底部的「使用说明」）。这里的 preventDefault
-    // 会把链接的跳转一起吞掉，所以命中链接时直接放行给浏览器。
-    const t = e.target;
-    if (t && typeof t.closest === 'function' && t.closest('a')) return;
     const now = performance.now();
     if (now - last < 300) return;
     last = now;
@@ -208,6 +211,25 @@ function onTap(node, fn) {
     fn(e);
   }, { passive: false });
 }
+
+// 点一下就收起来的面板（选关、暂停、主界面）有个坑：pointerdown 里把面板 display:none
+// 之后，手指抬起时浏览器还会补一个 click —— 这时候面板已经不在，click 就落到下面那层
+// 的元素上。用户实测：选关面板的「返回」正好压在首页那条文字上，于是点返回却跳走了。
+// 所以凡是"按下就收面板"的按钮，收完顺手把这 500ms 内的 click 吞掉。
+let swallowClickUntil = 0;
+function guardClick() {
+  swallowClickUntil = performance.now() + 500;
+}
+document.addEventListener(
+  'click',
+  (e) => {
+    if (performance.now() < swallowClickUntil) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  },
+  true
+);
 
 // 开始：只认「开 始 挑 战」这一个按钮。
 // 用户 m03061 反馈：整块遮罩"按下即开局"会导致随手双击屏幕就进游戏
@@ -359,6 +381,7 @@ onTap(el.menuLevel, (e) => {
 onTap(el.levelClose, (e) => {
   sfx.uiClick();
   hideLevels();
+  guardClick();
   e.stopPropagation();
 });
 for (let i = 1; i <= 10; i++) {
@@ -377,9 +400,76 @@ for (let i = 1; i <= 10; i++) {
     }
     sfx.uiClick();
     hideLevels();
+    guardClick(); // 收面板的那一下别让落空的 click 打到下面那层
     game.beginLevel(levelIndexOf(i));
   });
 }
+
+// ---- 局内左下角：返回主界面 / 暂停 ----
+// 用户 m02534：打着打着想回主界面或喘口气，原来只能靠刷新页面。
+let paused = false;
+let backAt = 0; // 第一次点「返回」的时间戳（0 = 没在等确认）
+const BACK_WINDOW = 2500; // 秒数换算用毫秒比较，2.5 秒内再点一下才算确认
+
+function resetBack() {
+  backAt = 0;
+  setText(el.backBtn, 'bk', '返回');
+  el.backBtn.classList.remove('warn');
+}
+
+function pauseGame() {
+  // 只有真正在打的时候能暂停：主界面/结算/失守界面上按暂停没有意义
+  if (paused) return;
+  if (game.state !== STATE.PREP && game.state !== STATE.FIGHT) return;
+  paused = true;
+  // 丢掉正按着的那根手指：否则恢复时英雄会朝那个旧坐标窜一下
+  activePointer = null;
+  game.pointerUp();
+  resetBack();
+  el.pauseOverlay.classList.add('show');
+}
+
+function resumeGame() {
+  if (!paused) return;
+  paused = false;
+  el.pauseOverlay.classList.remove('show');
+  last = 0; // 计时基准归零：暂停这段时间不算进去，否则恢复瞬间画面会跳一大步
+}
+
+onTap(el.pauseBtn, () => {
+  sfx.uiClick();
+  pauseGame();
+});
+
+onTap(el.resumeBtn, () => {
+  sfx.uiClick();
+  guardClick();
+  resumeGame();
+});
+
+onTap(el.pauseMenu, () => {
+  sfx.uiClick();
+  guardClick();
+  resumeGame();
+  game.backToMenu();
+});
+
+// 「返回」要点两下：第一下变成「确认返回」，2.5 秒不点就自己变回去。
+// 它就蹲在左下角，打起来拇指很容易蹭到，一下就把整局送掉太亏。
+onTap(el.backBtn, () => {
+  sfx.uiClick();
+  const now = performance.now();
+  if (backAt && now - backAt <= BACK_WINDOW) {
+    resetBack();
+    resumeGame();
+    guardClick();
+    game.backToMenu();
+    return;
+  }
+  backAt = now;
+  setText(el.backBtn, 'bk', '确认返回');
+  el.backBtn.classList.add('warn');
+});
 
 onTap(el.muteBtn, (e) => {
   const m = sfx.toggleMute();
@@ -486,6 +576,15 @@ function syncState() {
     el.overOverlay.classList.toggle('show', st === STATE.OVER);
     el.clearOverlay.classList.toggle('show', st === STATE.CLEAR);
     el.talkOverlay.classList.toggle('show', st === STATE.TALK);
+    // 左下角的「返回 / 暂停」只在打的时候出现（备战倒计时 + 开打），
+    // 主界面/对话/结算/失守时收起来，免得挡着面板或者点出界
+    const playing = st === STATE.PREP || st === STATE.FIGHT;
+    el.ingameBtns.classList.toggle('show', playing);
+    if (!playing) {
+      // 死了、通关了、回主界面了：暂停状态跟着解除，否则暂停面板会一直卡在画面上
+      resumeGame();
+      resetBack();
+    }
     if (st !== STATE.START) hideLevels(); // 开局了就把选关面板收掉，别压在画面上
     lastState = st;
   }
@@ -541,6 +640,20 @@ function frame(now) {
   last = now;
   if (dt > 0.1) dt = 0.1; // 切回前台 / 首帧跳变
 
+  // 「返回」等确认的 2.5 秒过了就自己变回「返回」
+  // （用 performance.now() 对齐 onTap 里记的时间戳：RAF 的 now 起点跟它不是一个基准）
+  if (backAt && performance.now() - backAt > BACK_WINDOW) resetBack();
+
+  if (paused) {
+    // 暂停：世界完全静止（dt=0），但画布照画 —— 暂停面板底下还能看见战场
+    renderer.draw(game, 0);
+    syncState();
+    syncHud();
+    syncGain(0);
+    requestAnimationFrame(frame);
+    return;
+  }
+
   game.update(dt);
   renderer.draw(game, dt);
   syncState();
@@ -595,4 +708,17 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 requestAnimationFrame(frame);
 
 // 调试/自测钩子：给自动化冒烟测试留一个入口（对玩家无副作用）
-window.__HBT = { game, cam, sfx, renderer, fit, frame, STATE, showGuide, hideGuide };
+window.__HBT = {
+  game,
+  cam,
+  sfx,
+  renderer,
+  fit,
+  frame,
+  STATE,
+  showGuide,
+  hideGuide,
+  pauseGame,
+  resumeGame,
+  isPaused: () => paused,
+};

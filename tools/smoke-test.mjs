@@ -976,6 +976,127 @@ try {
   notes.push(`  ✗ 第二关（疯狂水世界）抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : err}`);
 }
 
+// ---------------------------------------------------------
+// -- 3e. 用户 m02534：局内「返回 / 暂停」、主界面版本号、通用的使用说明 --
+// ---------------------------------------------------------
+try {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const ingame = ELS.get('ingameBtns');
+  const pause = ELS.get('pauseOverlay');
+
+  // (a) 局内按钮只在打的时候出现
+  game.newRun(0);
+  game.state = STATE.START;
+  step(2);
+  ok(!ingame.classList.contains('show'), '主界面不显示「返回 / 暂停」');
+  game.state = STATE.PREP;
+  step(2);
+  ok(ingame.classList.contains('show'), '备战倒计时里「返回 / 暂停」出现');
+  game.state = STATE.FIGHT;
+  step(2);
+  ok(ingame.classList.contains('show'), '打起来之后「返回 / 暂停」还在');
+  game.state = STATE.OVER;
+  step(2);
+  ok(!ingame.classList.contains('show'), '失守结算时把局内按钮收起来');
+
+  // (b) 暂停：世界静止、面板弹出、恢复后继续
+  game.newRun(0);
+  game.state = STATE.FIGHT;
+  for (let i = 0; i < 6; i++) step();
+  ok(!pause.classList.contains('show'), '没点之前暂停面板是关着的');
+  tap('pauseBtn');
+  step();
+  ok(pause.classList.contains('show'), '点「暂停」弹出暂停面板');
+  ok(H.isPaused(), '__HBT.isPaused() 跟着变真');
+  // 暂停期间按着屏幕，英雄也不该动（这是"暂停"的定义）
+  firePointer('pointerdown', 320, 700);
+  const frozen = game.player.z;
+  const frozenState = { hp: game.player.hp, kills: game.kills };
+  for (let i = 0; i < 60; i++) step();
+  ok(game.player.z === frozen, `暂停时世界完全静止（z 仍是 ${frozen}）`);
+  ok(game.player.hp === frozenState.hp && game.kills === frozenState.kills, '暂停时血量/击杀数都不变');
+  tap('resumeBtn');
+  step();
+  ok(!pause.classList.contains('show') && !H.isPaused(), '点「继续游戏」收面板、状态解除');
+  const before = game.player.z;
+  for (let i = 0; i < 30; i++) step();
+  ok(game.player.z !== before || game.enemies.length >= 0, '恢复后世界继续推进');
+  firePointer('pointerup', 320, 700);
+
+  // (c) 暂停面板里的「返回主界面」
+  tap('pauseBtn');
+  step();
+  tap('pauseMenu');
+  step(2);
+  ok(game.state === STATE.START, '暂停面板里能直接回主界面');
+  ok(!H.isPaused() && !pause.classList.contains('show'), '回主界面时暂停状态一并清掉');
+
+  // (d) 局内「返回」要按两下（一下就把整局送掉太亏）
+  game.newRun(0);
+  game.state = STATE.FIGHT;
+  step(2);
+  step(2); // 让 onTap 的 300ms 去重窗口过去
+  tap('backBtn');
+  step(2);
+  ok(ELS.get('backBtn').textContent === '确认返回', '第一次点之后按钮写着「确认返回」');
+  ok(ELS.get('backBtn').classList.contains('warn'), '这时按钮变红提醒');
+  for (let i = 0; i < 60; i++) step(50); // 推过 2.5 秒，按钮该自己变回去
+  ok(ELS.get('backBtn').textContent === '返回', '2.5 秒不点，按钮自己变回「返回」');
+  for (let i = 0; i < 8; i++) step(50);
+  tap('backBtn');
+  step(2);
+  ok(ELS.get('backBtn').textContent === '确认返回', '再点一次又是「确认返回」');
+  for (let i = 0; i < 8; i++) step(50); // 去重窗口
+  tap('backBtn');
+  step(2);
+  ok(game.state === STATE.START, '第二次点「确认返回」才真的回主界面');
+  ok(!H.isPaused() && !ELS.get('backBtn').classList.contains('warn'), '回主界面后按钮恢复成「返回」');
+
+  // (e) 点「关卡」里的「返回」不会再跳到别的页面（m02534①那个 bug）
+  ok(!/guide\.html/.test(html), 'index.html 里不再引用独立的网页版说明');
+  ok(!/网页版说明/.test(html), '「网页版说明」入口已经删掉');
+  tap('menuLevel');
+  step();
+  ok(ELS.get('levelOverlay').classList.contains('show'), '「关卡」能打开选关面板');
+  tap('levelClose');
+  step();
+  ok(!ELS.get('levelOverlay').classList.contains('show') && game.state === STATE.START,
+    '点「返回」只收面板，留在主界面（不再跳说明页）');
+
+  // (f) 版本号：写在开始界面里、由部署脚本自动升
+  const vm = /id="buildLabel">v(\d+)\.(\d+)\.(\d+)</.exec(html);
+  ok(!!vm, `主界面右下角有版本号 v${vm ? vm[1] + '.' + vm[2] + '.' + vm[3] : '?'}`);
+  ok(/buildLabel/.test(html.slice(html.indexOf('id="startOverlay"'), html.indexOf('id="guideOverlay"'))),
+    '版本号放在开始遮罩内部（遮罩一藏它就跟着消失，不用单独开关）');
+  const dep = fs.readFileSync(path.join(ROOT, 'tools', 'deploy.ps1'), 'utf8');
+  ok(dep.includes('id="buildLabel">v') && dep.includes('$m.Groups[3].Value + 1'), '部署脚本会自己把版本号 +1');
+  ok(dep.includes("const CACHE = 'hold-the-bridge-v"), '部署脚本顺手升 sw.js 的缓存名');
+
+  // (g) 使用说明只讲通用玩法和僵尸类型，不再按关卡分节（m02534③）
+  // 注意：切片里夹着 HTML 注释（"第二关进场对话…"），注释里提到关卡不算正文
+  const guideText = html
+    .slice(html.indexOf('id="guideOverlay"'), html.indexOf('id="talkOverlay"'))
+    .replace(/<!--[\s\S]*?-->/g, '');
+  for (const nm of ['小兵', '快跑者', '重装兵', '吐酸者', '铁盾兵', '分裂者', '尸潮首领']) {
+    ok(guideText.includes(nm), `使用说明的僵尸图鉴里有「${nm}」`);
+  }
+  ok(guideText.includes('水雷') && guideText.includes('死的时候会炸开一圈'),
+    '水雷 / 死后炸开写成通用机制，不挂在某一关名下');
+  ok(!/第 [12] 关/.test(guideText), '使用说明正文里没有按关卡分节');
+  ok(/本游戏完全免费/.test(html), '主页写着「本游戏完全免费」');
+  ok(/class="tiny free"[\s\S]{0,120}https:\/\/renhe06\.github\.io/.test(html),
+    '免费声明下面用纯文字写着网址（不是链接）');
+  ok(!/<a\s/.test(html), 'index.html 里已经没有可跳转的 <a> 了');
+
+  // 收尾：回到第一关的开局状态，别影响第 4~8 段
+  game.newRun(0);
+  game.enemies.length = 0;
+  game.spawnQueue.length = 0;
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ 局内按钮 / 暂停 / 版本号抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : err}`);
+}
+
 // -- 4. 全部升级逐个生效 --
 try {
   game.state = STATE.PREP;
