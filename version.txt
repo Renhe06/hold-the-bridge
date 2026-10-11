@@ -1,3 +1,3 @@
-version v1.0.12
-build   2026-10-11 19:52:50
-msg     rewards: remove bullet splash (splash) and bullet damage +2 (deepSea); keep the generic damage +1
+version v1.0.13
+build   2026-10-11 20:03:38
+msg     difficulty ramp: +2% enemy hp per wave (compounding), level 3 keeps adding zombies every wave (countPerWave 2.6, cap +0.5/wave)

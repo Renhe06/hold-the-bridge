@@ -87,6 +87,12 @@ export const CFG = {
     maxCount: 26, // 单波最多同时存在的敌人数（体型放大后重新调回 26：一群丧尸挤满桥面才是这个玩法该有的画面，也才有压迫感）
     baseHp: 2,
     hpPerWave: 1.05,
+    // 【m02762】每过一波，怪的血量在上一波的基础上再涨 2%（复利）。
+    // hpPerWave 是"加法"（第 1 波 → 第 2 波看着涨得多，越到后面相对涨幅越小），
+    // 这里是"乘法"：保证每一波至少比上一波厚 2%，后期不会越打越轻松。
+    // 人海 / BOSS 崽子要"一枪一个"，它们在 spawnHorde / spawnBossAdds 里
+    // 先把自己的 hpScale 除掉这个因子（见 game.js 的 hpGrow()）。
+    hpWaveGrow: 0.02,
     spawnGap: 0.9, // 出怪间隔基准
     spawnGapMin: 0.16,
     spawnGapDecay: 0.032, // 每波缩短
@@ -468,6 +474,15 @@ export const CFG = {
       // diff 打在每只怪的 hp 上（见 spawnEnemy），countDiff 打在每波出怪数上。
       diff: 1.3,
       countDiff: 1.15,
+      // 【用户 m02762】"第三关每一波难度应该是缓慢递增的，僵尸数量增加"。
+      // 原来出怪量走全局的 countPerWave 2 / maxCount 26：第 12 波就顶到上限、
+      // 后面只剩血量在涨（玩到后期又变无敌）。第三关单独放宽两处：
+      //   countPerWave   每波多 2.6 只（全局 2）
+      //   countMaxPerWave 单波上限也跟着每波 +0.5（26 → 第 15 波 33），
+      //                   所以到最后一波还在慢慢加人，不会卡在上限上。
+      // 最终同屏出怪量 = min(上限, 5 + (w-1)×2.6) × countDiff 1.15 ≈ 第 15 波 38。
+      countPerWave: 2.6,
+      countMaxPerWave: 0.5,
       // 【用户 m02128】第三关的 BOSS 走得太磨蹭（从出场到停线要十几秒，
       // 玩家一边等它一边把小兵清完了）。1.45 倍：两种形态都快起来，
       // 博士自己还额外吃 boss2.speedMul（见 spawnEnemy / evolveBoss）。

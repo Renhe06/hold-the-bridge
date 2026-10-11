@@ -396,9 +396,7 @@ export class Game {
     this.fogMul = this.mod && this.mod.fog ? this.mod.fog : 1;
     const M = this.mod;
 
-    let count = Math.round(Math.min(W.maxCount, W.firstCount + (w - 1) * W.countPerWave) * ((M && M.countMul) || 1));
-    // levels[].countDiff：关卡整体难度里的"出怪量"那一半（第三关 m01503 要 +30%）
-    count = Math.max(1, Math.round(count * ((CFG.level && CFG.level.countDiff) || 1)));
+    let count = this.waveCount(w);
 
     // 人海波：铺一片一枪一个的小兵。BOSS 只在最后一波来（见 config 的波型判定），
     // 所以第 5 / 10 波是"割草波"，不夹带 BOSS。
@@ -463,6 +461,33 @@ export class Game {
   }
 
   /**
+   * 【m02762】"每过一波，怪比上一波更厚 2%"的复利因子（第 1 波 = 1）。
+   * 之所以做成方法：人海 / BOSS 崽子（要"一枪一个"）得在 hpScale 里把它约掉，
+   * 测试也要按同一个出处核对，不能各写一遍公式。
+   */
+  hpGrow() {
+    return Math.pow(1 + CFG.wave.hpWaveGrow, this.wave - 1);
+  }
+
+  /**
+   * 某一波的出怪数量。【m02762】关卡可以用 levels[].countPerWave 覆盖"每波加几只"，
+   * 用 levels[].countMax / countMaxPerWave 覆盖"单波上限"（第三关的上限也跟着波次涨，
+   * 免得第 12 波就顶到 26 这个全局上限、后期只剩血量在涨）。
+   * 人海波的"砍到三分之一"在外面做（见 startWave）。
+   */
+  waveCount(w) {
+    const W = CFG.wave;
+    const L = CFG.level || {};
+    const per = L.countPerWave || W.countPerWave;
+    let cap = L.countMax || W.maxCount;
+    if (L.countMaxPerWave) cap += (w - 1) * L.countMaxPerWave;
+    const M = this.mod;
+    const n = Math.round(Math.min(cap, W.firstCount + (w - 1) * per) * ((M && M.countMul) || 1));
+    // levels[].countDiff：关卡整体难度里的"出怪量"那一半（第三关 m01503 要 +30%）
+    return Math.max(1, Math.round(n * (L.countDiff || 1)));
+  }
+
+  /**
    * 人海波的"人海"：一次性把一群脆皮小兵铺在桥面上（最前一排离你 zFrom）。
    * 横向 N 条车道铺满桥宽、纵向 M 排，全部当场生成（不走 spawnQueue），
    * 这样开场就是"密密麻麻一片"而不是稀稀拉拉一个个走出来。
@@ -482,7 +507,8 @@ export class Game {
     const baseHp = W.baseHp + (w - 1) * W.hpPerWave;
     // 除上 levels[].diff：spawnEnemy 会把 diff 乘回血量，人海要的是"正好 hpTarget 点血"，
     // 所以这里先把它约掉 —— 否则第三关（diff 1.3）的人海就不是一枪一个了。
-    const hpScale = H.hpTarget / (baseHp * ((this.mod && this.mod.hpMul) || 1) * ((CFG.level && CFG.level.diff) || 1));
+    // 【m02762】每波的 +2% 复利也一并约掉：人海是给你割草的，不能越到后面越皮厚。
+    const hpScale = H.hpTarget / (baseHp * ((this.mod && this.mod.hpMul) || 1) * ((CFG.level && CFG.level.diff) || 1) * this.hpGrow());
     for (let i = 0; i < n; i++) {
       const lane = i % lanes;
       const rank = Math.floor(i / lanes);
@@ -629,7 +655,8 @@ export class Game {
     if (alive >= 22) return;
     const baseHp = CFG.wave.baseHp + (this.wave - 1) * CFG.wave.hpPerWave;
     // 除上 levels[].diff：这里是"一枪一个"的脆皮崽子，血量要正好落在 hpTarget
-    const hpScale = H.hpTarget / (baseHp * ((CFG.level && CFG.level.diff) || 1));
+    // 【m02762】每波的 +2% 复利同样约掉
+    const hpScale = H.hpTarget / (baseHp * ((CFG.level && CFG.level.diff) || 1) * this.hpGrow());
     const roadHalf = this.cam.roadHalf;
     const n = Math.max(1, count || K.spawnCount);
     for (let i = 0; i < n; i++) {
@@ -851,7 +878,8 @@ export class Game {
     // 人海波的 hpScale 走的是另一条路径（hpTarget / baseHp），所以它不受这里影响 ——
     // 人海仍然"一枪一个"，被加难的只是常规怪和 BOSS。
     const diff = (CFG.level && CFG.level.diff) || 1;
-    let hp = Math.max(1, Math.round(baseHp * K.hpMul * ((M && M.hpMul) || 1) * (hpScale || 1) * diff));
+    // 【m02762】每波复利 +2%（见 CFG.wave.hpWaveGrow）：常规怪一起吃
+    let hp = Math.max(1, Math.round(baseHp * K.hpMul * ((M && M.hpMul) || 1) * (hpScale || 1) * diff * this.hpGrow()));
     let speed = (W.zombieSpeed + Math.min(W.speedPerWaveMax, (w - 1) * W.speedPerWave)) * K.speedMul;
     if (M && M.speedMul) speed *= M.speedMul;
     // 【m02128】关卡级的 BOSS 速度倍率（第三关的 BOSS 走得太磨蹭）：

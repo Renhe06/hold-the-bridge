@@ -1530,6 +1530,62 @@ try {
       Math.abs(hp3 / w1.maxHp - C3.levels[2].diff) < 0.02,
       `第三关整体加难：巨人血量 ×${(hp3 / w1.maxHp).toFixed(2)}（配置 ${C3.levels[2].diff}；${hp3} / ${w1.maxHp}）`
     );
+
+    // ---- 【m02762】每波血量复利 +2% ----
+    // hpPerWave 是加法（越到后面相对涨幅越小），hpWaveGrow 是乘法：
+    // 同一只怪，第 11 波比第 10 波厚的比例 =（基础血量的涨幅）× 1.02
+    setLv3(0);
+    game.mod = null;
+    game.wave = 10;
+    game.enemies.length = 0;
+    const growBrute10 = mk3('brute', 6).maxHp;
+    game.wave = 11;
+    game.enemies.length = 0;
+    const growBrute11 = mk3('brute', 6).maxHp;
+    const W0 = C3.wave;
+    const plainRatio = (W0.baseHp + 10 * W0.hpPerWave) / (W0.baseHp + 9 * W0.hpPerWave);
+    const wantRatio = plainRatio * (1 + W0.hpWaveGrow);
+    ok(
+      Math.abs(growBrute11 / growBrute10 / wantRatio - 1) < 0.03,
+      `每波怪血复利 +${(W0.hpWaveGrow * 100).toFixed(0)}%：第 10 波 ${growBrute10} → 第 11 波 ${growBrute11}（实测 ×${(growBrute11 / growBrute10).toFixed(3)}，理论 ×${wantRatio.toFixed(3)}；只靠加法是 ×${plainRatio.toFixed(3)}）`
+    );
+    // 后期不许"越打越轻松"：第 15 波也要比第 14 波厚
+    game.wave = 14;
+    game.enemies.length = 0;
+    const growBrute14 = mk3('brute', 6).maxHp;
+    game.wave = 15;
+    game.enemies.length = 0;
+    const growBrute15 = mk3('brute', 6).maxHp;
+    ok(
+      growBrute15 > growBrute14,
+      `第 15 波比第 14 波还厚（${growBrute14} → ${growBrute15}）`
+    );
+    // "一枪一个"的人海不能被复利拖厚（复利在 spawnHorde 里被约掉了）
+    setLv3(2);
+    game.mod = null;
+    game.wave = 15;
+    game.enemies.length = 0;
+    game.spawnHorde(15);
+    const lateHorde = game.enemies.filter((e) => !e.dead);
+    ok(
+      lateHorde.length > 0 && lateHorde.every((e) => e.hp === 1),
+      `第 15 波的人海仍然一枪一个（hp=${lateHorde[0] && lateHorde[0].hp}，${lateHorde.length} 只）`
+    );
+
+    // ---- 【m02762】第三关出怪量每波缓慢递增（不卡在全局上限 26 上）----
+    game.mod = null;
+    setLv3(2);
+    const count3 = [10, 12, 15].map((w) => game.waveCount(w));
+    setLv3(0);
+    const count1 = [10, 15].map((w) => game.waveCount(w));
+    ok(
+      count3[0] < count3[1] && count3[1] < count3[2],
+      `第三关出怪量每波都在涨（第 10/12/15 波 = ${count3.join(' / ')} 只）`
+    );
+    ok(
+      count3[2] > count1[1],
+      `第三关最后一波比第一关多（${count3[2]} vs ${count1[1]} 只）`
+    );
   }
 
   // 收尾：回到第一关的开局状态，别影响第 4~8 段
