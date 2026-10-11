@@ -587,8 +587,72 @@ html, body {
 
 .talk-actions.show { display: flex; }
 
-/* 第二关结算面板上的「疯狂水世界 →」按钮 */
+/* 第二关结算面板上的「下一关 →」按钮 */
 #clearNext { letter-spacing: 2px; }
+
+/* ---------------- 选关面板（首页「关卡」入口） ---------------- */
+.overlay.level {
+  z-index: 18;
+  background: radial-gradient(120% 80% at 50% 25%, rgba(20, 26, 52, 0.9), rgba(3, 6, 14, 0.97));
+}
+
+.level-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 12px 0 10px;
+}
+
+/* 关卡格子：两行字（第 N 关 / 关卡名） */
+.lv {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(125, 249, 255, 0.28);
+  background: linear-gradient(180deg, rgba(41, 116, 168, 0.5), rgba(14, 46, 74, 0.6));
+  color: #eaf6ff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lv b { font-size: 15px; letter-spacing: 1px; }
+.lv span { font-size: 11px; color: #a8d8ea; }
+.lv:active { transform: scale(0.98); }
+
+/* 通关过的关卡：右上角一个小勾，别的照旧 */
+.lv.done::after {
+  content: '✓';
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 12px;
+  color: #7cf7a0;
+}
+
+/* 第 3 关往后还没做：整块变灰，但仍然能点（点了要提示"该关卡未实装"） */
+.lv.locked {
+  border-color: rgba(160, 175, 190, 0.18);
+  background: linear-gradient(180deg, rgba(70, 78, 92, 0.35), rgba(28, 32, 40, 0.5));
+  color: #8d99a8;
+}
+
+.lv.locked b { font-weight: 600; }
+.lv.locked span { color: #6b7784; }
+.lv.locked:active { transform: none; }
+
+.level-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #9fd8ff;
+  text-align: center;
+  min-height: 19px;
+}
 
 .hidden { display: none !important; }
 

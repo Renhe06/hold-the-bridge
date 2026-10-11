@@ -7,7 +7,7 @@ import { Camera } from './camera.js';
 import { Sound } from './audio.js';
 import { Game, STATE } from './game.js';
 import { Renderer, TAG_COLOR } from './render.js';
-import { CFG, isHordeWave, isBossWave, findLevel } from './config.js';
+import { CFG, isHordeWave, isBossWave, findLevel, levelIndexOf } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -61,7 +61,21 @@ const el = {
   talkMore: $('talkMore'),
   talkActions: $('talkActions'),
   talkStart: $('talkStart'),
-  talkMenu: $('talkMenu'),
+  // 选关面板：第 1~2 关真能进，第 3~10 关是灰按钮（点了只提示未实装）
+  levelOverlay: $('levelOverlay'),
+  levelGrid: $('levelGrid'),
+  levelHint: $('levelHint'),
+  levelClose: $('levelClose'),
+  lv1: $('lv1'),
+  lv2: $('lv2'),
+  lv3: $('lv3'),
+  lv4: $('lv4'),
+  lv5: $('lv5'),
+  lv6: $('lv6'),
+  lv7: $('lv7'),
+  lv8: $('lv8'),
+  lv9: $('lv9'),
+  lv10: $('lv10'),
 };
 
 // ---------------------------------------------------------
@@ -236,15 +250,11 @@ function talkNext() {
 }
 onTap(el.talkOverlay, talkNext);
 
+// 进场对话只有一个按钮（用户 m02264：进了第二关的对话就只留「疯狂水世界 · 启动！」）
 onTap(el.talkStart, (e) => {
   e.stopPropagation();
   sfx.uiClick();
   game.releaseTalk();
-});
-onTap(el.talkMenu, (e) => {
-  e.stopPropagation();
-  sfx.uiClick();
-  game.backToMenu();
 });
 
 // ---- 使用说明弹窗 ----
@@ -283,29 +293,29 @@ onTap(el.againBtn, () => {
 onTap(el.clearAgain, () => {
   if (performance.now() - clearAt < 600) return;
   sfx.uiClick();
-  game.newRun(0);
+  game.newRun(); // 不带参数 = 重打刚打完的这一关（第二关通关后也重打第二关）
 });
 onTap(el.clearMenu, () => {
   if (performance.now() - clearAt < 600) return;
   sfx.uiClick();
   game.backToMenu();
 });
-// 「疯狂水世界 →」：进第二关（先进对话，对话看完才开打）
+// 「下一关 →」：按 lastReward 给的下一关 id 进场（有进场对话的会先停在对话）
 onTap(el.clearNext, () => {
   if (performance.now() - clearAt < 600) return;
-  const next = (game.lastReward && game.lastReward.nextLevel) || 1;
+  const nextId = (game.lastReward && game.lastReward.nextLevel) || 0;
+  if (!nextId) return;
   sfx.uiClick();
-  game.beginLevel(next);
+  game.beginLevel(levelIndexOf(nextId));
 });
 
 // ---- 主界面四个入口 ----
 // 现在只预留按钮：点下去给一条"即将开放"的提示，不做任何功能。
-// 以后分别接：角色切换 / 武器切换 / 商店购买 / 关卡选择。
+// 以后分别接：角色切换 / 武器切换 / 商店购买 ——「关卡」已经接好了（用户 m02264）
 const MENU_ENTRIES = [
   [el.menuRole, '角色'],
   [el.menuWeapon, '武器'],
   [el.menuShop, '商店'],
-  [el.menuLevel, '关卡'],
 ];
 for (const [node, name] of MENU_ENTRIES) {
   onTap(node, (e) => {
@@ -313,18 +323,61 @@ for (const [node, name] of MENU_ENTRIES) {
     sfx.uiClick();
     // 提示词给到"未实装"，而且不能只靠 #gainToast —— 它在画布 HUD 层，
     // 被开始遮罩压着看不见，玩家点了会以为按钮坏了。
-    // 「关卡」这一格例外：第二关确实解锁了，但入口在结算面板上，
-    // 直接说"未实装"会让人以为游戏坏了，所以按解锁状态说清楚去哪儿进。
-    let tip = `${name} · 该功能未实装`;
-    if (node === el.menuLevel) {
-      tip = game.clearedLevel >= 1
-        ? '第二关已解锁 · 通关一次后在结算面板点「疯狂水世界 · 启动 →」'
-        : '第二关通了第一关才解锁 · 打完第 15 波看结算面板';
-    }
+    const tip = `${name} · 该功能未实装`;
     showHint(tip, '#7df9ff');
     setText(el.menuHint, 'menuHint', tip);
     el.menuHint.classList.add('show');
     e.stopPropagation();
+  });
+}
+
+// ---- 选关面板（首页「关卡」入口）----
+// 第 1~2 关真的能进；第 3~10 关是灰按钮，点了只提示"该关卡未实装"。
+function openLevels() {
+  // 已经通关过的关卡打个「已通关」记号；按钮里的两行字是 index.html 写死的，
+  // 这里只加 class，别用 textContent 写，否则会把「第 1 关 / 血色大桥」两行抹掉。
+  for (let i = 1; i <= 10; i++) {
+    const node = el['lv' + i];
+    if (!node) continue;
+    const lv = findLevel(i);
+    node.classList.toggle('done', !!lv && game.clearedLevel >= i);
+  }
+  setText(el.levelHint, 'lvH', game.clearedLevel >= 1 ? '第 2 关已解锁 · 选一关开打' : '先打第 1 关 · 第 2 关也可以直接进');
+  el.levelOverlay.classList.add('show');
+}
+
+function hideLevels() {
+  el.levelOverlay.classList.remove('show');
+}
+
+onTap(el.menuLevel, (e) => {
+  sfx.unlock();
+  sfx.uiClick();
+  openLevels();
+  e.stopPropagation();
+});
+onTap(el.levelClose, (e) => {
+  sfx.uiClick();
+  hideLevels();
+  e.stopPropagation();
+});
+for (let i = 1; i <= 10; i++) {
+  const node = el['lv' + i];
+  if (!node) continue;
+  onTap(node, (e) => {
+    sfx.unlock();
+    e.stopPropagation();
+    const lv = findLevel(i);
+    if (!lv) {
+      // 占位关：只说一句，面板不关（玩家可以接着点别的）
+      sfx.uiClick();
+      setText(el.levelHint, 'lvH', `第 ${i} 关 · 该关卡未实装`);
+      showHint(`第 ${i} 关 · 该关卡未实装`, '#7df9ff');
+      return;
+    }
+    sfx.uiClick();
+    hideLevels();
+    game.beginLevel(levelIndexOf(i));
   });
 }
 
@@ -402,11 +455,10 @@ function showClear() {
   setText(el.clearKills, 'cK', String(r.kills));
   setText(el.clearCombo, 'cX', String(r.combo || 0));
   setText(el.clearTotal, 'cT', String(r.total));
-  // 有下一关就顶一个主按钮出来，把「再玩一次」降级成次要按钮
+  // 有下一关就顶一个主按钮出来（「下一关 →」），没有下一关才给「再玩一次」
   const nl = findLevel(r.nextLevel);
   el.clearNext.classList.toggle('hidden', !nl);
-  el.clearNext.textContent = nl ? `${nl.name} →` : '';
-  el.clearAgain.className = nl ? 'btn ghost' : 'btn primary';
+  el.clearAgain.classList.toggle('hidden', !!nl);
   clearAt = performance.now();
 }
 
@@ -433,6 +485,7 @@ function syncState() {
     el.overOverlay.classList.toggle('show', st === STATE.OVER);
     el.clearOverlay.classList.toggle('show', st === STATE.CLEAR);
     el.talkOverlay.classList.toggle('show', st === STATE.TALK);
+    if (st !== STATE.START) hideLevels(); // 开局了就把选关面板收掉，别压在画面上
     lastState = st;
   }
 }

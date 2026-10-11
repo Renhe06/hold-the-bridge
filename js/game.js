@@ -135,36 +135,41 @@ export class Game {
   }
 
   /**
-   * 开始新一局（点击"开始挑战"/"再来一局"时调用）。
+   * 开始新一局（点击"开始挑战"/"再来一局"/选关时调用）。
    * levelIdx 省略 = 用当前关卡；主界面"开始挑战"永远传 0（第一关）。
    */
   newRun(levelIdx) {
-    setLevel(levelIdx == null ? CFG.levelIndex : levelIdx);
+    this.beginLevel(levelIdx == null ? CFG.levelIndex : levelIdx);
+  }
+
+  /**
+   * 进某一关：有关卡自己的进场对话（CFG.level.intro）就先停在 STATE.TALK，
+   * 玩家点「疯狂水世界 · 启动！」再 releaseTalk() 开打；没有对话的直接进备战。
+   * 选关面板、结算面板的「下一关」、主界面「开始挑战」现在都走这一个入口。
+   */
+  beginLevel(idx) {
+    setLevel(idx);
+    if (CFG.level.intro) {
+      this.reset();
+      this.state = STATE.TALK;
+      return;
+    }
+    this.startPrep();
+  }
+
+  /** 备战：第一波之前也给一对奖励门，让玩家在没压力时先学会"走位选奖励" */
+  startPrep() {
     this.reset();
     this.state = STATE.PREP;
     this.prepT = CFG.wave.prepTime;
     this.pulseT = CFG.weapon.pulseInterval;
-    // 第一波之前也给一对奖励门：让玩家在没有任何压力时先学会"走位选奖励"
     this.openGates();
-  }
-
-  /**
-   * 进第二关：先播进场对话（STATE.TALK），玩家点"疯狂水世界启动！"才 releaseTalk() 开打。
-   */
-  beginLevel(idx) {
-    setLevel(idx);
-    this.reset();
-    this.state = STATE.TALK;
   }
 
   /** 进场对话看完 → 照常备战 */
   releaseTalk() {
     if (this.state !== STATE.TALK) return;
-    this.reset();
-    this.state = STATE.PREP;
-    this.prepT = CFG.wave.prepTime;
-    this.pulseT = CFG.weapon.pulseInterval;
-    this.openGates();
+    this.startPrep();
   }
 
   /** 回主界面（结算面板上的"返回主界面"）：清干净，但不碰存档 */

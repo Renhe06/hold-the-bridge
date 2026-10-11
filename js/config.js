@@ -328,6 +328,7 @@ export const CFG = {
       coinRatio: 0.1,
       theme: 'water',
       skin: 'ocean', // 海洋动物化的丧尸 + 图片人物主角
+      intro: true, // 进来先播一段进场对话（STATE.TALK），点「疯狂水世界 · 启动！」才开打
     },
   ],
   levelIndex: 0,
@@ -493,4 +494,14 @@ export function setLevel(idx) {
  */
 export function findLevel(id) {
   return CFG.levels.find((l) => l.id === id) || null;
+}
+
+/**
+ * 按"关卡 id"取数组下标（找不到就给 0）。
+ * 选关面板和结算面板的「下一关」都拿到的是 id，而 setLevel/beginLevel 要的是下标，
+ * 中间必须过这一道，不然 id=2 当 下标 用就悄悄指到别的关（或者被 clamp 掉）。
+ */
+export function levelIndexOf(id) {
+  const i = CFG.levels.findIndex((l) => l.id === id);
+  return i < 0 ? 0 : i;
 }

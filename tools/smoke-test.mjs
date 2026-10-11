@@ -722,6 +722,18 @@ try {
   step(2);
   ok(ELS.get('clearOverlay').classList.contains('show'), '通关结算面板已弹出');
   ok(String(ELS.get('clearCoins').textContent) === String(wantCoins), `面板上的金币 = ${ELS.get('clearCoins').textContent}`);
+  // 用户 m02264：还有下一关时，主按钮是「下一关 →」，「再玩一次」让位
+  ok(game.lastReward.nextLevel === 2, `第 1 关通关后指向第 2 关（nextLevel=${game.lastReward.nextLevel}）`);
+  ok(!ELS.get('clearNext').classList.contains('hidden'), '结算面板上「下一关 →」是亮着的');
+  ok(ELS.get('clearAgain').classList.contains('hidden'), '有下一关时「再玩一次」收起来');
+  // 点「下一关 →」＝ 进第二关（第二关有对话，所以停在 TALK）。
+  // 结算面板三颗按钮都有 600ms 缓冲（main.js:294 的 clearAt），推 900ms 再点。
+  for (let i = 0; i < 45; i++) step(20);
+  tap('clearNext');
+  step(2);
+  ok(C.level.id === 2 && game.state === STATE.TALK, `「下一关」直接进第二关对话（level=${C.level.id} state=${game.state}）`);
+  game.backToMenu();
+  step(2);
 
   // (c) 返回主界面：金币要跟着显示出来
   for (let i = 0; i < 45; i++) step(20); // 等过 600ms 误触保护
@@ -745,12 +757,51 @@ try {
     String(ELS.get('menuHint').textContent).includes('该功能未实装') && ELS.get('menuHint').classList.contains('show'),
     `主界面自己那行提示也亮了（${ELS.get('menuHint').textContent}）`
   );
-  // 「关卡」这一格不能说"未实装"：第二关真能进，只是入口在结算面板上
+  // 用户 m02264：首页「关卡」入口不再说"未实装"，改成弹出选关面板
   tap('menuLevel');
   step(2);
-  const lvTip = String(ELS.get('menuHint').textContent);
-  ok(game.state === st0 && !lvTip.includes('未实装') && lvTip.includes('疯狂水世界'),
-    `「关卡」入口改成指路（${lvTip}）`);
+  ok(ELS.get('levelOverlay').classList.contains('show'), '点「关卡」弹出选关面板');
+  ok(game.state === st0, `选关面板弹出时不改变游戏状态（state=${game.state}）`);
+  // 第 3~10 关是灰按钮，点了只提示"该关卡未实装"
+  tap('lv3');
+  step(2);
+  ok(String(ELS.get('levelHint').textContent).includes('未实装'), `点灰关卡只提示（${ELS.get('levelHint').textContent}）`);
+  ok(ELS.get('levelOverlay').classList.contains('show'), '点了未实装的关卡，面板留着不走');
+  // 第 2 关点了直接进场（第二关有关卡对话，所以停在 TALK）
+  tap('lv2');
+  step(2);
+  ok(C.level.id === 2, `选关选中第 2 关（${C.level.name}）`);
+  ok(game.state === STATE.TALK, `第 2 关进来先停在对话（state=${game.state}）`);
+  ok(ELS.get('talkOverlay').classList.contains('show'), '对话弹窗弹出来了');
+  ok(!ELS.get('levelOverlay').classList.contains('show'), '选关面板自己收起来了');
+  // 第 1 关点了直接开打（没有对话，直接进备战）。
+  // 注意 onTap 是"每个元素各自 300ms 去重"（main.js:197 的闭包 last），
+  // 所以同一个按钮隔得太近点第二下会被吞掉 —— 推一会儿时钟再开面板。
+  for (let i = 0; i < 20; i++) step(20);
+  tap('menuLevel');
+  step(2);
+  tap('lv1');
+  step(2);
+  ok(C.level.id === 1 && game.state === STATE.PREP, `选第 1 关直接进备战（state=${game.state}）`);
+  game.backToMenu();
+  step(2);
+
+  // 第二关通关：没有下一关了，结算面板的主按钮换回「再玩一次」
+  game.beginLevel(1);
+  game.releaseTalk();
+  game.wave = C.level.waves;
+  game.enemies.length = 0;
+  game.spawnQueue.length = 0;
+  game.state = STATE.FIGHT;
+  game.onWaveClear();
+  step(2);
+  ok(game.state === STATE.CLEAR, `第 2 关清完也走通关结算（state=${game.state}）`);
+  ok(game.lastReward.nextLevel === 0, `第 2 关后面没有下一关（nextLevel=${game.lastReward.nextLevel}）`);
+  ok(ELS.get('clearNext').classList.contains('hidden'), '没有下一关时「下一关 →」收起来');
+  ok(!ELS.get('clearAgain').classList.contains('hidden'), '没有下一关时「再玩一次」亮出来');
+  ok(game.clearedLevel >= 2, `通关进度记到第 ${game.clearedLevel} 关`);
+  game.backToMenu();
+  step(2);
 
   // (e) 用户点名：弹道数还不到 3 条时，进攻门必须优先给"弹道 +1"
   game.reset();
@@ -831,7 +882,7 @@ try {
   while (!ELS.get('talkActions').classList.contains('show') && guard++ < 6) tapTalk();
   ok(ELS.get('talkActions').classList.contains('show'), `翻完全部台词才出按钮（共点了 ${guard + 2} 下）`);
   ok(String(ELS.get('talkStamp').textContent).includes('03 / 03'), `对话进度 03 / 03（实际 ${ELS.get('talkStamp').textContent}）`);
-  ok(!!ELS.get('talkStart') && !!ELS.get('talkMenu'), '两个按钮都在 DOM 里：启动 / 返回主界面');
+  ok(!!ELS.get('talkStart'), '对话只有一个按钮（启动），没有"返回主界面"');
   tap('talkStart');
   step();
   ok(game.state === STATE.PREP, '点「疯狂水世界 · 启动！」直接进备战');
