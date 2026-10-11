@@ -756,6 +756,8 @@ export class Game {
     e.maxHp = Math.max(1, Math.round(e.maxHp * B.hpMul));
     e.hp = e.maxHp;
     e.size = K.size * B.sizeMul;
+    // 【m02128】博士比第一形态再快一点（它只走一半就得停下，得赶紧到岗）
+    if (B.speedMul) e.speed *= B.speedMul;
     e.color = B.color;
     e.dark = B.dark;
     e.animal = B.animal;
@@ -804,19 +806,19 @@ export class Game {
     this.spawnParticles(w.x, w.z, 20, 'spark', '#ffb060');
     this.shake = Math.max(this.shake, 14);
     this.sfx.missileBoom();
-    // m03096：必杀技 —— 圈里直接死。这里故意不走 bite()：护盾和无敌帧都不该挡住
-    // 这一发，否则"被技能打中直接死亡"会退化成"掉 1 滴血"，玩家也读不出这发的分量。
-    // pl.hp > 0 这个前置条件顺便避免已经死了还重复触发一次结算。
+    // 用户 m02128：必杀技从"打中直接死"改成"打中掉 1 格血"（config hpCost）。
+    // 护盾和无敌帧仍然挡不住 —— 它是必杀技，这一发必须躲；但代价只有一格血，
+    // 没躲开也还有救，不至于一次失误就结束一整局。连杀照样断（贪和稳的张力不变）。
     if (pl.hp > 0 && Math.abs(pl.x - w.x) < M.radius && Math.abs(pl.z - w.z) < 1.1) {
-      pl.hp = 0;
+      pl.hp -= M.hpCost;
       pl.hurt = 1;
       this.combo = 0;
       this.comboT = 0;
       this.flash = 1;
       this.shake = Math.max(this.shake, 22);
-      this.addPopup(pl.x, pl.z + 0.7, '被导弹命中', '#ff5a3a', 1.5);
+      this.addPopup(pl.x, pl.z + 0.7, `被导弹命中 -${M.hpCost}`, '#ff5a3a', 1.5);
       this.sfx.bite();
-      this.gameOver();
+      if (pl.hp <= 0) this.gameOver();
     }
   }
 
@@ -847,6 +849,9 @@ export class Game {
     let hp = Math.max(1, Math.round(baseHp * K.hpMul * ((M && M.hpMul) || 1) * (hpScale || 1) * diff));
     let speed = (W.zombieSpeed + Math.min(W.speedPerWaveMax, (w - 1) * W.speedPerWave)) * K.speedMul;
     if (M && M.speedMul) speed *= M.speedMul;
+    // 【m02128】关卡级的 BOSS 速度倍率（第三关的 BOSS 走得太磨蹭）：
+    // 只打在 BOSS 身上，小兵的节奏不动。
+    if (kind === 'boss' && CFG.level && CFG.level.bossSpeed) speed *= CFG.level.bossSpeed;
 
     // 每只怪自己的错位（错开站位，免得叠成一坨）。注意：**停下来的那条线
     // 必须是"英雄当前所在位置"往前一点，不能按固定基准位 zNear 算** ——
@@ -1091,22 +1096,45 @@ export class Game {
   }
 
   /**
+   * 弹道的"铺属性顺序"（用户 m02128）。
+   * 原来是从左往右找第一条空的（0,1,2…），结果寒冰/炎火全堆在左边那几条 ——
+   * 屏幕上看着明显偏向一边。现在从**中间那条**开始铺，然后"中间右边 → 中间左边"
+   * 一条条往外扩散：3 条弹道是 [中, 右, 左]，4 条是 [中右, 中左, 最右, 最左]。
+   * 一样近时右边优先（弹道序号越大越靠右，见 fire() 里的 spread 偏移）。
+   */
+  laneOrder(n) {
+    const mid = (n - 1) / 2;
+    const idx = [];
+    for (let i = 0; i < n; i++) idx.push(i);
+    idx.sort((a, b) => {
+      const da = Math.abs(a - mid);
+      const db = Math.abs(b - mid);
+      if (Math.abs(da - db) > 1e-9) return da - db;
+      return b - a;
+    });
+    return idx;
+  }
+
+  /**
    * 给"一条弹道"挂上寒冰 / 炎火（第三关的核心构筑，用户 m02771 要求）。
-   * 优先找还没属性的那条；每条都铺满了就改第一条 —— 连吃 5 次寒冰不会全堆在
-   * 同一条上白白浪费，玩家看到的是"一条接一条亮起来"。
+   * 优先找还没属性的那条（顺序见 laneOrder：中间先亮，再往两边扩）；
+   * 每条都铺满了就改中间那条 —— 连吃 5 次寒冰不会全堆在同一条上白白浪费，
+   * 玩家看到的是"一条接一条亮起来"。
    * 返回改的是第几条（0 起），没改到返回 -1。
    */
   _noteLane(kind) {
     const n = Math.max(1, Math.min(this.lanes.length, Math.round(this.weapon.bullets)));
-    for (let i = 0; i < n; i++) {
+    const order = this.laneOrder(n);
+    for (const i of order) {
       if (!this.lanes[i]) {
         this.lanes[i] = kind;
         return i;
       }
     }
-    if (this.lanes[0] !== kind) {
-      this.lanes[0] = kind;
-      return 0;
+    const lead = order[0];
+    if (this.lanes[lead] !== kind) {
+      this.lanes[lead] = kind;
+      return lead;
     }
     return -1;
   }

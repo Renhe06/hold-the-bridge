@@ -1,3 +1,3 @@
-version v1.0.6
-build   2026-10-11 18:54:21
-msg     lv3 balance: suns now give permanent +6% attack (cap +130%), sun every 4.6s, HUD shows attack bonus, help text updated
+version v1.0.7
+build   2026-10-11 19:09:11
+msg     lv3 rebalance: sun +5% each cap +60% (was +6%/+130%), ice/fire lanes fill from center outward, lv3 boss speed x1.45 (doctor +25%), doctor 2nd bar x1.6, boss ultimate costs 1 hp instead of instant death, help text synced

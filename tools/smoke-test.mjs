@@ -231,7 +231,8 @@ function botTargetX() {
       if (d < 0.4) spit += (0.4 - d) * Math.max(0.5, 5 - dz * 0.5);
     }
     s -= spit * 1.6;
-    // 躲 BOSS 的必杀导弹（m03096）：圈里直接死，所以圈内站位一律重罚。
+    // 躲 BOSS 的必杀导弹（m03096 加、m02128 改成"掉 1 格血"）：圈里一次就是一格血，
+    // 所以圈内站位照样重罚（只是不再是一击必死）。
     // 落点就是它开火那一刻你站的位置（半径 0.16，见 CFG.bossMissile.radius），
     // 只要横向挪出圈就安全 —— 这里用字面量是为了不把 config 提到模块顶部。
     for (const wn of game.warns) {
@@ -632,8 +633,8 @@ try {
   step(1);
   ok(!!renderer.bossBar && renderer.bossBar.frac < 0.25, `血条跟着掉（剩 ${(renderer.bossBar.frac * 100).toFixed(0)}%）`);
 
-  // (a3) BOSS 导弹（m03096 加、m03130 修站位、m01503 改版）：
-  //      落点 = 开火那一刻你站的位置（不是追踪弹）→ 不挪步必中，中者直接死。
+  // (a3) BOSS 导弹（m03096 加、m03130 修站位、m01503 改版、m02128 改扣血）：
+  //      落点 = 开火那一刻你站的位置（不是追踪弹）→ 不挪步必中，中了掉 1 格血。
   //      现在是"出场 0.9 秒放第一发 + 半血再放一发（导弹阵）"，不再等掉到 3/4 血。
   game.state = STATE.FIGHT;
   game.wave = 1; // 别让它判定成"清完最后一波"
@@ -691,8 +692,22 @@ try {
   ok(game.warns.length === C.bossSkill.spawnCount, '预警期间不会补第二发（要等半血）');
   for (let i = 0; i < 14; i++) step(50); // 累计 1.7s > 预警
   ok(
-    game.player.hp === 0 && game.state === STATE.OVER,
-    `站着不动被技能打中直接死（hp=${game.player.hp} state=${game.state}）`
+    game.player.hp === C.hero.hp - C.bossMissile.hpCost && game.state === STATE.FIGHT,
+    `站着不动被技能打中掉 ${C.bossMissile.hpCost} 格血（${C.hero.hp}→${game.player.hp}），不再直接死（state=${game.state}）`
+  );
+  // 用户 m02128：必杀技的分量留在"躲不掉就得交一格血"，但护盾/无敌帧照样挡不住
+  game.warns.length = 0;
+  boss.casts = 0;
+  boss.skillT = 0.05;
+  boss.hp = boss.maxHp;
+  game.player.shield = 2;
+  game.player.iframe = 9;
+  const hpShield = game.player.hp;
+  step(50);
+  for (let i = 0; i < 34; i++) step(50);
+  ok(
+    game.player.hp === hpShield - C.bossMissile.hpCost && game.player.shield === 2,
+    `必杀打穿护盾和无敌帧（血 ${hpShield}→${game.player.hp}，护盾仍是 ${game.player.shield}）`
   );
   // 再打一次：这回预警一出现就横向挪开 —— 挪开就活，一个圈不落
   game.state = STATE.FIGHT;
@@ -1083,16 +1098,26 @@ try {
   const l1again = draw3(80);
   ok(!L3_ONLY.some((id) => l1again.has(id)), '第一关抽不到第三关的专属奖励');
 
-  // (e) 寒冰 / 炎火：只改【一条】弹道，一条接一条亮起来
+  // (e) 寒冰 / 炎火：只改【一条】弹道，从中间开始往两边铺（用户 m02128 改的顺序）
   setLv3(2);
   game.reset();
   game.state = STATE.FIGHT;
   game.weapon.bullets = 3;
   game.lanes = ['', '', '', '', '', ''];
+  ok(
+    JSON.stringify(game.laneOrder(3)) === '[1,2,0]' && JSON.stringify(game.laneOrder(4)) === '[2,1,3,0]',
+    `铺属性顺序 = 中间 → 中间右边 → 中间左边（3 条 ${game.laneOrder(3).join('')}，4 条 ${game.laneOrder(4).join('')}）`
+  );
   game.applyUpgrade('iceLane');
+  ok(game.lanes[1] === 'ice', `第一个属性落在中间那条（${game.lanes.slice(0, 3).join('/')}）`);
   game.applyUpgrade('fireLane');
-  ok(game.lanes[0] === 'ice' && game.lanes[1] === 'fire', `冰火各占一条弹道（${game.lanes.slice(0, 3).join('/')}）`);
-  ok(game.lanes[2] === '', '没吃到的第三跳弹道还是普通豌豆（只改一条，不是全队变属性）');
+  ok(
+    game.lanes[1] === 'ice' && game.lanes[2] === 'fire',
+    `第二个属性落在中间右边（${game.lanes.slice(0, 3).join('/')}）`
+  );
+  ok(game.lanes[0] === '', '没吃到的那条弹道还是普通豌豆（只改一条，不是全队变属性）');
+  game.applyUpgrade('iceLane');
+  ok(game.lanes[0] === 'ice', `第三个属性才轮到中间左边（${game.lanes.slice(0, 3).join('/')}）`);
 
   // (f) 豌豆射手的称号按弹道数走（用户 m02771 要的"弹道 +1 就换一个植物"）
   game.weapon.bullets = 1;
@@ -1278,6 +1303,33 @@ try {
     const b = mk3('boss', C3.zFar - 5 - game.player.z);
     const hp0 = b.maxHp;
     ok(b.forms === 2 && b.form === 1, `第三关的僵王有两段血（${b.form}/${b.forms}）`);
+    // 【m02128】第三关 BOSS 走得快：同一波、同一种怪，速度差就是这个倍率
+    // （倍率只打在 BOSS 身上，小兵的节奏不动）
+    game.wave = 5;
+    const bossL3 = mk3('boss', C3.zFar - 5 - game.player.z);
+    const walkerL3 = mk3('walker', C3.zFar - 5 - game.player.z);
+    setLv3(0);
+    game.wave = 5;
+    game.player.z = C3.zNear;
+    const bossL1 = mk3('boss', C3.zFar - 5 - game.player.z);
+    const walkerL1 = mk3('walker', C3.zFar - 5 - game.player.z);
+    setLv3(2);
+    game.wave = 5;
+    game.player.z = C3.zNear;
+    ok(
+      Math.abs(bossL3.speed / bossL1.speed - C3.levels[2].bossSpeed) < 1e-6,
+      `第三关 BOSS 速度 ×${C3.levels[2].bossSpeed}（${bossL1.speed.toFixed(3)} → ${bossL3.speed.toFixed(3)}）`
+    );
+    ok(
+      Math.abs(walkerL3.speed / walkerL1.speed - 1) < 1e-6,
+      `小兵速度不受影响（${walkerL1.speed.toFixed(3)} → ${walkerL3.speed.toFixed(3)}）`
+    );
+    // 只留下被验的那个僵王，别让这几只探子在后面的长循环里干扰世界
+    game.enemies.length = 0;
+    game.enemies.push(b);
+    game.wave = 1;
+    setLv3(2);
+    game.player.z = C3.zNear;
     // 第一条血打空 → 走真实击杀入口，必须是进化不是死亡
     b.hp = 0;
     game.killEnemy(b);
@@ -1308,7 +1360,7 @@ try {
     // 不然英雄的自动开火会在这些长循环里把博士打死，测出来的就不是技能了
     b.hp = b.maxHp = 9999;
     game.player.hp = 9999;
-    // 技能循环先按下（导弹是 lethal，打中必死，会把整个测试世界停掉），
+    // 技能循环先按下（导弹一发一格血，虽然说停不了世界，但会污染血量断言），
     // 单独验"停线"这件事；等下面测技能时再手动点火。
     b.skillT = 1e9;
     // 走到一半就不再往前：它从草坪深处只走到 stopZ，然后就停在那儿
