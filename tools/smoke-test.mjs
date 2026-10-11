@@ -632,8 +632,9 @@ try {
   step(1);
   ok(!!renderer.bossBar && renderer.bossBar.frac < 0.25, `血条跟着掉（剩 ${(renderer.bossBar.frac * 100).toFixed(0)}%）`);
 
-  // (a3) BOSS 必杀导弹（m03096，m03130 修）：只认血量到 3/4，跟它有没有走到停下线无关。
+  // (a3) BOSS 导弹（m03096 加、m03130 修站位、m01503 改版）：
   //      落点 = 开火那一刻你站的位置（不是追踪弹）→ 不挪步必中，中者直接死。
+  //      现在是"出场 0.9 秒放第一发 + 半血再放一发（导弹阵）"，不再等掉到 3/4 血。
   game.state = STATE.FIGHT;
   game.wave = 1; // 别让它判定成"清完最后一波"
   game.spawnQueue.length = 0;
@@ -645,33 +646,49 @@ try {
   game.player.targetX = -0.2;
   game.player.z = C.zNear;
   game.player.targetZ = C.zNear;
-  // 关键：把它按回"刚出场、还在往这边走"的状态 —— 真机上它要走 10 秒才到停下线，
-  // 玩家通常在这段时间里已经把它打到 3/4 以下了（这就是 m03130 那个 bug 的现场）。
+  // 关键：按回"刚出场、还在往这边走"的状态 —— 技能必须在路上就放出来
+  //（真机上玩家通常还没等它站定，这就是这条断言存在的意义）
   boss.z = C.zFar - 5;
   boss.state = 'approach';
   boss.hp = boss.maxHp;
-  boss.missileFired = false;
-  for (let i = 0; i < 60; i++) step(50); // 3 秒，它还在路上
-  const fracNow = boss.hp / boss.maxHp;
+  boss.casts = 0;
+  boss.skillT = C.bossSkill.onSpawnDelay;
+  boss.frozenStop = false;
+  game.warns.length = 0;
+  for (let i = 0; i < 8; i++) step(50); // 0.4 秒
   ok(boss.state === 'approach', `BOSS 还在往这边走（state=${boss.state} z=${boss.z.toFixed(1)}）`);
   ok(
-    game.warns.length === 0 && boss.missileFired === false,
-    `血还没掉到 3/4（现在 ${(fracNow * 100).toFixed(0)}%）时一发都不放（预警圈 ${game.warns.length} 个）`
+    game.warns.length === 0 && boss.casts === 0,
+    `出场 ${C.bossSkill.onSpawnDelay} 秒之内一声不响（预警圈 ${game.warns.length} 个）`
   );
-  // 掉到 3/4 → 下一帧强制开火（此刻它还没站定，也必须放）
-  boss.hp = Math.floor(boss.maxHp * C.bossMissile.hpAt);
-  step(50);
+  for (let i = 0; i < 12; i++) step(50); // 累计 1.0s > 0.9s
   ok(
-    game.warns.length === 1 && boss.state === 'approach',
-    `血量一到 3/4 就放技能（哪怕它还在路上：state=${boss.state} 预警圈 ${game.warns.length} 个 hp=${boss.hp}/${boss.maxHp}）`
+    boss.casts === 1 && game.warns.length === C.bossSkill.spawnCount,
+    `第一次技能改成出场就放（哪怕它还在路上：state=${boss.state} 预警圈 ${game.warns.length} 个）`
   );
-  ok(boss.missileFired === true, '这一发整场只有一次（标记已用掉）');
   ok(
     Math.abs(game.warns[0].x - game.player.x) < 1e-6,
     `预警落点 = 开火时你站的位置（x=${game.warns[0].x.toFixed(2)}）`
   );
+  // 半血 → 再放一发，而且升级成错开的导弹阵
+  game.warns.length = 0;
+  boss.hp = Math.floor(boss.maxHp * C.bossSkill.hpAt);
+  step(50);
+  ok(
+    boss.casts === 2 && game.warns.length === C.bossSkill.halfCount,
+    `半血再放一发，是 ${C.bossSkill.halfCount} 连导弹阵（预警圈 ${game.warns.length} 个、落点 ${game.warns
+      .map((w) => w.x.toFixed(2))
+      .join(' / ')}）`
+  );
+  // 命中/躲开：把"出场那一发"重放（单发、落点确定，方便验收真判定）
+  game.warns.length = 0;
+  boss.casts = 0;
+  boss.skillT = 0.05;
+  boss.hp = boss.maxHp;
+  step(50);
+  ok(game.warns.length === C.bossSkill.spawnCount, `重放：又放了一发（${game.warns.length} 个）`);
   for (let i = 0; i < 20; i++) step(50); // 预警 1.5s 还没落地
-  ok(game.warns.length === 1 && boss.missileFired === true, '预警期间也不会补第二发');
+  ok(game.warns.length === C.bossSkill.spawnCount, '预警期间不会补第二发（要等半血）');
   for (let i = 0; i < 14; i++) step(50); // 累计 1.7s > 预警
   ok(
     game.player.hp === 0 && game.state === STATE.OVER,
@@ -684,10 +701,12 @@ try {
   game.player.shield = 0;
   game.player.x = -0.2;
   game.player.targetX = -0.2;
-  boss.hp = Math.floor(boss.maxHp * C.bossMissile.hpAt);
-  boss.missileFired = false;
+  game.warns.length = 0;
+  boss.casts = 0;
+  boss.skillT = 0.05;
+  boss.hp = boss.maxHp;
   step(50);
-  ok(game.warns.length === 1, `第二次挑战：技能又放了一发（${game.warns.length} 个）`);
+  ok(game.warns.length === C.bossSkill.spawnCount, `第二次挑战：技能又放了一发（${game.warns.length} 个）`);
   game.player.x = 0.32;
   game.player.targetX = 0.32;
   for (let i = 0; i < 34; i++) step(50);
@@ -1142,6 +1161,36 @@ try {
     ok(picked === 12, `贴在活动范围最前面掉的阳光也捡得着（12/12）`);
   }
 
+  // (g3) 【用户 m01729】"阳光还是捡不到，改成自动吸附吧" ——
+  //      落地后自己飞向英雄：玩家站着不动、手指都不用管，也应该被捡走。
+  //      （上一版要求"把手指对准它"，手机上一根手指既走位又瞄准，根本对不准。）
+  {
+    const S3 = C3.pvz.sun;
+    game.reset();
+    setLv3(2);
+    game.state = STATE.FIGHT;
+    game.wave = 1;
+    wipe3();
+    game.player.x = -0.8;
+    game.player.z = C3.zNear; // 站在最后面，离落点尽量远
+    game.player.targetX = -0.8;
+    game.player.targetZ = C3.zNear;
+    game.sunT = 99; // 只留这一个，别让自然掉落再塞
+    game.energy = 0;
+    game.spawnSun();
+    const s3 = game.suns[0];
+    const d0 = Math.hypot(game.player.x - s3.x, game.player.z - s3.z);
+    ok(d0 > S3.magnetPick, `吸附前离英雄 ${d0.toFixed(2)} > ${S3.magnetPick}（不是碰巧贴脸）`);
+    s3.t = s3.fall; // 直接进入"刚落地"
+    // 顺手记一下它有没有真的往英雄那边靠（而不是被 live 超时收走）
+    const before = Math.hypot(game.player.x - s3.x, game.player.z - s3.z);
+    let n3 = 0;
+    while (game.suns.length && n3++ < 300) step(50);
+    ok(game.suns.length === 0, `站着不动，阳光自己飞过来被捡走（${((n3 * 50) / 1000).toFixed(1)} 秒）`);
+    ok(game.energy > 0, `自动吸附照样充能（energy=${game.energy}）`);
+    ok(before > S3.magnetPick, `它是被吸过来的，不是掉在脚边（起始距离 ${before.toFixed(2)}）`);
+  }
+
   // (h) 樱桃炸弹：能量满了落在人堆中心，引信烧完炸开
   game.reset();
   setLv3(2);
@@ -1164,6 +1213,125 @@ try {
   ok(game.cherries.length === 0, '引信烧完樱桃就炸了');
   const hurt = cluster.filter((e, i) => e.dead || e.hp < hpBeforeC[i]).length;
   ok(hurt >= 2, `炸开范围内的怪都掉血（${hurt}/${cluster.length} 只）`);
+
+  // (i) 【用户 m01503】第三关 BOSS 的第二形态「僵尸博士」：
+  //     第一条血清空不是死、是进化；第二条血更厚、技能轮着来（导弹阵/召唤/火球），
+  //     而且它**走到一半就不再往前**，威胁全在技能上。
+  {
+    const B2 = C3.pvz.boss2;
+    const K3 = C3.kinds.boss;
+    game.reset();
+    setLv3(2);
+    game.state = STATE.FIGHT;
+    game.wave = 1;
+    wipe3();
+    game.player.z = C3.zNear;
+    game.player.x = 0;
+    game.sunT = 999;
+    const b = mk3('boss', C3.zFar - 5 - game.player.z);
+    const hp0 = b.maxHp;
+    ok(b.forms === 2 && b.form === 1, `第三关的僵王有两段血（${b.form}/${b.forms}）`);
+    // 第一条血打空 → 走真实击杀入口，必须是进化不是死亡
+    b.hp = 0;
+    game.killEnemy(b);
+    ok(!b.dead && b.form === 2, '第一条血清空不是死，是进化成僵尸博士');
+    ok(
+      b.hp === b.maxHp && Math.abs(b.maxHp - Math.round(hp0 * B2.hpMul)) <= 1,
+      `第二条血更厚（${hp0} → ${b.maxHp}，配置 ×${B2.hpMul}）`
+    );
+    ok(
+      b.animal === B2.animal && b.size > K3.size,
+      `换了造型和体型（${b.animal}，size ${b.size.toFixed(2)} > 僵王 ${K3.size}）`
+    );
+    ok(game.bossEvolves === 1, '记了一次进化（game.bossEvolves）');
+    ok(b.frozenStop === true, '博士被定住（frozenStop = true）');
+    ok(Math.abs(b.z - (C3.zFar - 4)) < 1e-6, `进化把它推回草坪深处（z=${b.z.toFixed(1)}）`);
+    const halfLine = (C3.zFar - 4 + game.player.z) * B2.stopRatio;
+    ok(b.stopZ <= halfLine + 1e-6, `停线只到一半（stopZ=${b.stopZ.toFixed(2)} ≤ ${halfLine.toFixed(2)}）`);
+    // 变身这 1.8 秒：位置一点不动（世界在等它变身）
+    const zDuring = b.z;
+    for (let i = 0; i < 10; i++) step(50);
+    ok(b.evolveT > 0 && b.z === zDuring, `变身期间定格（还剩 ${b.evolveT.toFixed(2)}s）`);
+    for (let i = 0; i < 40; i++) step(50);
+    ok(
+      b.evolveT <= 0 && b.form === 2 && !b.dead,
+      `变身结束，僵尸博士登场（第二条血开打；hp=${game.player.hp} game=${game.state} warns=${game.warns.length}）`
+    );
+    // 后面只验机制（停线 / 三种技能），给双方都堆成"打不死"：
+    // 不然英雄的自动开火会在这些长循环里把博士打死，测出来的就不是技能了
+    b.hp = b.maxHp = 9999;
+    game.player.hp = 9999;
+    // 技能循环先按下（导弹是 lethal，打中必死，会把整个测试世界停掉），
+    // 单独验"停线"这件事；等下面测技能时再手动点火。
+    b.skillT = 1e9;
+    // 走到一半就不再往前：它从草坪深处只走到 stopZ，然后就停在那儿
+    //（子弹的击退会把它往后顶一点点，所以判"不越过停线"，不是判"纹丝不动"）
+    for (let i = 0; i < 240; i++) step(50); // 12 秒，够它慢慢蹭到停线
+    ok(
+      b.state === 'attack' && b.z >= b.stopZ - 0.3 && b.z <= b.stopZ + 1.5,
+      `博士走到一半就停住（z=${b.z.toFixed(2)}，停线 stopZ=${b.stopZ.toFixed(2)}，state=${b.state}）`
+    );
+    const gapStop = b.z - game.player.z;
+    ok(
+      gapStop > K3.stopGap,
+      `它够不着你（离人 ${gapStop.toFixed(1)} > 普通 BOSS 的 stopGap ${K3.stopGap}）`
+    );
+    let nearest = b.z;
+    for (let i = 0; i < 40; i++) {
+      step(50);
+      nearest = Math.min(nearest, b.z);
+    }
+    ok(
+      nearest >= b.stopZ - 0.3,
+      `再等 2 秒也一步不往前（最近到过 z=${nearest.toFixed(2)}，停线 ${b.stopZ.toFixed(2)}）`
+    );
+
+    // 三种技能轮着放：导弹阵 → 召唤尸潮 → 火球齐射
+    game.warns.length = 0;
+    b.skillIdx = 0;
+    b.skillT = 0.01;
+    step(50);
+    ok(game.warns.length === B2.missileCount, `技能 1：${B2.missileCount} 连导弹阵（预警圈 ${game.warns.length} 个）`);
+    game.warns.length = 0; // 别让它们落地把人打死，后面还要接着测
+    const addsBefore = game.enemies.filter((e) => !e.dead && e.kind !== 'boss').length;
+    b.skillT = 0.01;
+    step(50);
+    const adds = game.enemies.filter((e) => !e.dead && e.kind !== 'boss').length - addsBefore;
+    ok(adds >= B2.summonCount, `技能 2：召唤尸潮（一次叫来 ${adds} 只，配置 ${B2.summonCount} 批）`);
+    game.spits.length = 0;
+    b.skillT = 0.01;
+    step(50);
+    ok(
+      game.spits.length === B2.fireballCount && game.spits.every((s) => s.hot),
+      `技能 3：${B2.fireballCount} 发火球齐射（spits=${game.spits.length}）`
+    );
+    ok(game.spits[0].vz < 0, '火球是朝玩家这边飞的');
+    // 血条：名字跟着形态走，并且标出"第几段血"
+    ok(
+      renderer.bossBar && /博\s*士/.test(renderer.bossBar.label) && /2\/2/.test(renderer.bossBar.label),
+      `血条写着第二形态：${renderer.bossBar && renderer.bossBar.label}`
+    );
+
+    // 难度 +30%：同一只怪，第三关的血量正好是第一关的 diff 倍
+    //（双方都清掉波次词条，不然词条自带的 hpMul 会混进倍率里；
+    //  波次取第 10 波、拿巨人比 —— 第 1 波的 baseHp 是个位数，四舍五入会让倍率失真）
+    game.reset();
+    setLv3(2);
+    game.wave = 10;
+    game.mod = null;
+    game.enemies.length = 0;
+    const w3 = mk3('brute', 6);
+    const hp3 = w3.maxHp;
+    setLv3(0);
+    game.wave = 10;
+    game.mod = null;
+    game.enemies.length = 0;
+    const w1 = mk3('brute', 6);
+    ok(
+      Math.abs(hp3 / w1.maxHp - C3.levels[2].diff) < 0.02,
+      `第三关整体加难：巨人血量 ×${(hp3 / w1.maxHp).toFixed(2)}（配置 ${C3.levels[2].diff}；${hp3} / ${w1.maxHp}）`
+    );
+  }
 
   // 收尾：回到第一关的开局状态，别影响第 4~8 段
   setLv3(0);

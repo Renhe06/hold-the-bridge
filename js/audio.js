@@ -318,6 +318,30 @@ export class Sound {
     this.burst({ dur: 0.14, vol: 0.07, type: 'bandpass', freq: 900, q: 2.2, sweepTo: 2100 });
   }
 
+  /**
+   * BOSS 进化成僵尸博士（用户 m01503）：低频上冲 + 金属变形 + 一声闷雷。
+   * 这是整场最"重"的一声，要让玩家抬头看屏幕。
+   */
+  evolve() {
+    this.tone({ freq: 60, freq2: 320, type: 'sawtooth', dur: 1.5, vol: 0.34 });
+    this.tone({ freq: 180, freq2: 90, type: 'square', dur: 1.6, vol: 0.16, delay: 0.1 });
+    this.burst({ dur: 1.3, vol: 0.24, type: 'lowpass', freq: 260, sweepTo: 2400 });
+    this.tone({ freq: 880, freq2: 220, type: 'triangle', dur: 0.7, vol: 0.14, delay: 0.75 });
+  }
+
+  /** 博士召唤尸潮：一串下行的黏腻音（配合"爬出来"的动画） */
+  bossSummon() {
+    this.tone({ freq: 420, freq2: 120, type: 'triangle', dur: 0.42, vol: 0.16 });
+    this.burst({ dur: 0.36, vol: 0.14, type: 'bandpass', freq: 700, q: 1.1, sweepTo: 180 });
+    this.tone({ freq: 240, freq2: 90, type: 'sawtooth', dur: 0.5, vol: 0.12, delay: 0.18 });
+  }
+
+  /** 博士的火球齐射：一道炙热的"呼"声 */
+  fireball() {
+    this.tone({ freq: 160, freq2: 520, type: 'sawtooth', dur: 0.34, vol: 0.16 });
+    this.burst({ dur: 0.4, vol: 0.15, type: 'bandpass', freq: 500, q: 0.9, sweepTo: 1800 });
+  }
+
   /** 破盾：金属碎裂 */
   shieldBreak() {
     this.tone({ freq: 2400, freq2: 700, type: 'square', dur: 0.12, vol: 0.1 });

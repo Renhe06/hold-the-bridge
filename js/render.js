@@ -1045,8 +1045,22 @@ export class Renderer {
   _drawSpit(ctx, s) {
     const cam = this.cam;
     const p = cam.project(s.x, s.z);
-    const r = Math.max(2, 0.022 * p.s);
+    // hot（僵尸博士的火球）：同一套飞行物，画得更大更烫
+    const r = Math.max(2, (s.hot ? 0.05 : 0.022) * p.s);
     const wob = 1 + Math.sin(s.phase) * 0.18;
+    if (s.hot) {
+      const c = s.color || '#ff7a1f';
+      this._drawGlow(p.x, p.y - r * 0.7, r * 4.2, c, 0.9);
+      ctx.fillStyle = '#ffe9a8';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y - r * 0.7, r * wob, r * 1.15 * wob, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.arc(p.x + r * 0.2, p.y - r * 1.0, r * 0.5, 0, TAU);
+      ctx.fill();
+      return;
+    }
     this._drawGlow(p.x, p.y - r * 0.7, r * 3.4, '#a6ff3d', 0.85);
     ctx.fillStyle = '#d8ff7a';
     ctx.beginPath();
@@ -1231,6 +1245,12 @@ export class Renderer {
     //（拉过之后肩宽会超出屏幕、把两侧车道全挡掉）
     // 胖体（吐酸者 / 分裂者）：横向鼓起来，再加一点呼吸般的起伏
     if (e.body === 'fat') ctx.scale(1.22 + Math.sin(e.phase * 0.7) * 0.04, 1.0);
+    // 进化演出（用户 m01503）：变身这 1.8 秒里博士从一束白光里"长"出来。
+    // 白闪由 game.js 每帧顶住 e.hurtT 实现，这里只补放大。
+    if (e.evolveT > 0 && e.evolveDur > 0) {
+      const ek = clamp(e.evolveT / e.evolveDur, 0, 1); // 1 → 0
+      ctx.scale(1 + 0.3 * ek, 1 + 0.3 * ek);
+    }
 
     this._zombieBody(ctx, H, col, dark, e.phase, e.kind, isWind);
 
@@ -1946,6 +1966,63 @@ export class Renderer {
         ctx.ellipse(s * 0.24 * H, -0.68 * H, 0.09 * H, 0.055 * H, s * 0.28, 0, TAU);
         ctx.fill();
       }
+    } else if (a === 'doctor') {
+      // 【用户 m01503】僵尸博士（僵王的第二形态）：更大的玻璃罩 + 会亮的能量核心 +
+      // 双肩火箭 + 头上一根天线。和第一形态（zomboss）同一套骨架，但部件更"机器"。
+      // 玻璃罩（比僵王的更大一号）
+      ctx.fillStyle = 'rgba(170,235,255,0.30)';
+      ctx.beginPath();
+      ctx.arc(0, headY - headR * 0.2, headR * 2.5, Math.PI * 0.02, Math.PI * 0.98, true);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(235,252,255,0.9)';
+      ctx.lineWidth = 0.014 * H;
+      ctx.beginPath();
+      ctx.arc(0, headY - headR * 0.2, headR * 2.5, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.stroke();
+      // 两只红眼 + 眼里的十字准星（博士的招牌）
+      for (const s of [-1, 1]) {
+        this._drawGlow(s * headR * 0.45, headY + headR * 0.05, headR * 0.6, '#ff3b2f', 0.95);
+        ctx.strokeStyle = 'rgba(255,190,180,0.9)';
+        ctx.lineWidth = 0.01 * H;
+        ctx.beginPath();
+        ctx.moveTo(s * headR * 0.45 - headR * 0.22, headY + headR * 0.05);
+        ctx.lineTo(s * headR * 0.45 + headR * 0.22, headY + headR * 0.05);
+        ctx.moveTo(s * headR * 0.45, headY + headR * 0.05 - headR * 0.22);
+        ctx.lineTo(s * headR * 0.45, headY + headR * 0.05 + headR * 0.22);
+        ctx.stroke();
+      }
+      // 天线 + 顶上闪的红灯
+      ctx.strokeStyle = '#c9d6db';
+      ctx.lineWidth = 0.012 * H;
+      ctx.beginPath();
+      ctx.moveTo(0, headY - headR * 2.1);
+      ctx.lineTo(-0.02 * H, headY - headR * 3.4);
+      ctx.stroke();
+      this._drawGlow(-0.02 * H, headY - headR * 3.5, headR * 0.4 * (1 + Math.sin(t * 2.2) * 0.25), '#ff5a3a', 0.9);
+      // 胸口的能量核心（呼吸式明灭）
+      const core = 0.55 + 0.45 * Math.abs(Math.sin(t * 1.4));
+      this._drawGlow(0, -0.52 * H, 0.1 * H * core, '#8bf58b', 0.85);
+      ctx.fillStyle = 'rgba(20,30,26,0.85)';
+      ctx.beginPath();
+      ctx.ellipse(0, -0.52 * H, 0.11 * H, 0.09 * H, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = mix('#8bf58b', '#ffffff', core * 0.5);
+      ctx.beginPath();
+      ctx.ellipse(0, -0.52 * H, 0.07 * H, 0.055 * H, 0, 0, TAU);
+      ctx.fill();
+      // 双肩火箭（斜向上的两根发射管）
+      for (const s of [-1, 1]) {
+        ctx.fillStyle = mix(dark, '#000000', 0.25);
+        ctx.beginPath();
+        ctx.moveTo(s * 0.2 * H, -0.7 * H);
+        ctx.lineTo(s * 0.34 * H, -0.82 * H);
+        ctx.lineTo(s * 0.38 * H, -0.72 * H);
+        ctx.lineTo(s * 0.23 * H, -0.6 * H);
+        ctx.closePath();
+        ctx.fill();
+        this._drawGlow(s * 0.35 * H, -0.78 * H, 0.02 * H * (1 + Math.sin(t * 3 + s) * 0.3), '#ffb060', 0.8);
+      }
     } else if (a === 'catapult') {
       // 投石车僵尸：腰上驮着一台木架子 + 两个轮子
       ctx.strokeStyle = '#a87f46';
@@ -2340,12 +2417,14 @@ export class Renderer {
       const persp = clamp(p.s / cam.scaleNear, 0.52, 1);
       const r = Math.max(3, S.size * cam.scaleNear * persp * (s.big ? S.bigMul : 1));
       const cx = p.x;
-      const cy = p.y - (1 - k) * r * 11; // 还没落地就画在落点上方（从天而降）
+      const fly = s.fly || 0;
+      // 吸附时往上抬一点（用户 m01729）：贴地滑过去像在"拖"，抬起来才像飞进怀里
+      const cy = p.y - (1 - k) * r * 11 - fly * S.flyRise * p.s * 0.55;
       const pulse = 1 + Math.sin(s.phase) * 0.06;
 
-      // 落点影子（越接近落地越实）
+      // 落点影子（越接近落地越实；被吸起来之后就淡掉）
       ctx.save();
-      ctx.globalAlpha = 0.22 * k;
+      ctx.globalAlpha = 0.22 * k * (1 - fly);
       ctx.fillStyle = 'rgba(40,80,20,0.7)';
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, r * 0.85, r * 0.85 * flat * 2.2, 0, 0, TAU);
@@ -2735,7 +2814,11 @@ export class Renderer {
       ctx.lineWidth = 3;
       ctx.strokeStyle = 'rgba(0,0,0,0.8)';
       ctx.fillStyle = '#ffd9c9';
-      const label = '尸 潮 首 领';
+      // 名字跟着形态走（用户 m01503）：第三关第一条血是"僵王"，
+      // 进化之后换成"僵尸博士"，并把"第几段血"写出来 —— 玩家得知道还有一条。
+      const nm = boss.form === 2 ? CFG.pvz.boss2.name : CFG.level.skin === 'pvz' ? CFG.kinds.boss.pvz.name : '尸潮首领';
+      const pips = boss.forms > 1 ? `  ${boss.form}/${boss.forms}` : '';
+      const label = nm.split('').join(' ') + pips;
       ctx.strokeText(label, bx, by - bh * 0.9);
       ctx.fillText(label, bx, by - bh * 0.9);
       ctx.textAlign = 'right';
@@ -2745,7 +2828,18 @@ export class Renderer {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
       // 给测试留一个可读的落点（跟空袭按钮同一个套路）
-      this.bossBar = { x: bx, y: by, w: bw, h: bh, frac, hp: boss.hp, maxHp: boss.maxHp };
+      this.bossBar = {
+        x: bx,
+        y: by,
+        w: bw,
+        h: bh,
+        frac,
+        hp: boss.hp,
+        maxHp: boss.maxHp,
+        form: boss.form || 1,
+        forms: boss.forms || 1,
+        label,
+      };
     } else {
       this.bossBar = null;
     }

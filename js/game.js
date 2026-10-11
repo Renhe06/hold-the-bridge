@@ -387,6 +387,8 @@ export class Game {
     const M = this.mod;
 
     let count = Math.round(Math.min(W.maxCount, W.firstCount + (w - 1) * W.countPerWave) * ((M && M.countMul) || 1));
+    // levels[].countDiff：关卡整体难度里的"出怪量"那一半（第三关 m01503 要 +30%）
+    count = Math.max(1, Math.round(count * ((CFG.level && CFG.level.countDiff) || 1)));
 
     // 人海波：铺一片一枪一个的小兵。BOSS 只在最后一波来（见 config 的波型判定），
     // 所以第 5 / 10 波是"割草波"，不夹带 BOSS。
@@ -468,7 +470,9 @@ export class Game {
     // 结果是一群脆皮围着你咬），而这一波要的是"一枪一个"的割草爽感，
     // 所以直接反算倍率，让它们正好 H.hpTarget 点血（词条倍率仍会作用于它）。
     const baseHp = W.baseHp + (w - 1) * W.hpPerWave;
-    const hpScale = H.hpTarget / (baseHp * ((this.mod && this.mod.hpMul) || 1));
+    // 除上 levels[].diff：spawnEnemy 会把 diff 乘回血量，人海要的是"正好 hpTarget 点血"，
+    // 所以这里先把它约掉 —— 否则第三关（diff 1.3）的人海就不是一枪一个了。
+    const hpScale = H.hpTarget / (baseHp * ((this.mod && this.mod.hpMul) || 1) * ((CFG.level && CFG.level.diff) || 1));
     for (let i = 0; i < n; i++) {
       const lane = i % lanes;
       const rank = Math.floor(i / lanes);
@@ -593,22 +597,27 @@ export class Game {
 
   fitBossHp(b) {
     const K = CFG.kinds.boss;
-    const want = Math.round(clamp(this.estimateDps() * K.seconds, K.hpMin, K.hpMax));
+    // levels[].diff 也作用在 BOSS 上（第三关 m01503 的 +30%：BOSS 战要多打 30% 的时间）
+    const diff = (CFG.level && CFG.level.diff) || 1;
+    const want = Math.round(clamp(this.estimateDps() * K.seconds, K.hpMin, K.hpMax) * diff);
     b.hp = want;
     b.maxHp = want;
     return b;
   }
 
-  spawnBossAdds(boss) {
+  spawnBossAdds(boss, count) {
     const K = CFG.kinds.boss;
     const H = CFG.bossHorde;
-    boss.addT = K.spawnEvery;
+    // 被动放崽子：僵王 3.2 秒一批，博士慢一点（5 秒）—— 它自己还另有技能循环
+    boss.addT = boss.form === 2 ? CFG.pvz.boss2.addEvery : K.spawnEvery;
     const alive = this.enemies.reduce((n, e) => n + (!e.dead && e.kind !== 'boss' ? 1 : 0), 0);
     if (alive >= 22) return;
     const baseHp = CFG.wave.baseHp + (this.wave - 1) * CFG.wave.hpPerWave;
-    const hpScale = H.hpTarget / baseHp;
+    // 除上 levels[].diff：这里是"一枪一个"的脆皮崽子，血量要正好落在 hpTarget
+    const hpScale = H.hpTarget / (baseHp * ((CFG.level && CFG.level.diff) || 1));
     const roadHalf = this.cam.roadHalf;
-    for (let i = 0; i < K.spawnCount; i++) {
+    const n = Math.max(1, count || K.spawnCount);
+    for (let i = 0; i < n; i++) {
       const x = clamp(boss.x + rand(-0.8, 0.8) * roadHalf, -roadHalf, roadHalf);
       const z = boss.z + rand(0.5, 1.8);
       // birth 0.4：新鲜出炉的崽子有一小段"爬起来"的时间，看得见它们是怎么来的
@@ -623,13 +632,150 @@ export class Game {
 
   // BOSS 必杀：先在"你现在站的地方"画一个预警圈（render 里画），
   // warn 秒后砸下来；落点是开火那一刻定死的，所以走开就是躲开了。
-  // 什么时候放见 updateEnemies 的 boss 分支：血量掉到 3/4 时放一次，整场就这一发。
-  bossFire(boss) {
+  // 什么时候放见 updateBoss：出场一次、半血一次（用户 m01503）。
+  // opts.count > 1 时是"导弹阵"：几颗横向错开、落地时间也错开（stagger），
+  // 中间留缝给你钻 —— 站着不动照样死，但挪对方向就能全躲开。
+  bossFire(boss, opts) {
     const M = CFG.bossMissile;
+    const S = CFG.bossSkill;
+    const n = Math.max(1, (opts && opts.count) || 1);
+    const spread = (opts && opts.spread) || 0;
+    const stagger = (opts && opts.stagger) || 0;
     const pl = this.player;
-    this.warns.push({ x: pl.x, z: pl.z, t: 0, life: M.warn, fromZ: boss.z });
+    const half = (n - 1) / 2;
+    for (let i = 0; i < n; i++) {
+      const dx = (i - half) * spread;
+      this.warns.push({
+        x: clamp(pl.x + dx, -this.cam.roadHalf, this.cam.roadHalf),
+        z: pl.z,
+        t: 0,
+        life: M.warn + i * stagger,
+        fromZ: boss.z,
+      });
+    }
     this.sfx.missileWarn();
-    this.addPopup(boss.x, boss.z - 0.6, '导弹来袭', '#ff5a3a', 1.15);
+    this.addPopup(boss.x, boss.z - 0.6, n > 1 ? `${n} 连导弹来袭` : '导弹来袭', '#ff5a3a', 1.15);
+  }
+
+  /**
+   * BOSS 每帧的技能账（用户 m01503），在所有形态下都从 updateEnemies 里调一次：
+   *  - 变身演出中（evolveT > 0）：不动、不打、不咬，返回 'frozen' 让调用方 continue；
+   *  - 第二形态（僵尸博士）：技能按 boss2.skills 轮着放；
+   *  - 第一形态：出场 0.9 秒后放一发（教学），半血再放一发导弹阵（升级）。
+   */
+  updateBoss(e, dt) {
+    const S = CFG.bossSkill;
+    if (e.evolveT > 0) {
+      e.evolveT -= dt;
+      e.hurtT = Math.max(e.hurtT, 0.05); // 变身期间一直白闪
+      // 变身这 1.8 秒调用方会 continue，跳过循环末尾那句 hp<=0 的判定 ——
+      // 这里补一次（燃烧/空袭残留伤害还能把它打死，别让它悬在死亡线上不动）
+      if (e.hp <= 0) this.killEnemy(e);
+      return 'frozen';
+    }
+    if (e.form === 2) {
+      const B = CFG.pvz.boss2;
+      e.skillT -= dt;
+      if (e.skillT <= 0) {
+        e.skillT = B.skillEvery;
+        this.bossSkill2(e);
+      }
+      return 'ok';
+    }
+    if (e.casts === 0) {
+      e.skillT -= dt;
+      if (e.skillT <= 0) {
+        e.casts = 1;
+        this.bossFire(e, { count: S.spawnCount, spread: S.spawnSpread });
+      }
+    } else if (e.casts === 1 && e.hp <= e.maxHp * S.hpAt) {
+      e.casts = 2;
+      this.bossFire(e, { count: S.halfCount, spread: S.halfSpread, stagger: S.stagger });
+    }
+    return 'ok';
+  }
+
+  /** 僵尸博士的技能循环：导弹阵 / 召崽子 / 火球齐射（用户 m01503 的"技能更多"） */
+  bossSkill2(e) {
+    const B = CFG.pvz.boss2;
+    const kind = B.skills[e.skillIdx % B.skills.length];
+    e.skillIdx += 1;
+    if (kind === 'missile') {
+      this.bossFire(e, { count: B.missileCount, spread: B.missileSpread, stagger: B.missileStagger });
+    } else if (kind === 'summon') {
+      for (let i = 0; i < B.summonCount; i++) this.spawnBossAdds(e, CFG.kinds.boss.spawnCount);
+      this.sfx.bossSummon();
+      this.addPopup(e.x, e.z - 0.6, '召唤尸潮', '#8bf58b', 1.2);
+    } else if (kind === 'fireball') {
+      this.doctorFireballs(e);
+    }
+  }
+
+  /** 火球齐射：横铺整条路的一大排火球（速度比酸液慢，看得清、走得开） */
+  doctorFireballs(e) {
+    const B = CFG.pvz.boss2;
+    const n = B.fireballCount;
+    const half = (n - 1) / 2;
+    for (let i = 0; i < n; i++) {
+      this.spits.push({
+        x: (i - half) * B.fireballGap,
+        z: e.z - e.size * 0.25,
+        vz: -B.fireballSpeed,
+        phase: rand(0, Math.PI * 2),
+        color: B.fireballColor,
+        hot: true,
+        dead: false,
+      });
+    }
+    this.sfx.fireball();
+    this.spawnParticles(e.x, e.z - e.size * 0.4, 14, 'spark', B.fireballColor);
+    this.addPopup(e.x, e.z - 0.6, '火球齐射', B.fireballColor, 1.2);
+  }
+
+  /**
+   * 第三关 BOSS 进化（用户 m01503）：第一条血清空 → 不死了，变身成"僵尸博士"。
+   * 视觉上它被白光和冲击环推回草坪深处（zFar - 4），然后**只走到一半**就停下：
+   * 停线取"变身点 → 英雄"的中点并冻结（frozenStop），所以它永远够不着你，
+   * 威胁全部改成技能（导弹阵 / 召唤 / 火球）。第二条血按 boss2.hpMul 重算。
+   */
+  evolveBoss(e) {
+    const B = CFG.pvz.boss2;
+    const K = CFG.kinds.boss;
+    const pl = this.player;
+    e.form = 2;
+    e.maxHp = Math.max(1, Math.round(e.maxHp * B.hpMul));
+    e.hp = e.maxHp;
+    e.size = K.size * B.sizeMul;
+    e.color = B.color;
+    e.dark = B.dark;
+    e.animal = B.animal;
+    e.casts = 0;
+    e.skillIdx = 0;
+    e.skillT = B.firstSkill;
+    e.evolveT = B.evolveTime;
+    e.evolveDur = B.evolveTime;
+    e.frozenStop = true;
+    e.state = 'approach';
+    e.atk = 'rest';
+    e.addT = B.addEvery;
+    // 推回草坪深处，然后只走到一半：停线 = 变身点与英雄位置的中点，之后不再跟着英雄走
+    e.z = CFG.zFar - 4;
+    e.stopZ = Math.min(CFG.zFar - 4, Math.max(pl.z + K.stopGap, (e.z + pl.z) * B.stopRatio));
+    this.bossEvolves = (this.bossEvolves || 0) + 1;
+    // 第一条血打完照样算一次"击杀"的战果：分数 + 能量 + 顿帧，玩家不会觉得白打了
+    this.score += e.score;
+    this.gainEnergy(CFG.charge.perBoss);
+    this.hitStop = Math.max(this.hitStop, 0.22);
+    this.flash = Math.max(this.flash, 0.9);
+    this.shake = Math.max(this.shake, 30);
+    for (let i = 0; i < 3; i++) {
+      this.rings.push({ x: e.x, z: e.z, t: 0, life: 0.45 + i * 0.16, maxR: 2.2 + i * 1.1, color: i ? '#8bf58b' : '#ffffff' });
+    }
+    this.spawnParticles(e.x, e.z, 40, 'spark', '#b6ff5a');
+    this.spawnParticles(e.x, e.z, 24, 'spark', '#ffffff');
+    this.sfx.evolve();
+    this.addPopup(e.x, e.z, `${B.name} 进化！`, '#8bf58b', 1.8);
+    this.say('BWAHAHA!', '#8bf58b');
   }
 
   updateWarns(dt) {
@@ -684,7 +830,11 @@ export class Game {
     const w = this.wave;
     const M = this.mod;
     const baseHp = W.baseHp + (w - 1) * W.hpPerWave;
-    let hp = Math.max(1, Math.round(baseHp * K.hpMul * ((M && M.hpMul) || 1) * (hpScale || 1)));
+    // levels[].diff：关卡整体的难度倍数（第三关 m01503 要 +30%），打在每只怪的血量上。
+    // 人海波的 hpScale 走的是另一条路径（hpTarget / baseHp），所以它不受这里影响 ——
+    // 人海仍然"一枪一个"，被加难的只是常规怪和 BOSS。
+    const diff = (CFG.level && CFG.level.diff) || 1;
+    let hp = Math.max(1, Math.round(baseHp * K.hpMul * ((M && M.hpMul) || 1) * (hpScale || 1) * diff));
     let speed = (W.zombieSpeed + Math.min(W.speedPerWaveMax, (w - 1) * W.speedPerWave)) * K.speedMul;
     if (M && M.speedMul) speed *= M.speedMul;
 
@@ -733,8 +883,18 @@ export class Game {
       stopGap,
       stopZ: CFG.zNear + stopGap + stopJit,
       addT: K.spawnEvery || 0,
-      // 必杀导弹整场只放一次（m03096）：血量掉到 3/4 时才放，放完把标记用掉
-      missileFired: false,
+      // BOSS 的技能（用户 m01503）：出场放一次（casts 0→1）、半血再放一次（1→2）。
+      // 以前是 missileFired 布尔量（整场只放一发），现在要放两次，所以改成计数器。
+      casts: 0,
+      skillT: CFG.bossSkill.onSpawnDelay,
+      // 形态：form 1 = 第一条血；form 2 = 第三关进化出来的僵尸博士。
+      // 注意**不能存进 e.phase**：那个字段是走路动画的相位（见下面的 updateEnemies）。
+      form: 1,
+      forms: kind === 'boss' && CFG.level && CFG.level.bossEvolve ? 2 : 1,
+      evolveT: 0,
+      evolveDur: 0,
+      skillIdx: 0,
+      frozenStop: false, // 第三关博士：停线冻结，不再跟着英雄往前（永远够不着你）
       birth: birth || 0,
       birthDur: birth || 1,
       spit: !!K.spit,
@@ -1115,20 +1275,19 @@ export class Game {
 
       e.phase += dt * (e.state === 'approach' ? e.speed * 0.7 : 3.6);
 
-      // BOSS 必杀（m03096，m03130 修）：只看血量，不看它有没有走到停下线。
+      // BOSS 的技能账（出场一发 / 半血一发 / 博士的技能循环 / 变身演出）。
       // 旧写法把判定塞在"已经站定（attack）"那个分支里，而 BOSS 从 zFar-5 走到
-      // 停下线要 10 秒上下（2.14 单位/秒 × 22 个单位），玩家常常在它停稳之前就把它
-      // 打到 3/4 以下 —— 结果技能要么晚放、要么在"没停稳就被打死"时一次都不放
-      // （用户 m03130 在真机上测到就是这个）。放到循环开头就与站位无关了。
-      if (e.kind === 'boss' && !e.missileFired && e.hp <= e.maxHp * CFG.bossMissile.hpAt) {
-        e.missileFired = true;
-        this.bossFire(e);
-      }
+      // 停下线要 10 秒上下，玩家常常在它停稳之前就把它打到 3/4 以下 —— 结果技能
+      // 要么晚放、要么一次都不放（用户 m03130 在真机上测到就是这个）。
+      // 放到循环开头就与站位无关了；变身演出期间直接 continue（不动不打不咬）。
+      if (e.kind === 'boss' && this.updateBoss(e, dt) === 'frozen') continue;
 
       if (e.state === 'approach') {
         e.z -= e.speed * spd * dt;
-        // 停下线跟着英雄走：英雄往前压，怪就在更前面停下，绝不会从身边穿过去
-        e.stopZ = pl.z + e.stopGap + e.stopJit;
+        // 停下线跟着英雄走：英雄往前压，怪就在更前面停下，绝不会从身边穿过去。
+        // 例外：第三关的博士（frozenStop）停线是变身时定死的，不再跟着英雄往前 ——
+        // 用户 m01503 要的就是"走到一半就不再往前移动"。
+        if (!e.frozenStop) e.stopZ = pl.z + e.stopGap + e.stopJit;
         if (e.z <= e.stopZ) {
           e.z = e.stopZ;
           e.state = 'attack';
@@ -1155,15 +1314,19 @@ export class Game {
             this.spawnSpit(e);
           }
         } else if (e.kind === 'boss') {
-          // BOSS 太大（体型 1.2），所以它不贴身：站得远（stopGap 7）——
+          // BOSS 太大（体型 1.2），所以它不贴身：站得远（stopGap 5）——
           // 真贴到脸上会占满整个屏幕，玩家连自己站在哪条车道都看不见。
           // 它的威胁不是咬人（够不着），而是"尸潮首领"这个身份：
           // 源源不断往身前放小兵，所以你得尽快把它打死。
-          e.x += dir * W.drift * 0.35 * spd * dt;
+          // 第三关的博士（frozenStop）：停线冻结，这里连横移都只做很小一点，
+          // 免得它挪着挪着又蹭到跟前（用户 m01503：不再往前移动）。
+          e.x += dir * W.drift * (e.frozenStop ? 0.18 : 0.35) * spd * dt;
           e.x = clamp(e.x, -this.cam.roadHalf, this.cam.roadHalf);
-          const bz = pl.z + e.stopGap;
-          const bStep = W.drift * spd * dt * 1.6;
-          e.z += clamp(bz - e.z, -bStep, bStep);
+          if (!e.frozenStop) {
+            const bz = pl.z + e.stopGap;
+            const bStep = W.drift * spd * dt * 1.6;
+            e.z += clamp(bz - e.z, -bStep, bStep);
+          }
           e.addT -= dt;
           if (e.addT <= 0) this.spawnBossAdds(e);
         } else {
@@ -1223,6 +1386,12 @@ export class Game {
 
   killEnemy(e) {
     if (e.dead) return;
+    // 【用户 m01503】第三关 BOSS 的第一条血清空不是"死"，是进化成僵尸博士。
+    // 必须在 e.dead = true 之前拦下来，否则它会先走一遍尸体/血泊/结算的流程。
+    if (e.kind === 'boss' && e.form === 1 && e.forms > 1) {
+      this.evolveBoss(e);
+      return;
+    }
     e.dead = true;
     // 死了之后已经在空中的子弹还会打到丧尸，但分数必须冻结在 gameOver 的那一刻，
     // 否则结算面板上的分数（gameOver 时写死的）会和最终分数对不上。
@@ -1754,6 +1923,8 @@ export class Game {
       big,
       byWave: !!byWave,
       phase: rand(0, Math.PI * 2),
+      hold: S.hold, // 落地后的亮相停顿，停完开始吸附
+      fly: 0, // 吸附进度 0→1（渲染用：抬起来飞进怀里）
       dead: false,
     });
   }
@@ -1805,12 +1976,32 @@ export class Game {
       s.t += dt;
       s.phase += dt * 2.2;
       if (s.t < 0) continue; // 还没开始落
-      if (s.t < s.fall) s.x += Math.sin(s.phase) * S.drift * dt; // 边落边飘
+      if (s.t < s.fall) {
+        s.x += Math.sin(s.phase) * S.drift * dt; // 边落边飘
+      } else if (s.hold > 0) {
+        s.hold -= dt; // 【m01729】刚落地的亮相停顿
+      } else {
+        // 【用户 m01729】"阳光还是捡不到" → 改成落地自动吸附：
+        // 停完就朝英雄飞，不再要求玩家把手指对准它（手机上根本对不准）。
+        const ax = pl.x - s.x;
+        const az = pl.z - s.z;
+        const ad = Math.hypot(ax, az);
+        if (ad > 1e-4) {
+          const mv = Math.min(ad, S.magnet * dt);
+          s.x += (ax / ad) * mv;
+          s.z += (az / ad) * mv;
+        }
+        s.fly = Math.min(1, s.fly + dt * 3.4);
+      }
       s.live -= dt;
 
       const dx = pl.x - s.x;
       const dz = pl.z - s.z;
-      if (Math.abs(dx) < S.pickX && Math.abs(dz) < S.pickZ) {
+      // 捡到的两种方式：① 人自己走过去踩上（老手感保留，抢在吸附前也能捡）
+      //               ② 被吸附到身上（S.magnetPick 的距离之内就算到手）
+      const onFoot = Math.abs(dx) < S.pickX && Math.abs(dz) < S.pickZ;
+      const sucked = s.fly > 0 && Math.hypot(dx, dz) <= S.magnetPick;
+      if (onFoot || sucked) {
         s.dead = true;
         const gain = S.charge * (s.big ? S.bigMul : 1) * this.sunMul;
         this.gainEnergy(gain);
