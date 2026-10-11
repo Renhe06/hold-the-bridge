@@ -55,13 +55,14 @@ const el = {
   clearTitle: $('clearTitle'),
   talkOverlay: $('talkOverlay'),
   talkPortrait: $('talkPortrait'),
+  talkPortraitDave: $('talkPortraitDave'),
   talkName: $('talkName'),
   talkText: $('talkText'),
   talkStamp: $('talkStamp'),
   talkMore: $('talkMore'),
   talkActions: $('talkActions'),
   talkStart: $('talkStart'),
-  // 选关面板：第 1~2 关真能进，第 3~10 关是灰按钮（点了只提示未实装）
+  // 选关面板：第 1~3 关真能进，第 4~10 关是灰按钮（点了只提示未实装）
   levelOverlay: $('levelOverlay'),
   levelGrid: $('levelGrid'),
   levelHint: $('levelHint'),
@@ -243,28 +244,47 @@ function startGame() {
 }
 onTap(el.startBtn, startGame);
 
-// ---- 第二关进场对话 ----
-// 用户 m01451：进第二关要有一段简短对话（英雄报告城市守住了 → 说明海洋还有僵尸威胁），
-// 然后弹「疯狂水世界启动！」或「返回主界面」。台词就三句，点一下翻一句，翻完才出按钮。
-const TALK_LINES = [
-  { who: '英 雄', text: '司令 —— 城市守住了！桥还在我们手里，清理工作已经收尾。' },
-  { who: '司 令', text: '干得好。可海面上不太平：声呐里全是心跳，它们从海里爬上来了。' },
-  { who: '英 雄', text: '……那就下水。把我的鱼叉枪修好，我这就去码头。' },
-];
+// ---- 第二 / 第三关进场对话 ----
+// 用户 m01451：进第二关要有一段简短对话（英雄报告城市守住了 → 说明海洋还有僵尸威胁）。
+// 用户 m02771：第三关是植物大战僵尸，开场必须是戴夫那句「歪比巴布」。
+// 两段对话各三句，点一下翻一句，翻完才出按钮；按 CFG.level.intro 选。
+const TALKS = {
+  ocean: {
+    portrait: 'uncle',
+    start: '疯 狂 水 世 界 · 启 动 ！',
+    lines: [
+      { who: '英 雄', text: '司令 —— 城市守住了！桥还在我们手里，清理工作已经收尾。' },
+      { who: '司 令', text: '干得好。可海面上不太平：声呐里全是心跳，它们从海里爬上来了。' },
+      { who: '英 雄', text: '……那就下水。把我的鱼叉枪修好，我这就去码头。' },
+    ],
+  },
+  dave: {
+    portrait: 'dave',
+    start: '好 了 · 开 打 ！',
+    lines: [
+      { who: '戴 夫', text: '歪比巴布！！……咳，我是说：歪、比、巴、布。' },
+      { who: '戴 夫', text: '看见没？桥面现在是草坪了。草坪 + 僵尸 = 热闹，你懂我意思吧。' },
+      { who: '戴 夫', text: '甭慌 —— 你有豌豆。天上掉的阳光记得捡，攒满了扔樱桃。' },
+    ],
+  },
+};
+let talkSet = TALKS.ocean;
 let talkIdx = 0;
 
 function renderTalk() {
-  const line = TALK_LINES[Math.min(talkIdx, TALK_LINES.length - 1)];
+  const lines = talkSet.lines;
+  const line = lines[Math.min(talkIdx, lines.length - 1)];
   setText(el.talkName, 'tkN', line.who);
   setText(el.talkText, 'tkT', line.text);
-  setText(el.talkStamp, 'tkS', `${String(Math.min(talkIdx + 1, TALK_LINES.length)).padStart(2, '0')} / 0${TALK_LINES.length}`);
-  const done = talkIdx >= TALK_LINES.length;
+  setText(el.talkStamp, 'tkS', `${String(Math.min(talkIdx + 1, lines.length)).padStart(2, '0')} / 0${lines.length}`);
+  setText(el.talkStart, 'tkStart', talkSet.start);
+  const done = talkIdx >= lines.length;
   el.talkMore.classList.toggle('hidden', done);
   el.talkActions.classList.toggle('show', done);
 }
 
 function talkNext() {
-  if (talkIdx >= TALK_LINES.length) return; // 翻完了，后面的按钮自己接事件
+  if (talkIdx >= talkSet.lines.length) return; // 翻完了，后面的按钮自己接事件
   sfx.unlock();
   sfx.uiClick();
   talkIdx += 1;
@@ -354,7 +374,7 @@ for (const [node, name] of MENU_ENTRIES) {
 }
 
 // ---- 选关面板（首页「关卡」入口）----
-// 第 1~2 关真的能进；第 3~10 关是灰按钮，点了只提示"该关卡未实装"。
+// 第 1~3 关真的能进；第 4~10 关是灰按钮，点了只提示"该关卡未实装"。
 function openLevels() {
   // 已经通关过的关卡打个「已通关」记号；按钮里的两行字是 index.html 写死的，
   // 这里只加 class，别用 textContent 写，否则会把「第 1 关 / 血色大桥」两行抹掉。
@@ -364,7 +384,7 @@ function openLevels() {
     const lv = findLevel(i);
     node.classList.toggle('done', !!lv && game.clearedLevel >= i);
   }
-  setText(el.levelHint, 'lvH', game.clearedLevel >= 1 ? '第 2 关已解锁 · 选一关开打' : '先打第 1 关 · 第 2 关也可以直接进');
+  setText(el.levelHint, 'lvH', game.clearedLevel >= 2 ? '第 3 关已解锁 · 选一关开打' : game.clearedLevel >= 1 ? '第 2、3 关已解锁 · 选一关开打' : '先打第 1 关 · 第 2、3 关也可以直接进');
   el.levelOverlay.classList.add('show');
 }
 
@@ -561,6 +581,12 @@ function syncState() {
     if (st === STATE.OVER) showGameOver();
     if (st === STATE.CLEAR) showClear();
     if (st === STATE.TALK) {
+      // 按这一关的 intro 选对话（ocean = 大叔 / dave = 戴夫）
+      talkSet = TALKS[CFG.level.intro] || TALKS.ocean;
+      if (el.talkPortraitDave) {
+        el.talkPortrait.classList.toggle('hidden', talkSet.portrait === 'dave');
+        el.talkPortraitDave.classList.toggle('hidden', talkSet.portrait !== 'dave');
+      }
       talkIdx = 0;
       renderTalk();
     }
@@ -569,7 +595,7 @@ function syncState() {
       setText(el.startCoins, 'sC', String(game.coins));
       // 关卡入口显示进度（通关第一关后主界面能看出来第二关解锁了）
       // 「关卡」那格的角标：点开是选关面板，所以这里只说到"能选几关"
-      setText(el.menuLevelNote, 'mL', game.clearedLevel >= 1 ? '第 1~2 关 可选' : '第 1 关 可打');
+      setText(el.menuLevelNote, 'mL', game.clearedLevel >= 2 ? '第 1~3 关 可选' : game.clearedLevel >= 1 ? '第 1~2 关 可选' : '第 1 关 可打');
     }
 
     el.startOverlay.classList.toggle('show', st === STATE.START);

@@ -169,6 +169,50 @@ export class Sound {
     this.tone({ freq: 620, freq2: 880, type: 'square', dur: 0.06, vol: 0.09 });
   }
 
+  // ---------------- 第三关：疯狂草坪（PvZ 味道）----------------
+
+  /** 开场警报：两声长笛一样的下滑警笛（听到就知道这一关换风格了） */
+  alarm() {
+    for (let i = 0; i < 2; i++) {
+      this.tone({ freq: 780, freq2: 420, type: 'sawtooth', dur: 0.42, vol: 0.16, delay: i * 0.5 });
+      this.tone({ freq: 390, freq2: 210, type: 'triangle', dur: 0.44, vol: 0.1, delay: i * 0.5 });
+    }
+  }
+
+  /** 开场倒数 3 / 2 / 1：数字越小音越高，最后一声是"开打" */
+  countdown(n = 1) {
+    const f = n >= 3 ? 520 : n === 2 ? 660 : 880;
+    this.tone({ freq: f, type: 'square', dur: 0.16, vol: 0.16 });
+    if (n <= 1) this.tone({ freq: f * 2, type: 'triangle', dur: 0.4, vol: 0.14, delay: 0.12 });
+  }
+
+  /** 豌豆：一声"噗"，比枪声软、频率低，连射起来是"噗噗噗" */
+  pea() {
+    const det = 1 + (Math.random() - 0.5) * 0.12;
+    this.tone({ freq: 420 * det, freq2: 240, type: 'sine', dur: 0.06, vol: 0.11 });
+    this.burst({ dur: 0.035, vol: 0.05, type: 'bandpass', freq: 1200, q: 1.1, sweepTo: 500 });
+  }
+
+  /** 捡阳光：PvZ 那个"叮"（两个纯音，亮、短） */
+  sun() {
+    this.tone({ freq: 1046.5, type: 'sine', dur: 0.1, vol: 0.14 });
+    this.tone({ freq: 1567.98, type: 'sine', dur: 0.16, vol: 0.12, delay: 0.06 });
+  }
+
+  /** 樱桃炸弹：比普通爆炸更"脆"的一下，前面还有一声引信的嘶声 */
+  cherry() {
+    this.burst({ dur: 0.16, vol: 0.09, type: 'highpass', freq: 3400, sweepTo: 900 });
+    this.tone({ freq: 260, freq2: 42, type: 'sawtooth', dur: 0.62, vol: 0.3 });
+    this.burst({ dur: 0.55, vol: 0.28, type: 'lowpass', freq: 1800, sweepTo: 110 });
+  }
+
+  /** 戴夫那句"歪比巴布"：两个下滑音，故意听起来很蠢 */
+  dave() {
+    this.tone({ freq: 300, freq2: 200, type: 'triangle', dur: 0.16, vol: 0.16 });
+    this.tone({ freq: 220, freq2: 150, type: 'triangle', dur: 0.22, vol: 0.14, delay: 0.16 });
+    this.tone({ freq: 190, freq2: 120, type: 'sawtooth', dur: 0.18, vol: 0.1, delay: 0.34 });
+  }
+
   // ---------------- v3 新增（打击感 / 新玩法）----------------
 
   /** BOSS 导弹预警：两声急促的上滑警报（听到就准备挪位） */

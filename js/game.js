@@ -12,7 +12,7 @@
 //   3. 僵尸体型整体放大一档
 // ============================================================
 
-import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave, setLevel, findLevel } from './config.js';
+import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave, setLevel, findLevel, isPvz, pvzPlant } from './config.js';
 import { clamp, rand, sample } from './util.js';
 
 export const STATE = {
@@ -95,6 +95,22 @@ export class Game {
     this.lastMod = null;
     this.fogMul = 1;
 
+    // ---- 第三关（疯狂草坪）专属状态 ----
+    // lanes：**每一"条"弹道自己的属性**（'' / 'ice' / 'fire'）。
+    // 用户 m02771 要求奖励墙的寒冰/炎火"只改变一条弹道"，所以属性必须存在
+    // 弹道这一层，而不是像液氮弹/燃烧弹那样挂在武器全局 w.ice/w.burn 上。
+    this.lanes = ['', '', '', '', '', ''];
+    this.suns = []; // 天上掉下来的阳光（走过去自动捡）
+    this.sunT = 0; // 下一个阳光还有多久掉下来
+    this.sunSeq = 0; // 掉过多少个了（每 N 个来一个大的）
+    this.sunWaveStacks = 0; // "向日葵"奖励：每波开局直接掉几个
+    this.sunMul = 1; // "阳光充沛"：一个阳光充多少能量
+    this.cherries = []; // 樱桃炸弹（第三关的大招，取代飞机轰炸）
+    this.cherryMul = 1; // "巨型樱桃"：炸开范围倍率
+    this.alertT = 0; // 开场"警报 + 3 2 1"还剩多久
+    this.alertStep = 0; // 当前喊到的数字（0 = 只有警报，还没开始倒数）
+    this._alertSaid = 0; // 上一次响过的数字（换数字才响一声）
+
     this.cam.camZ = 0;
 
     this.player = {
@@ -149,6 +165,10 @@ export class Game {
    */
   beginLevel(idx) {
     setLevel(idx);
+    // 第三关的开场警报只在"这一局第一次进这一关"时放一次。这个标记故意
+    // 不放在 reset() 里 —— reset() 每一波都会调，放进去就会波波响警报。
+    this._pvzIntroShown = false;
+    this._pvzGateWait = false;
     if (CFG.level.intro) {
       this.reset();
       this.state = STATE.TALK;
@@ -163,7 +183,22 @@ export class Game {
     this.state = STATE.PREP;
     this.prepT = CFG.wave.prepTime;
     this.pulseT = CFG.weapon.pulseInterval;
-    this.openGates();
+    // 第三关开场：模仿植物大战僵尸的关卡开场 —— 先拉警报，再喊 3 / 2 / 1。
+    // 警报时间会撑进备战时间里，所以玩家听得完也不会被扣时间。
+    // 开场这一对奖励门**等倒数喊完再开**：不然两块面板糊在大字 3 上，两边都看不清。
+    if (isPvz() && !this._pvzIntroShown) {
+      this._pvzIntroShown = true;
+      const A = CFG.pvz.alert;
+      this.alertT = A.alarm + A.step * 3;
+      this.alertStep = 0;
+      this._alertSaid = 0;
+      this._pvzGateWait = true;
+      this.prepT = Math.max(this.prepT, this.alertT + CFG.pvz.alert.calm);
+      this.say('警报！僵尸来了！', '#ffd23f', 2.4);
+      this.sfx.alarm();
+    } else {
+      this.openGates();
+    }
   }
 
   /** 进场对话看完 → 照常备战 */
@@ -185,6 +220,17 @@ export class Game {
 
   get tier() {
     return WEAPON_TIERS[this.weapon.tierIdx];
+  }
+
+  /**
+   * HUD 上显示的武器称号。
+   * 第三关按**弹道数**报植物名（豌豆射手 / 双发射手 / 三线射手 / 机枪豌豆 /
+   * 玉米加农炮 —— 用户 m02771："弹道 +1 换双头豌豆射手，以此类推"），
+   * 其他关卡还是原来的制式弹/强化弹/等离子/毁灭者。
+   */
+  get weaponLabel() {
+    if (isPvz()) return pvzPlant(this.weapon.bullets).name;
+    return this.tier.name;
   }
 
   // ---------------------------------------------------------
@@ -240,6 +286,24 @@ export class Game {
 
     if (this.state === STATE.PREP) {
       this.prepT -= dt;
+      // 第三关开场：警报响完开始喊 3 / 2 / 1（每换一个数字响一声）
+      if (this.alertT > 0) {
+        const A = CFG.pvz.alert;
+        this.alertT = Math.max(0, this.alertT - dt);
+        const e = A.alarm + A.step * 3 - this.alertT;
+        this.alertStep =
+          e < A.alarm ? 0 : Math.max(1, Math.min(3, 4 - Math.ceil((e - A.alarm) / A.step)));
+        if (this.alertStep !== this._alertSaid) {
+          this._alertSaid = this.alertStep;
+          if (this.alertStep > 0) this.sfx.countdown(this.alertStep);
+          else this.sfx.alarm();
+        }
+        // 倒计时喊完（alertT 归零）才把开场那一对奖励门推出来
+        if (this.alertT === 0 && this._pvzGateWait) {
+          this._pvzGateWait = false;
+          this.openGates();
+        }
+      }
       if (this.prepT <= 0) this.startWave();
     } else if (fighting) {
       this.updateSpawning(dt);
@@ -252,6 +316,8 @@ export class Game {
       this.updateGates(dt);
       this.updateSpits(dt);
       this.updateStrikes(dt);
+      this.updateSuns(dt); // 第三关：阳光往下掉 + 走过去捡
+      this.updateCherries(dt); // 第三关：樱桃炸弹的引信
     }
     if (fighting) {
       this.updateEnemies(dt);
@@ -359,6 +425,12 @@ export class Game {
 
     // 第二关专属玩法：吃到"布水雷"奖励后，每波开局在桥面上撒几颗
     if (CFG.level.skin === 'ocean' && this.mineStacks > 0) this.placeMines();
+
+    // 第三关专属玩法：每波开局把阳光计时清零；吃到"向日葵"就当场多掉几个
+    if (isPvz()) {
+      this.sunT = CFG.pvz.sun.first;
+      for (let i = 0; i < this.sunWaveStacks; i++) this.spawnSun(true, i * 0.4);
+    }
 
     this.state = STATE.FIGHT;
     this.waveBanner = bossWave ? 2.8 : hordeWave ? 2.5 : M ? 2.4 : 2.2;
@@ -628,7 +700,10 @@ export class Game {
     // 第二关（海洋皮肤）：同一种怪换成"僵尸 + 海洋动物"的融合体 ——
     // 主色/暗色来自该怪海洋配色，animal 决定 render 里追加哪些动物部件
     // （鱼鳍、章鱼触手、蟹钳、鲨鱼背鳍与尖牙、河豚刺、龟壳、水母伞盖）。
-    const skin = CFG.level.skin === 'ocean' && K.ocean ? K.ocean : null;
+    // 第三关（疯狂草坪）：同一套机制换成 PvZ 的僵尸（普通/撑杆/巨人/僵王/
+    // 投石车/铁桶/小鬼），render 的 _pvzBits 按 animal 画领带、铁桶、小鬼之类。
+    const SK = CFG.level.skin;
+    const skin = SK === 'ocean' ? K.ocean || null : SK === 'pvz' ? K.pvz || null : null;
 
     this.enemies.push({
       id: this.nextId++,
@@ -742,9 +817,11 @@ export class Game {
 
   /** 从可用加成里抽两块，摆在桥的左右半边 */
   openGates() {
-    // 第二关专属加成（l2: true）只在"疯狂水世界"里出现；
-    // 第一关的奖励池保持原样，免得一关里突然冒出没见过的水雷/鱼雷。
-    const pool = CFG.level.skin === 'ocean' ? UPGRADES : UPGRADES.filter((u) => !u.l2);
+    // 关卡专属加成（l2 = 第二关的水雷/鱼雷，l3 = 第三关的寒冰/炎火/阳光）
+    // 只在对应那一关的奖励门里出现；通用条目哪一关都在。
+    // 第一关的奖励池保持原样，免得一关里突然冒出没见过的水雷/阳光。
+    const sk = CFG.level.skin;
+    const pool = UPGRADES.filter((u) => (u.l2 ? sk === 'ocean' : u.l3 ? sk === 'pvz' : true));
     const avail = pool.filter((u) => (this.stacks[u.id] || 0) < u.max);
     if (avail.length === 0) {
       this.gates = null;
@@ -816,6 +893,20 @@ export class Game {
     if (a.strikeMul) this.strikeMul *= a.strikeMul;
     if (a.mine) this.mineStacks += a.mine; // 第二关：每波布水雷
 
+    // 第三关：寒冰/炎火只改【一条】弹道（见 _noteLane）；阳光与樱桃是资源线
+    let laneIdx = -1;
+    if (a.iceLane) laneIdx = this._noteLane('ice');
+    if (a.fireLane) laneIdx = this._noteLane('fire');
+    if (a.sunWave) this.sunWaveStacks += a.sunWave;
+    if (a.sunMul) this.sunMul *= a.sunMul;
+    if (a.cherryR) this.cherryMul *= a.cherryR;
+    if (laneIdx >= 0) {
+      const isIce = !!a.iceLane;
+      const col = isIce ? CFG.pvz.ice.color : CFG.pvz.fire.color;
+      this.addPopup(pl.x, pl.z + 3.1, `第 ${laneIdx + 1} 条弹道 · ${isIce ? '寒冰' : '炎火'}`, col, 1.5);
+      this.rings.push({ x: pl.x, z: pl.z + 1.2, t: 0, life: 0.5, maxR: 0.75, color: col });
+    }
+
     if (OFFENSIVE_KEYS.includes(u.id)) this.offensivePoints += 1;
     this.updateTier();
 
@@ -826,6 +917,27 @@ export class Game {
       this.addPopup(0, atZ, `${u.op}${u.amt} ${u.short}`, '#ffe9a8', 1.35);
       this.rings.push({ x: this.player.x, z: atZ, t: 0, life: 0.45, maxR: 0.5, color: '#ffe9a8' });
     }
+  }
+
+  /**
+   * 给"一条弹道"挂上寒冰 / 炎火（第三关的核心构筑，用户 m02771 要求）。
+   * 优先找还没属性的那条；每条都铺满了就改第一条 —— 连吃 5 次寒冰不会全堆在
+   * 同一条上白白浪费，玩家看到的是"一条接一条亮起来"。
+   * 返回改的是第几条（0 起），没改到返回 -1。
+   */
+  _noteLane(kind) {
+    const n = Math.max(1, Math.min(this.lanes.length, Math.round(this.weapon.bullets)));
+    for (let i = 0; i < n; i++) {
+      if (!this.lanes[i]) {
+        this.lanes[i] = kind;
+        return i;
+      }
+    }
+    if (this.lanes[0] !== kind) {
+      this.lanes[0] = kind;
+      return 0;
+    }
+    return -1;
   }
 
   updateTier() {
@@ -886,9 +998,14 @@ export class Game {
     const z0 = pl.z + 0.12;
     const fwd = this.forwardBonus();
 
+    // 第三关的豌豆：**每条弹道的属性各自决定**（寒冰/炎火/普通绿豌豆）。
+    // 其他关卡走原来的全局 w.ice / w.burn（液氮弹、燃烧弹）。
+    const pvz = isPvz();
+
     for (let i = 0; i < n; i++) {
       const off = (i - (n - 1) / 2) * CFG.weapon.spread;
       const isCrit = Math.random() < w.crit;
+      const lane = pvz ? this.lanes[i] || '' : '';
       this.bullets.push({
         x: this.cam.clampToRoad(pl.x + off, 0),
         z: z0,
@@ -898,8 +1015,9 @@ export class Game {
         crit: isCrit,
         pierceLeft: w.pierce,
         splash: Math.max(CFG.weapon.splash, w.splash, tier.splash),
-        ice: w.ice,
-        burn: w.burn,
+        ice: pvz ? (lane === 'ice' ? 1 : 0) : w.ice,
+        burn: pvz ? (lane === 'fire' ? 1 : 0) : w.burn,
+        lane, // 渲染器按它决定这颗豌豆的颜色（'' = 绿豌豆）
         hitSet: new Set(),
         dead: false,
         seed: rand(0, Math.PI * 2),
@@ -909,7 +1027,8 @@ export class Game {
     w.cd = Math.max(0.06, w.interval / w.rateMul);
     pl.recoil = 1;
     pl.muzzle = 1;
-    this.sfx.shoot(w.tierIdx);
+    if (pvz) this.sfx.pea();
+    else this.sfx.shoot(w.tierIdx);
   }
 
   bite(e, dmg = 1) {
@@ -1216,7 +1335,13 @@ export class Game {
     this.energy = Math.min(CFG.charge.max, this.energy + n * this.energyMul);
     if (this.energy >= CFG.charge.max) {
       this.sfx.chargeReady();
-      this.addPopup(this.player.x, this.player.z + 2.2, '空袭就绪 · 点右下角', '#8bf58b', 1.4);
+      this.addPopup(
+        this.player.x,
+        this.player.z + 2.2,
+        isPvz() ? '樱桃炸弹就绪 · 点右下角' : '空袭就绪 · 点右下角',
+        '#8bf58b',
+        1.4,
+      );
       this.flash = Math.max(this.flash, 0.35);
     }
   }
@@ -1230,6 +1355,9 @@ export class Game {
     if (!this.canStrike()) return false;
     this.energy = 0;
     this.strikeSeq += 1;
+
+    // 第三关：大招不是空袭，而是植物大战僵尸里那个樱桃炸弹
+    if (isPvz()) return this.triggerCherry();
 
     const S = CFG.strike;
     // 瞄准活着的敌人的平均横向位置：空袭要砸在"人堆"上才有快感
@@ -1274,6 +1402,72 @@ export class Game {
     this.say('FIRE!', '#8bf58b');
     this.addPopup(this.player.x, this.player.z + 5, '空 袭', '#8bf58b', 1.7);
     return true;
+  }
+
+  /**
+   * 第三关的大招：樱桃炸弹（用户 m02771 要的 PvZ 味道）。
+   * 不学空袭"从远到近犁一遍"，而是把一颗超大樱桃直接扔进**人堆中心**，
+   * 引信 0.45 秒后炸开：范围比空袭宽得多，代价是只能炸一处、且要等引信。
+   */
+  triggerCherry() {
+    const C = CFG.pvz.cherry;
+    const live = this.enemies.filter((e) => !e.dead);
+    let tx = this.player.x;
+    let tz = this.player.z + 3.4;
+    if (live.length) {
+      tx = live.reduce((s, e) => s + e.x, 0) / live.length;
+      tz = live.reduce((s, e) => s + e.z, 0) / live.length;
+    }
+    const r = C.radius * this.cherryMul;
+    const zR = C.zRadius * this.cherryMul;
+    this.cherries.push({
+      x: clamp(tx, -this.cam.roadHalf, this.cam.roadHalf),
+      z: clamp(tz, this.player.z + 0.9, CFG.zFar + 2),
+      t: 0,
+      fuse: C.fuse,
+      r,
+      zR,
+      dmg: (C.damage + this.wave * 0.7) * this.strikeMul,
+      phase: 0,
+      dead: false,
+    });
+    this.sfx.whoosh();
+    this.shake = Math.max(this.shake, 6);
+    this.say('歪比巴布！', '#ff5a4a');
+    this.addPopup(this.player.x, this.player.z + 5, '樱 桃 炸 弹', '#ff8a6a', 1.6);
+    return true;
+  }
+
+  /** 樱桃炸弹：引信烧完就炸。落在哪炸哪，范围由 cherryMul 决定 */
+  updateCherries(dt) {
+    for (const c of this.cherries) {
+      if (c.dead) continue;
+      c.t += dt;
+      c.phase += dt * 6;
+      if (c.t >= c.fuse) {
+        c.dead = true;
+        this.explodeCherry(c);
+      }
+    }
+    this.cherries = this.cherries.filter((c) => !c.dead);
+  }
+
+  explodeCherry(c) {
+    this.rings.push({ x: c.x, z: c.z, t: 0, life: 0.6, maxR: c.r * 1.9, color: '#ff5a4a' });
+    this.rings.push({ x: c.x, z: c.z, t: 0, life: 0.36, maxR: c.r, color: '#ffe0d2' });
+    this.spawnParticles(c.x, c.z, 30, 'spark', '#ff7a4a');
+    this.spawnParticles(c.x, c.z, 14, 'blood', '#7d1a1a');
+    this.flash = Math.max(this.flash, 0.6);
+    this.shake = Math.max(this.shake, 18);
+    this.sfx.cherry();
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      if (Math.abs(e.z - c.z) > c.zR || Math.abs(e.x - c.x) > c.r) continue;
+      e.hp -= c.dmg;
+      e.hurtT = 0.14;
+      e.z += 0.2; // 炸得往后一掀
+      if (e.hp <= 0) this.killEnemy(e);
+    }
   }
 
   updateStrikes(dt) {
@@ -1533,6 +1727,71 @@ export class Game {
       }
     }
     this.orbs = this.orbs.filter((o) => o.life > 0);
+  }
+
+  // ---------------------------------------------------------
+  //  第三关：阳光（走过去捡，充能给樱桃炸弹）
+  // ---------------------------------------------------------
+
+  /**
+   * 掉一个阳光。delay 是"过多少秒才开始落"（向日葵奖励一次掉几个时错开）。
+   * byWave = 这一波开局直接掉的（不是天上自然飘下来的）。
+   */
+  spawnSun(byWave = false, delay = 0) {
+    const S = CFG.pvz.sun;
+    this.sunSeq += 1;
+    const big = this.sunSeq % S.bigEvery === 0; // 每 5 个来一个大的
+    this.suns.push({
+      x: rand(-0.72, 0.72) * this.cam.roadHalf,
+      z: this.player.z + rand(3.0, 8.5),
+      t: -delay,
+      fall: 1.25,
+      live: S.live,
+      big,
+      byWave: !!byWave,
+      phase: rand(0, Math.PI * 2),
+      dead: false,
+    });
+  }
+
+  updateSuns(dt) {
+    // 不是第三关就一个都不留（切关卡时可能还剩着上一关的）
+    if (!isPvz()) {
+      if (this.suns.length) this.suns = [];
+      return;
+    }
+    const S = CFG.pvz.sun;
+    // 自然掉落只在真正开打时走：备战、暂停、结算都不该攒阳光
+    if (this.state === STATE.FIGHT) {
+      this.sunT -= dt;
+      if (this.sunT <= 0) {
+        this.sunT = S.every;
+        this.spawnSun();
+      }
+    }
+
+    const pl = this.player;
+    for (const s of this.suns) {
+      s.t += dt;
+      s.phase += dt * 2.2;
+      if (s.t < 0) continue; // 还没开始落
+      if (s.t < s.fall) s.x += Math.sin(s.phase) * S.drift * dt; // 边落边飘
+      s.live -= dt;
+
+      const dx = pl.x - s.x;
+      const dz = pl.z - s.z;
+      if (Math.abs(dx) < 0.24 && Math.abs(dz) < 0.6) {
+        s.dead = true;
+        const gain = S.charge * (s.big ? S.bigMul : 1) * this.sunMul;
+        this.gainEnergy(gain);
+        this.addPopup(s.x, s.z, `☀ +${Math.round(gain)}`, '#ffe066', s.big ? 1.5 : 1.15);
+        this.spawnParticles(s.x, s.z, s.big ? 12 : 6, 'spark', '#ffe066');
+        this.sfx.sun();
+      } else if (s.live <= 0) {
+        s.dead = true;
+      }
+    }
+    this.suns = this.suns.filter((s) => !s.dead);
   }
 
   spawnParticles(x, z, n, kind, color) {

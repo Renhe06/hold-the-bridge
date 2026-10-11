@@ -8,7 +8,7 @@
 //   - 径向渐变只在上面那两种烘焙里创建，主循环里不新建渐变对象
 // ============================================================
 
-import { CFG, WEAPON_TIERS, isHordeWave, isBossWave } from './config.js';
+import { CFG, WEAPON_TIERS, isHordeWave, isBossWave, pvzPlant } from './config.js';
 import { clamp, mulberry32, mix, rgba } from './util.js';
 
 const TAU = Math.PI * 2;
@@ -122,7 +122,30 @@ export class Renderer {
     g.fillRect(0, 0, w, h);
 
     const rnd = mulberry32(20260416);
-    if (T.skyDeco === 'bubbles') {
+    if (T.skyDeco === 'clouds') {
+      // 疯狂草坪（第三关）：白天，天上飘的是一团团的卡通白云。
+      // 一朵云 = 五个圆叠出来，边是软的，和夜景的星星形成"完全另一个地方"。
+      const L = T.lawn;
+      for (let i = 0; i < 10; i++) {
+        const x = rnd() * w;
+        const y = 4 + rnd() * (h - 26);
+        const s = 0.55 + rnd() * 0.85;
+        const a = 0.42 + rnd() * 0.3;
+        g.fillStyle = `${L.cloud}${a})`;
+        const blobs = [
+          [-1.5, 0.25, 0.6],
+          [-0.5, -0.2, 0.85],
+          [0.65, -0.05, 0.72],
+          [1.7, 0.28, 0.52],
+          [0.1, 0.32, 0.68],
+        ];
+        for (const [bx, by, br] of blobs) {
+          g.beginPath();
+          g.arc(x + bx * 24 * s, y + by * 24 * s, br * 24 * s, 0, TAU);
+          g.fill();
+        }
+      }
+    } else if (T.skyDeco === 'bubbles') {
       // 水世界：天上飘的是往上冒的气泡（不是星星）
       for (let i = 0; i < 80; i++) {
         const x = rnd() * w;
@@ -149,6 +172,40 @@ export class Renderer {
         g.arc(x, y, r, 0, TAU);
         g.fill();
       }
+    }
+
+    // 疯狂草坪（第三关）：头顶那颗是**太阳**，不是月亮 —— 白天关卡必须有太阳
+    if (T.skyDeco === 'clouds') {
+      const L = T.lawn;
+      const mx = w * 0.74;
+      const my = h * 0.3;
+      const mr = Math.max(12, w * 0.05);
+      const halo = g.createRadialGradient(mx, my, mr * 0.6, mx, my, mr * 6);
+      halo.addColorStop(0, 'rgba(255,244,180,0.55)');
+      halo.addColorStop(0.35, 'rgba(255,236,150,0.18)');
+      halo.addColorStop(1, 'rgba(255,240,170,0)');
+      g.fillStyle = halo;
+      g.fillRect(mx - mr * 6, my - mr * 6, mr * 12, mr * 12);
+      // 十二道光芒
+      g.save();
+      g.translate(mx, my);
+      g.fillStyle = 'rgba(255,246,200,0.5)';
+      for (let i = 0; i < 12; i++) {
+        g.rotate(TAU / 12);
+        g.fillRect(mr * 0.92, -1.6, mr * 0.62, 3.2);
+      }
+      g.restore();
+      g.fillStyle = L.sun;
+      g.beginPath();
+      g.arc(mx, my, mr, 0, TAU);
+      g.fill();
+      g.fillStyle = L.sunCore;
+      g.beginPath();
+      g.arc(mx, my, mr * 0.72, 0, TAU);
+      g.fill();
+      this.skyCanvas = c;
+      this.skyH = h;
+      return;
     }
 
     // 月亮（在水世界里它读作一盏大射灯 / 大气泡）
@@ -187,6 +244,66 @@ export class Renderer {
     const g = c.getContext('2d');
     const rnd = mulberry32(778899);
     const T = CFG.theme;
+
+    // 疯狂草坪（第三关）：远景是郊区民房 + 树 + 白栅栏（PvZ 的"后院"味道）。
+    // 白天的远景必须亮，否则整片天空压在一条黑边上会很假。
+    if (T.skyline === 'houses') {
+      const L = T.lawn;
+      const base = h - 6;
+      // 一条绿色的地平线草带
+      g.fillStyle = '#4f9c3c';
+      g.fillRect(0, base - 6, w, h - base + 6);
+      let x = -24;
+      while (x < w + 24) {
+        const hw = 34 + rnd() * 30;
+        const hh = 40 + rnd() * 34;
+        g.fillStyle = 'rgba(0,0,0,0.10)';
+        g.fillRect(x, base - hh, hw, hh);
+        g.fillStyle = L.house;
+        g.fillRect(x, base - hh, hw * 0.92, hh);
+        // 红屋顶
+        g.fillStyle = L.roof;
+        g.beginPath();
+        g.moveTo(x - 5, base - hh);
+        g.lineTo(x + hw / 2, base - hh - hw * 0.42);
+        g.lineTo(x + hw + 5, base - hh);
+        g.closePath();
+        g.fill();
+        // 门窗
+        g.fillStyle = 'rgba(96,64,40,0.8)';
+        g.fillRect(x + hw * 0.38, base - hh * 0.5, hw * 0.26, hh * 0.5);
+        g.fillStyle = 'rgba(146,214,240,0.9)';
+        g.fillRect(x + hw * 0.08, base - hh * 0.78, hw * 0.22, hh * 0.24);
+        g.fillRect(x + hw * 0.66, base - hh * 0.78, hw * 0.22, hh * 0.24);
+        x += hw + 14 + rnd() * 30;
+      }
+      // 树：圆冠 + 树干
+      for (let i = 0; i < 7; i++) {
+        const tx = rnd() * w;
+        const r = 13 + rnd() * 17;
+        g.fillStyle = '#6b4a2a';
+        g.fillRect(tx - 2.5, base - r * 0.9, 5, r * 0.9);
+        g.beginPath();
+        g.arc(tx, base - r * 0.9, r * 0.8, 0, TAU);
+        g.fillStyle = L.treeDark;
+        g.fill();
+        g.beginPath();
+        g.arc(tx - r * 0.24, base - r * 1.12, r * 0.66, 0, TAU);
+        g.fillStyle = L.tree;
+        g.fill();
+      }
+      // 最前排白栅栏
+      g.fillStyle = L.fence;
+      g.fillRect(0, base - 12, w, 3);
+      g.fillRect(0, base - 4, w, 3);
+      for (let fx = 4; fx < w; fx += 13) {
+        g.fillStyle = L.fenceDark;
+        g.fillRect(fx, base - 15, 4, 17);
+      }
+      this.cityCanvas = c;
+      this.cityH = h;
+      return;
+    }
 
     // 疯狂水世界：远景是乐园的蓝白格子展墙 + 水草 + 游鱼 + 大气泡。
     // 观感直接抄参考图（摊位立牌）里那块背景：蓝白棋盘格 + 海洋元素。
@@ -330,8 +447,10 @@ export class Renderer {
     this._drawWater(ctx, w, h);
     this._drawDeck(ctx);
     this._drawGround(ctx, game);
+    this._drawSuns(ctx, game);
     this._drawHaze(ctx, w);
     this._drawEntities(ctx, game);
+    this._drawCherries(ctx, game);
     this._drawMissiles(ctx, game);
     this._drawFog(ctx, w);
     this._drawRings(ctx, game);
@@ -339,6 +458,7 @@ export class Renderer {
     this._drawHero(ctx, game);
     this._drawShout(ctx, game);
     this._drawScreenFx(ctx, game, w, h);
+    this._drawAlert(ctx, game, w, h);
     ctx.translate(-ox, -oy);
     this._drawPopups(ctx, game);
     this._drawHudCanvas(ctx, game, w, h);
@@ -418,6 +538,31 @@ export class Renderer {
     g.addColorStop(1, T.deck[3]);
     ctx.fillStyle = g;
     ctx.fill();
+
+    // 疯狂草坪（第三关）：桥面是草皮 —— 铺一层深浅交替的横条纹，
+    // 一眼就是"草坪"而不是柏油/木板（PvZ 的草坪就是条纹的）
+    if (T.lawn) {
+      const L = T.lawn;
+      let k = 0;
+      for (let z = zN; z < 110; z += 1.6, k++) {
+        if (k % 2) continue;
+        const a2 = cam.project(-RH, z);
+        const b2 = cam.project(RH, z);
+        const c2 = cam.project(RH, z + 1.6);
+        const d2 = cam.project(-RH, z + 1.6);
+        if (a2.y - d2.y < 0.1) continue;
+        ctx.beginPath();
+        ctx.moveTo(a2.x, a2.y + 4);
+        ctx.lineTo(b2.x, b2.y + 4);
+        ctx.lineTo(c2.x, c2.y);
+        ctx.lineTo(d2.x, d2.y);
+        ctx.closePath();
+        ctx.fillStyle = k % 4 === 0 ? L.stripeA : L.stripeB;
+        ctx.globalAlpha = 0.5;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
 
     // 伸缩缝（给纵深提供参照物）
     ctx.fillStyle = T.seam;
@@ -953,7 +1098,45 @@ export class Renderer {
     ctx.stroke();
   }
 
+  /**
+   * 第三关的子弹：一颗豌豆。
+   * 用户 m02771：寒冰/炎火"只改变一条弹道的类型并改变颜色"，所以豌豆的颜色
+   * 完全由**这一条弹道自己的属性**决定 —— 屏幕上能同时看到绿、冰蓝、火橙三条线。
+   */
+  _drawPea(ctx, game, b) {
+    const cam = this.cam;
+    const L = CFG.theme.lawn;
+    const p = cam.project(b.x, b.z);
+    const ice = b.lane === 'ice';
+    const fire = b.lane === 'fire';
+    const core = ice ? CFG.pvz.ice.color : fire ? CFG.pvz.fire.color : L.pea;
+    const glow = ice ? CFG.pvz.ice.glow : fire ? CFG.pvz.fire.glow : L.peaDark;
+    const r = Math.max(1.3, CFG.weapon.bulletRadius * 1.2 * p.s);
+
+    // 拖尾：跟枪弹一样要有速度感，但更短更"汁水"
+    const back = cam.project(b.x, Math.max(game.player.z, b.z - 0.42));
+    for (let i = 1; i <= 3; i++) {
+      const t = i / 3;
+      this._drawGlow(p.x + (back.x - p.x) * t, p.y + (back.y - p.y) * t, r * (1.3 - t * 0.5), glow, (1 - t) * 0.45);
+    }
+    this._drawGlow(p.x, p.y, r * 2.1, glow, 0.7);
+    ctx.fillStyle = b.crit ? '#fffbe8' : core;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r * 0.66, 0, TAU);
+    ctx.fill();
+    // 豌豆的圆头高光（一颗豆子该有的样子）
+    ctx.fillStyle = 'rgba(255,255,255,0.62)';
+    ctx.beginPath();
+    ctx.arc(p.x - r * 0.22, p.y - r * 0.24, r * 0.24, 0, TAU);
+    ctx.fill();
+  }
+
   _drawBullet(ctx, game, b) {
+    // 第三关：子弹是豌豆 —— 每条弹道的属性决定颜色（绿 / 冰蓝 / 火橙）
+    if (CFG.level.skin === 'pvz') {
+      this._drawPea(ctx, game, b);
+      return;
+    }
     const cam = this.cam;
     const tier = WEAPON_TIERS[game.weapon.tierIdx];
     const p = cam.project(b.x, b.z);
@@ -1052,7 +1235,11 @@ export class Renderer {
     this._zombieBody(ctx, H, col, dark, e.phase, e.kind, isWind);
 
     // 第二关：挂上海洋动物的部件（鱼鳍 / 触手 / 蟹钳 / 背鳍 / 河豚刺 / 龟壳 / 水母伞）
-    if (e.animal) this._oceanBits(ctx, H, e, col, dark);
+    // 第三关：换成植物大战僵尸那几种僵尸的招牌部件（桶 / 电线杆 / 撑杆 / 投石机…）
+    if (e.animal) {
+      if (CFG.level.skin === 'pvz') this._pvzBits(ctx, H, e, col, dark);
+      else this._oceanBits(ctx, H, e, col, dark);
+    }
 
     // 背上的鼓包：吐酸者的酸囊
     if (e.spit) {
@@ -1459,6 +1646,14 @@ export class Renderer {
       return;
     }
 
+    // 第三关（疯狂草坪）主角是豌豆射手：弹道几条就几个头（用户 m02771）
+    if (CFG.level.skin === 'pvz') {
+      this._heroPlant(ctx, game, H, sw, pl);
+      ctx.restore();
+      this._heroShieldAndFlash(ctx, game, p, feet, H);
+      return;
+    }
+
     const DARK = '#16222f';
     const COAT = '#35618f';
     const COAT_D = '#1e3a56';
@@ -1556,6 +1751,289 @@ export class Renderer {
 
     ctx.restore();
     this._heroShieldAndFlash(ctx, game, p, feet, H);
+  }
+
+  /**
+   * 第三关主角：豌豆射手（用户 m02771）。
+   * 弹道几条就画几个头 —— 1 条是豌豆射手，2 条双发射手，3 条三线射手……
+   * 每个头的颜色跟着**自己那条弹道的属性**走（绿 / 寒冰蓝 / 炎火橙），
+   * 所以吃到"寒冰弹道"时，玩家能直接看见某一个头变蓝了，一眼知道哪条线变了。
+   */
+  _heroPlant(ctx, game, H, sw, pl) {
+    const n = Math.max(1, Math.min(5, Math.round(game.weapon.bullets)));
+    const plant = pvzPlant(n);
+    const recoil = pl.muzzle;
+    const t = this.time * 2.2;
+
+    // 茎 + 两片叶子（站在草坪上的植物）
+    ctx.strokeStyle = plant.dark;
+    ctx.lineWidth = Math.max(1.6, H * 0.08);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(0, -H * 0.02);
+    ctx.lineTo(0, -H * 0.46);
+    ctx.stroke();
+    for (const s of [-1, 1]) {
+      const lift = Math.sin(t + (s > 0 ? 0 : 1.4)) * H * 0.012;
+      const ey = -H * 0.19 + lift - s * sw * H * 0.02;
+      ctx.fillStyle = plant.color;
+      ctx.beginPath();
+      ctx.ellipse(s * H * 0.19, ey, H * 0.21, H * 0.085, s * -0.42, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = plant.dark;
+      ctx.beginPath();
+      ctx.ellipse(s * H * 0.24, ey + H * 0.025, H * 0.1, H * 0.038, s * -0.42, 0, TAU);
+      ctx.fill();
+    }
+
+    // 头：几个豌豆头并排，越靠边的越矮一点，看着像一丛花
+    const headY = -H * 0.7;
+    const gap = H * (n <= 2 ? 0.24 : n === 3 ? 0.2 : 0.165);
+    const r = H * (n <= 2 ? 0.2 : n === 3 ? 0.175 : 0.15);
+    for (let i = 0; i < n; i++) {
+      const k = i - (n - 1) / 2;
+      const ox = k * gap;
+      const oy = headY - Math.abs(k) * H * 0.05 + Math.sin(t + i * 0.8) * H * 0.008;
+      const lane = (game.lanes && game.lanes[i]) || '';
+      const col = lane === 'ice' ? CFG.pvz.ice.color : lane === 'fire' ? CFG.pvz.fire.color : plant.color;
+      const darkC = lane === 'ice' ? '#1f6f9c' : lane === 'fire' ? '#9c3410' : plant.dark;
+
+      // 头
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(ox, oy, r, 0, TAU);
+      ctx.fill();
+      // 底部的暗面（给球体一点体积）
+      ctx.fillStyle = darkC;
+      ctx.beginPath();
+      ctx.arc(ox, oy + r * 0.3, r * 0.9, 0.45, Math.PI - 0.45, true);
+      ctx.fill();
+      // 炮口（朝前 = 屏幕上方），开火那一下会缩一下
+      const mr = r * (0.46 - recoil * 0.16);
+      ctx.fillStyle = darkC;
+      ctx.beginPath();
+      ctx.ellipse(ox, oy - r * 0.72 - recoil * r * 0.22, mr, r * 0.34, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(ox, oy - r * 0.88 - recoil * r * 0.22, mr * 0.5, r * 0.15, 0, 0, TAU);
+      ctx.fill();
+      // 眯眼（背影视角只看得到一点点侧脸）
+      ctx.strokeStyle = 'rgba(20,40,16,0.75)';
+      ctx.lineWidth = Math.max(1, H * 0.012);
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(ox + s * r * 0.44, oy + r * 0.06, r * 0.16, -2.6, -1.1);
+        ctx.stroke();
+      }
+    }
+  }
+
+  /**
+   * 第三关的僵尸部件（植物大战僵尸的招牌家伙们）。
+   * 局部坐标和 _zombieBody 一致：脚底是原点，头在 -H，躯干 -0.42H ~ -0.70H。
+   * 只加"一眼认得出是谁"的那几笔，身体颜色还是走 col/dark，
+   * 这样受击白闪、冻结、燃烧这些统一效果全都还在。
+   */
+  _pvzBits(ctx, H, e, col, dark) {
+    const a = e.animal;
+    const headY = -0.815 * H;
+    const headR = 0.11 * H;
+    const t = this.time * 2.4 + (e.phase || 0);
+
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    if (a === 'basic') {
+      // 破领子 + 红领带 + 往前伸的一只手（PvZ 最经典的那只）
+      ctx.fillStyle = '#d8d2c0';
+      ctx.beginPath();
+      ctx.moveTo(-0.12 * H, -0.72 * H);
+      ctx.lineTo(0, -0.58 * H);
+      ctx.lineTo(0.12 * H, -0.72 * H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#c8402f';
+      ctx.beginPath();
+      ctx.moveTo(0, -0.62 * H);
+      ctx.lineTo(-0.035 * H, -0.4 * H);
+      ctx.lineTo(0.035 * H, -0.4 * H);
+      ctx.closePath();
+      ctx.fill();
+      // 伸出来的手（在身体一侧，随行走摆）
+      const sw2 = Math.sin(t) * 0.03 * H;
+      ctx.strokeStyle = mix(col, '#000000', 0.28);
+      ctx.lineWidth = 0.055 * H;
+      ctx.beginPath();
+      ctx.moveTo(0.14 * H, -0.6 * H);
+      ctx.quadraticCurveTo(0.26 * H, -0.62 * H + sw2, 0.3 * H, -0.44 * H + sw2);
+      ctx.stroke();
+      ctx.fillStyle = mix(col, '#ffffff', 0.18);
+      ctx.beginPath();
+      ctx.arc(0.3 * H, -0.43 * H + sw2, 0.045 * H, 0, TAU);
+      ctx.fill();
+    } else if (a === 'pole') {
+      // 撑杆僵尸：背后斜扛一根长杆 + 红背心
+      ctx.strokeStyle = '#b58a4e';
+      ctx.lineWidth = 0.032 * H;
+      ctx.beginPath();
+      ctx.moveTo(-0.2 * H, -0.06 * H);
+      ctx.lineTo(0.26 * H, -1.16 * H);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(80,54,24,0.55)';
+      ctx.lineWidth = 0.012 * H;
+      ctx.beginPath();
+      ctx.moveTo(-0.2 * H, -0.06 * H);
+      ctx.lineTo(0.26 * H, -1.16 * H);
+      ctx.stroke();
+      ctx.fillStyle = '#a83a2c';
+      ctx.beginPath();
+      ctx.moveTo(-0.13 * H, -0.72 * H);
+      ctx.lineTo(0.13 * H, -0.72 * H);
+      ctx.lineTo(0.1 * H, -0.44 * H);
+      ctx.lineTo(-0.1 * H, -0.44 * H);
+      ctx.closePath();
+      ctx.fill();
+    } else if (a === 'gargantuar') {
+      // 巨人僵尸：肩膀上扛一根电线杆（差不多有身体两倍高）
+      ctx.strokeStyle = '#8d7350';
+      ctx.lineWidth = 0.06 * H;
+      ctx.beginPath();
+      ctx.moveTo(-0.3 * H, -0.5 * H);
+      ctx.lineTo(0.16 * H, -1.62 * H);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(60,44,26,0.6)';
+      ctx.lineWidth = 0.016 * H;
+      for (let i = 0; i < 3; i++) {
+        const k = 0.22 + i * 0.26;
+        ctx.beginPath();
+        ctx.moveTo(-0.3 * H + 0.46 * H * k - 0.03 * H, -0.5 * H - 1.12 * H * k);
+        ctx.lineTo(-0.3 * H + 0.46 * H * k + 0.03 * H, -0.5 * H - 1.12 * H * k);
+        ctx.stroke();
+      }
+      // 缠绕的电线
+      ctx.strokeStyle = '#2f3a37';
+      ctx.lineWidth = 0.014 * H;
+      ctx.beginPath();
+      ctx.moveTo(-0.32 * H, -0.52 * H);
+      ctx.quadraticCurveTo(-0.06 * H, -0.44 * H + Math.sin(t) * 0.02 * H, 0.14 * H, -0.56 * H);
+      ctx.stroke();
+      // 破背带
+      ctx.strokeStyle = 'rgba(200,180,150,0.5)';
+      ctx.lineWidth = 0.03 * H;
+      ctx.beginPath();
+      ctx.moveTo(-0.09 * H, -0.7 * H);
+      ctx.lineTo(-0.05 * H, -0.4 * H);
+      ctx.stroke();
+    } else if (a === 'zomboss') {
+      // 僵王博士：玻璃罩 + 红眼睛 + 两块肩甲
+      ctx.fillStyle = 'rgba(180,230,255,0.34)';
+      ctx.beginPath();
+      ctx.arc(0, headY - headR * 0.15, headR * 2.0, Math.PI * 0.02, Math.PI * 0.98, true);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(230,250,255,0.8)';
+      ctx.lineWidth = 0.012 * H;
+      ctx.beginPath();
+      ctx.arc(0, headY - headR * 0.15, headR * 2.0, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.stroke();
+      this._drawGlow(-headR * 0.42, headY + headR * 0.05, headR * 0.5, '#ff3b2f', 0.85);
+      this._drawGlow(headR * 0.42, headY + headR * 0.05, headR * 0.5, '#ff3b2f', 0.85);
+      ctx.fillStyle = mix(dark, '#000000', 0.3);
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.ellipse(s * 0.24 * H, -0.68 * H, 0.09 * H, 0.055 * H, s * 0.28, 0, TAU);
+        ctx.fill();
+      }
+    } else if (a === 'catapult') {
+      // 投石车僵尸：腰上驮着一台木架子 + 两个轮子
+      ctx.strokeStyle = '#a87f46';
+      ctx.lineWidth = 0.036 * H;
+      ctx.beginPath();
+      ctx.moveTo(-0.24 * H, -0.36 * H);
+      ctx.lineTo(-0.16 * H, -0.86 * H);
+      ctx.lineTo(0.2 * H, -0.86 * H);
+      ctx.lineTo(0.28 * H, -0.36 * H);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-0.2 * H, -0.86 * H);
+      ctx.lineTo(0.24 * H, -0.36 * H);
+      ctx.stroke();
+      // 抛臂（转的时候在甩）
+      const arm = 0.3 + Math.sin(t * 0.8) * 0.12;
+      ctx.strokeStyle = '#8d6a38';
+      ctx.lineWidth = 0.028 * H;
+      ctx.beginPath();
+      ctx.moveTo(0.02 * H, -0.8 * H);
+      ctx.lineTo(0.02 * H + Math.cos(arm) * 0.3 * H, -0.8 * H - Math.sin(arm) * 0.3 * H);
+      ctx.stroke();
+      for (const s of [-1, 1]) {
+        ctx.fillStyle = '#5c4426';
+        ctx.beginPath();
+        ctx.arc(s * 0.2 * H, -0.3 * H, 0.075 * H, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = '#8d6a38';
+        ctx.beginPath();
+        ctx.arc(s * 0.2 * H, -0.3 * H, 0.03 * H, 0, TAU);
+        ctx.fill();
+      }
+    } else if (a === 'bucket') {
+      // 铁桶僵尸：扣在头上的铁桶，带桶箍和高光
+      const bh = 0.19 * H;
+      const bw = headR * 1.55;
+      ctx.fillStyle = '#9aa3ad';
+      ctx.beginPath();
+      ctx.moveTo(-bw, headY + bh * 0.5);
+      ctx.lineTo(-bw * 0.78, headY - bh * 0.9);
+      ctx.lineTo(bw * 0.78, headY - bh * 0.9);
+      ctx.lineTo(bw, headY + bh * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#6c757e';
+      ctx.beginPath();
+      ctx.ellipse(0, headY - bh * 0.9, bw * 0.78, headR * 0.22, 0, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = '#5b636b';
+      ctx.lineWidth = 0.012 * H;
+      for (const k2 of [-0.3, 0.2]) {
+        ctx.beginPath();
+        ctx.moveTo(-bw * (0.93 - k2 * 0.2), headY + bh * k2);
+        ctx.lineTo(bw * (0.93 - k2 * 0.2), headY + bh * k2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(-bw * 0.4, headY - bh * 0.15, bw * 0.12, bh * 0.5, 0.1, 0, TAU);
+      ctx.fill();
+    } else if (a === 'imp') {
+      // 小鬼僵尸：头顶一撮毛 + 两只尖耳朵
+      ctx.fillStyle = mix(col, '#000000', 0.3);
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(s * headR * 0.72, headY - headR * 0.3);
+        ctx.lineTo(s * headR * 1.7, headY - headR * 1.15);
+        ctx.lineTo(s * headR * 0.55, headY - headR * 0.95);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.strokeStyle = mix(col, '#000000', 0.45);
+      ctx.lineWidth = 0.016 * H;
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * 0.02 * H, headY - headR * 1.05);
+        ctx.quadraticCurveTo(i * 0.05 * H + Math.sin(t) * 0.01 * H, headY - headR * 1.8, i * 0.02 * H + Math.sin(t) * 0.02 * H, headY - headR * 2.0);
+        ctx.stroke();
+      }
+      // 咧开的嘴
+      ctx.strokeStyle = 'rgba(30,20,20,0.75)';
+      ctx.lineWidth = 0.014 * H;
+      ctx.beginPath();
+      ctx.arc(0, headY + headR * 0.5, headR * 0.42, 0.35, Math.PI - 0.35);
+      ctx.stroke();
+    }
+
+    ctx.restore();
   }
 
   /**
@@ -1838,6 +2316,188 @@ export class Renderer {
 
   // BOSS 导弹的地面预警：红圈从大缩到小，缩到圈里就要挨打；
   // 最后 40% 再补一道从天而降的亮痕（纯视觉，判定只看落点和半径）。
+  // ---------------------------------------------------------
+  //  第三关：阳光 / 樱桃炸弹 / 开场警报（植物大战僵尸）
+  // ---------------------------------------------------------
+
+  /**
+   * 天上掉的阳光：先悬在空中往下落，落地后躺在地上呼吸，
+   * 快消失时闪一圈提醒 —— 走位去捡是这一关"多出来的一条收益线"。
+   */
+  _drawSuns(ctx, game) {
+    if (!game.suns || !game.suns.length) return;
+    const cam = this.cam;
+    const S = CFG.pvz.sun;
+    const L = CFG.theme.lawn;
+    for (const s of game.suns) {
+      if (s.t < 0) continue;
+      const k = clamp(s.t / s.fall, 0, 1);
+      const p = cam.project(s.x, s.z);
+      const flat = clamp(CFG.camHeight / s.z, 0.06, 0.42);
+      const r = Math.max(3, S.size * p.s * (s.big ? S.bigMul : 1));
+      const cx = p.x;
+      const cy = p.y - (1 - k) * 9 * p.s * 0.5;
+      const pulse = 1 + Math.sin(s.phase) * 0.06;
+
+      // 落点影子（越接近落地越实）
+      ctx.save();
+      ctx.globalAlpha = 0.22 * k;
+      ctx.fillStyle = 'rgba(40,80,20,0.7)';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, r * 0.85, r * 0.85 * flat * 2.2, 0, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+
+      this._drawGlow(cx, cy, r * 3.1 * pulse, '#ffe066', 0.7);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = 'rgba(255,232,120,0.3)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 1.7 * pulse, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+
+      // 一圈尖芒（慢慢转）
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(s.phase * 0.18);
+      ctx.fillStyle = L.sun;
+      for (let i = 0; i < 8; i++) {
+        ctx.rotate(Math.PI / 4);
+        ctx.beginPath();
+        ctx.moveTo(0, -r * 0.6);
+        ctx.lineTo(r * 0.34, -r * 1.5);
+        ctx.lineTo(-r * 0.34, -r * 1.5);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.fillStyle = L.sunCore;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.7 * pulse, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#fffbe0';
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.2, cy - r * 0.22, r * 0.28, 0, TAU);
+      ctx.fill();
+
+      if (s.live < 4) {
+        ctx.save();
+        ctx.globalAlpha = (Math.sin(this.time * 12) * 0.5 + 0.5) * 0.55;
+        ctx.strokeStyle = '#fff3b0';
+        ctx.lineWidth = Math.max(1.4, r * 0.2);
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 1.15, 0, TAU);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  /** 樱桃炸弹：引信亮闪 + 把爆炸范围圈出来（玩家能看清"炸哪儿"） */
+  _drawCherries(ctx, game) {
+    if (!game.cherries || !game.cherries.length) return;
+    const cam = this.cam;
+    const C = CFG.pvz.cherry;
+    for (const c of game.cherries) {
+      const k = clamp(c.t / (c.fuse || C.fuse), 0, 1);
+      const p = cam.project(c.x, c.z);
+      const flat = clamp(CFG.camHeight / c.z, 0.06, 0.42);
+      const r = Math.max(4, 0.16 * p.s);
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.2 + 0.45 * k;
+      ctx.strokeStyle = '#ff6a4a';
+      ctx.lineWidth = Math.max(1.6, p.s * 0.006);
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, c.r * p.s, c.r * p.s * flat, 0, 0, TAU);
+      ctx.stroke();
+      ctx.globalAlpha = 0.1 + 0.3 * k;
+      ctx.fillStyle = '#ff3b2f';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, c.r * p.s * (0.4 + 0.6 * k), c.r * p.s * flat * (0.4 + 0.6 * k), 0, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+
+      // 引信越接近越白，闪得越急
+      const blink = Math.sin(c.phase * 2.4) * 0.5 + 0.5;
+      const bodyCol = k > 0.7 ? mix('#c81f2a', '#fff2c4', blink * 0.8) : '#c81f2a';
+      const cy = p.y - r * (1.1 + 0.35 * (1 - k));
+      this._drawGlow(p.x, cy, r * 2.6, '#ff7a4a', 0.5 + 0.4 * k);
+      ctx.strokeStyle = '#2f7a1c';
+      ctx.lineWidth = Math.max(1.4, r * 0.19);
+      ctx.beginPath();
+      ctx.moveTo(p.x, cy - r * 0.5);
+      ctx.quadraticCurveTo(p.x + r * 0.5, cy - r * 1.5, p.x + r * 0.15, cy - r * 1.9);
+      ctx.stroke();
+      for (const sx of [-1, 1]) {
+        ctx.fillStyle = bodyCol;
+        ctx.beginPath();
+        ctx.arc(p.x + sx * r * 0.5, cy, r * 0.66, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.beginPath();
+        ctx.arc(p.x + sx * r * 0.5 - r * 0.18, cy - r * 0.2, r * 0.2, 0, TAU);
+        ctx.fill();
+      }
+    }
+  }
+
+  /**
+   * 第三关开场：先红色警报 + 戴夫那句「歪比巴布」，再 3 / 2 / 1 倒数。
+   * 数字每换一个会弹一下（pop），和 game.js 里 sfx.countdown 的声音对齐。
+   */
+  _drawAlert(ctx, game, w, h) {
+    if (!game.alertT || game.alertT <= 0) return;
+    const A = CFG.pvz.alert;
+    const total = A.alarm + A.step * 3;
+    const passed = total - game.alertT;
+    const step = game.alertStep || 0;
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    if (step <= 0) {
+      // 警报段：整屏红光脉冲 + 大字警告
+      const pulse = 0.26 + 0.32 * (Math.sin(passed * 14) * 0.5 + 0.5);
+      const g = ctx.createRadialGradient(w / 2, h * 0.44, w * 0.1, w / 2, h * 0.44, w * 0.78);
+      g.addColorStop(0, 'rgba(220,30,30,0)');
+      g.addColorStop(0.6, `rgba(210,24,24,${pulse * 0.5})`);
+      g.addColorStop(1, `rgba(255,60,40,${pulse})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+      const fs = Math.min(w * 0.13, h * 0.1);
+      ctx.font = `900 ${fs}px ${FONT}`;
+      ctx.lineWidth = Math.max(3, fs * 0.09);
+      ctx.strokeStyle = 'rgba(60,0,0,0.85)';
+      ctx.strokeText('僵 尸 来 了 ！', w / 2, h * 0.42);
+      ctx.fillStyle = '#fff2c4';
+      ctx.fillText('僵 尸 来 了 ！', w / 2, h * 0.42);
+      ctx.font = `700 ${fs * 0.36}px ${FONT}`;
+      ctx.fillStyle = 'rgba(255,240,210,0.92)';
+      ctx.fillText('戴夫：歪比巴布 ——', w / 2, h * 0.42 + fs * 0.95);
+    } else {
+      const local = (passed - A.alarm) / A.step;
+      const frac = local - Math.floor(local);
+      const pop = 1 + (1 - clamp(frac * 3.2, 0, 1)) * 0.5;
+      const fs = Math.min(w * 0.3, h * 0.22) * pop;
+      ctx.globalAlpha = 0.35 + 0.65 * (1 - clamp(frac, 0, 1));
+      ctx.font = `900 ${fs}px ${FONT}`;
+      ctx.lineWidth = Math.max(4, fs * 0.1);
+      ctx.strokeStyle = 'rgba(40,70,20,0.8)';
+      ctx.strokeText(String(step), w / 2, h * 0.44);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(String(step), w / 2, h * 0.44);
+      ctx.globalAlpha = 1;
+      ctx.font = `800 ${Math.min(w * 0.045, h * 0.032)}px ${FONT}`;
+      ctx.fillStyle = 'rgba(255,250,220,0.9)';
+      ctx.fillText('准备迎战', w / 2, h * 0.44 + fs * 0.62);
+    }
+    ctx.restore();
+  }
+
   _drawWarns(ctx, game) {
     const cam = this.cam;
     const R = CFG.bossMissile.radius;
@@ -2126,19 +2786,24 @@ export class Renderer {
     const cy = h - R - 26;
     this.strikeBtn = { x: cx, y: cy, r: R + 12 };
 
+    // 第三关这个大招不是空袭，是【樱桃炸弹】（用户 m02771）：按钮换成樱桃图标 + 暖红配色
+    const pvz = CFG.level.skin === 'pvz';
+    const accent = pvz ? '#ff6a4a' : '#8bf58b';
+    const accentSoft = pvz ? 'rgba(255,150,120,' : 'rgba(160,255,170,';
+
     const charge = clamp(game.energy / CFG.charge.max, 0, 1);
     const full = charge >= 1;
     const pulse = 0.5 + 0.5 * Math.sin(this.time * 5.2);
 
     if (full) {
-      this._drawGlow(cx, cy, R * 2.5, '#8bf58b', 0.28 + pulse * 0.22);
+      this._drawGlow(cx, cy, R * 2.5, accent, 0.28 + pulse * 0.22);
     }
 
-    ctx.fillStyle = full ? 'rgba(24,52,30,0.86)' : 'rgba(10,16,22,0.7)';
+    ctx.fillStyle = full ? (pvz ? 'rgba(56,20,14,0.86)' : 'rgba(24,52,30,0.86)') : 'rgba(10,16,22,0.7)';
     ctx.beginPath();
     ctx.arc(cx, cy, R, 0, TAU);
     ctx.fill();
-    ctx.strokeStyle = full ? `rgba(160,255,170,${0.6 + pulse * 0.4})` : 'rgba(150,160,175,0.5)';
+    ctx.strokeStyle = full ? `${accentSoft}${0.6 + pulse * 0.4})` : 'rgba(150,160,175,0.5)';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(cx, cy, R, 0, TAU);
@@ -2151,19 +2816,40 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(cx, cy, R - lw * 0.5, 0, TAU);
     ctx.stroke();
-    ctx.strokeStyle = full ? '#8bf58b' : '#ffd166';
+    ctx.strokeStyle = full ? accent : '#ffd166';
     ctx.beginPath();
     ctx.arc(cx, cy, R - lw * 0.5, -Math.PI / 2, -Math.PI / 2 + TAU * charge);
     ctx.stroke();
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `800 ${Math.round(R * 0.52)}px ${FONT}`;
-    ctx.fillStyle = full ? '#eaffe6' : 'rgba(233,236,240,0.72)';
-    ctx.fillText('空袭', cx, cy - R * 0.06);
+    if (pvz) {
+      // 两颗樱桃（比写两个字更像 PvZ）
+      const cr = R * 0.25;
+      ctx.strokeStyle = '#2f7a1c';
+      ctx.lineWidth = Math.max(1.4, R * 0.07);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - R * 0.2);
+      ctx.quadraticCurveTo(cx + R * 0.22, cy - R * 0.44, cx + R * 0.08, cy - R * 0.58);
+      ctx.stroke();
+      for (const sx of [-1, 1]) {
+        ctx.fillStyle = full ? '#ff5a4a' : 'rgba(198,58,48,0.72)';
+        ctx.beginPath();
+        ctx.arc(cx + sx * cr * 0.86, cy - R * 0.08, cr, 0, TAU);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath();
+      ctx.arc(cx - cr * 0.86 - cr * 0.3, cy - R * 0.08 - cr * 0.3, cr * 0.28, 0, TAU);
+      ctx.fill();
+    } else {
+      ctx.font = `800 ${Math.round(R * 0.52)}px ${FONT}`;
+      ctx.fillStyle = full ? '#eaffe6' : 'rgba(233,236,240,0.72)';
+      ctx.fillText('空袭', cx, cy - R * 0.06);
+    }
     ctx.font = `700 ${Math.round(R * 0.3)}px ${FONT}`;
-    ctx.fillStyle = full ? '#8bf58b' : 'rgba(200,208,220,0.7)';
-    ctx.fillText(full ? '点我' : `${Math.floor(charge * 100)}%`, cx, cy + R * 0.42);
+    ctx.fillStyle = full ? accent : 'rgba(200,208,220,0.7)';
+    ctx.fillText(full ? '点我' : `${Math.floor(charge * 100)}%`, cx, cy + R * 0.46);
     ctx.textBaseline = 'alphabetic';
   }
 

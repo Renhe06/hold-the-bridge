@@ -762,8 +762,8 @@ try {
   step(2);
   ok(ELS.get('levelOverlay').classList.contains('show'), '点「关卡」弹出选关面板');
   ok(game.state === st0, `选关面板弹出时不改变游戏状态（state=${game.state}）`);
-  // 第 3~10 关是灰按钮，点了只提示"该关卡未实装"
-  tap('lv3');
+  // 第 4~10 关是灰按钮，点了只提示"该关卡未实装"（第 3 关这一版已经实装了）
+  tap('lv4');
   step(2);
   ok(String(ELS.get('levelHint').textContent).includes('未实装'), `点灰关卡只提示（${ELS.get('levelHint').textContent}）`);
   ok(ELS.get('levelOverlay').classList.contains('show'), '点了未实装的关卡，面板留着不走');
@@ -786,8 +786,8 @@ try {
   game.backToMenu();
   step(2);
 
-  // 第二关通关：没有下一关了，结算面板的主按钮换回「再玩一次」
-  game.beginLevel(1);
+  // 第三关（目前最后一关）通关：后面没有下一关，结算面板的主按钮换回「再玩一次」
+  game.beginLevel(2);
   game.releaseTalk();
   game.wave = C.level.waves;
   game.enemies.length = 0;
@@ -795,11 +795,11 @@ try {
   game.state = STATE.FIGHT;
   game.onWaveClear();
   step(2);
-  ok(game.state === STATE.CLEAR, `第 2 关清完也走通关结算（state=${game.state}）`);
-  ok(game.lastReward.nextLevel === 0, `第 2 关后面没有下一关（nextLevel=${game.lastReward.nextLevel}）`);
+  ok(game.state === STATE.CLEAR, `第 3 关清完也走通关结算（state=${game.state}）`);
+  ok(game.lastReward.nextLevel === 0, `第 3 关后面没有下一关（nextLevel=${game.lastReward.nextLevel}）`);
   ok(ELS.get('clearNext').classList.contains('hidden'), '没有下一关时「下一关 →」收起来');
   ok(!ELS.get('clearAgain').classList.contains('hidden'), '没有下一关时「再玩一次」亮出来');
-  ok(game.clearedLevel >= 2, `通关进度记到第 ${game.clearedLevel} 关`);
+  ok(game.clearedLevel >= 3, `通关进度记到第 ${game.clearedLevel} 关`);
   game.backToMenu();
   step(2);
 
@@ -974,6 +974,168 @@ try {
 } catch (err) {
   failures++;
   notes.push(`  ✗ 第二关（疯狂水世界）抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : err}`);
+}
+
+// ---------------------------------------------------------
+// -- 3f. 第三关「疯狂草坪」：戴夫开场 / 警报倒数 / 豌豆射手 / 阳光 / 樱桃炸弹 --
+// ---------------------------------------------------------
+try {
+  const { CFG: C3, setLevel: setLv3 } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
+  const mk3 = (kind, dz = 4) => {
+    game.spawnEnemy(kind, 0, game.player.z + dz, 1);
+    return game.enemies[game.enemies.length - 1];
+  };
+  const wipe3 = () => {
+    game.enemies.length = 0;
+    game.spawnQueue.length = 0;
+    game.bullets.length = 0;
+    game.suns.length = 0;
+    game.cherries.length = 0;
+    game.player.hp = 50;
+    game.player.iframe = 0;
+    game.player.shield = 0;
+  };
+
+  // (a) 开场对话：戴夫 + 「歪比巴布」 + 立绘和按钮都跟着关卡换
+  game.beginLevel(2);
+  step();
+  ok(game.state === STATE.TALK, '第三关进来先停在对话（state=talk），不直接开打');
+  ok(ELS.get('talkPortrait').classList.contains('hidden'), '第三关把大叔立绘收起来');
+  ok(!ELS.get('talkPortraitDave').classList.contains('hidden'), '换成戴夫的立绘');
+  const dave1 = String(ELS.get('talkText').textContent);
+  ok(dave1.includes('歪比巴布'), `第一句就是「歪比巴布」：${dave1}`);
+  ok(String(ELS.get('talkName').textContent).includes('戴'), '说话人写着戴夫');
+  const tap3 = () => {
+    tap('talkOverlay');
+    for (let i = 0; i < 25; i++) step();
+  };
+  let g3 = 0;
+  while (!ELS.get('talkActions').classList.contains('show') && g3++ < 6) tap3();
+  ok(ELS.get('talkActions').classList.contains('show'), `翻完全部台词才出按钮（共点了 ${g3 + 1} 下）`);
+  ok(String(ELS.get('talkStart').textContent).includes('开 打'), `按钮文案跟着关卡变：${ELS.get('talkStart').textContent}`);
+  tap('talkStart');
+  step();
+  ok(game.state === STATE.PREP, '点「好 了 · 开 打 ！」进备战');
+  ok(C3.level.skin === 'pvz' && C3.level.id === 3, `切到第 3 关（${C3.level.name}）`);
+  ok(C3.theme.skyDeco === 'clouds' && C3.theme.skyline === 'houses', '主题换成白天的草坪（白云 + 民房 + 太阳）');
+
+  // (b) 开场节奏：先警报，再 3 / 2 / 1
+  const A3 = C3.pvz.alert;
+  ok(game.alertT > 0 && game.alertStep === 0, `备战一开始就是警报段（alertT=${game.alertT.toFixed(2)}s）`);
+  ok(!game.gates, '警报 + 倒数期间不开奖励门（不然两块面板糊在大字上，两边都看不清）');
+  const seenSteps = [];
+  let guardT = 0;
+  while (game.alertT > 0 && guardT++ < 600) {
+    if (game.alertStep > 0 && !seenSteps.includes(game.alertStep)) seenSteps.push(game.alertStep);
+    step(20);
+  }
+  ok(seenSteps.join(',') === '3,2,1', `警报之后依次倒数 3 → 2 → 1（实际 ${seenSteps.join(',')}）`);
+  ok(game.alertT === 0, '倒完警报就结束');
+  ok(!!game.gates, '倒数喊完才把第一对奖励门推出来');
+
+  // (c) 皮肤：七种怪全换成植物大战僵尸的僵尸
+  setLv3(2);
+  game.reset();
+  game.state = STATE.FIGHT;
+  wipe3();
+  const pvzKinds = [];
+  for (const kind of ['walker', 'runner', 'brute', 'spitter', 'shielded', 'splitter', 'boss']) {
+    const e = mk3(kind, 5 + pvzKinds.length * 1.2);
+    const skin = C3.kinds[kind].pvz;
+    if (e.animal === skin.animal && e.color === skin.color) pvzKinds.push(kind);
+  }
+  ok(pvzKinds.length === 7, '七种怪都换了造型（小兵/撑杆/巨人/僵王/投石车/铁桶/小鬼）');
+
+  // (d) 奖励池：l3 专属（寒冰 / 炎火 / 向日葵 / 阳光 / 巨型樱桃）只在第三关出现
+  const draw3 = (n) => {
+    const seen = new Set();
+    for (let i = 0; i < n; i++) {
+      game.stacks = {};
+      game.openGates();
+      seen.add(game.gates.left.id);
+      seen.add(game.gates.right.id);
+    }
+    return seen;
+  };
+  const L3_ONLY = ['iceLane', 'fireLane', 'sunflower', 'sunValue', 'cherryBig'];
+  const l3seen = draw3(80);
+  ok(L3_ONLY.every((id) => l3seen.has(id)), `第三关抽得到 l3 专属奖励（${L3_ONLY.filter((x) => l3seen.has(x)).join('/')}）`);
+  setLv3(0);
+  const l1again = draw3(80);
+  ok(!L3_ONLY.some((id) => l1again.has(id)), '第一关抽不到第三关的专属奖励');
+
+  // (e) 寒冰 / 炎火：只改【一条】弹道，一条接一条亮起来
+  setLv3(2);
+  game.reset();
+  game.state = STATE.FIGHT;
+  game.weapon.bullets = 3;
+  game.lanes = ['', '', '', '', '', ''];
+  game.applyUpgrade('iceLane');
+  game.applyUpgrade('fireLane');
+  ok(game.lanes[0] === 'ice' && game.lanes[1] === 'fire', `冰火各占一条弹道（${game.lanes.slice(0, 3).join('/')}）`);
+  ok(game.lanes[2] === '', '没吃到的第三跳弹道还是普通豌豆（只改一条，不是全队变属性）');
+
+  // (f) 豌豆射手的称号按弹道数走（用户 m02771 要的"弹道 +1 就换一个植物"）
+  game.weapon.bullets = 1;
+  const n1 = game.weaponLabel;
+  game.weapon.bullets = 2;
+  const n2 = game.weaponLabel;
+  game.weapon.bullets = 3;
+  const n3 = game.weaponLabel;
+  ok(n1 === '豌豆射手' && n2 === '双发射手' && n3 === '三线射手', `1/2/3 条弹道 = ${n1} / ${n2} / ${n3}`);
+
+  // (g) 阳光：天上掉一个，走过去自动捡，捡到就给能量
+  game.reset();
+  setLv3(2);
+  game.state = STATE.FIGHT;
+  wipe3();
+  game.energy = 0;
+  game.player.z = 10;
+  game.player.x = 0;
+  game.spawnSun();
+  ok(game.suns.length === 1, '天上掉下来一个阳光');
+  const sd = game.suns[0];
+  sd.t = sd.fall + 0.2; // 让它落地，进入"能捡"的阶段
+  sd.x = game.player.x;
+  sd.z = game.player.z;
+  game.sunT = 99; // 别让"自然掉落"这一帧又塞一个进来，否则分不清捡的是哪一个
+  game.updateSuns(0.016);
+  ok(game.suns.length === 0, '走过去就自动把阳光捡了');
+  ok(game.energy > 0, `捡到阳光加了能量（energy=${game.energy}）`);
+
+  // (h) 樱桃炸弹：能量满了落在人堆中心，引信烧完炸开
+  game.reset();
+  setLv3(2);
+  game.state = STATE.FIGHT;
+  wipe3();
+  game.player.z = 10;
+  game.player.x = 0;
+  game.wave = 1;
+  const cluster = [];
+  for (let i = 0; i < 4; i++) cluster.push(mk3('walker', 6 + i * 1.1));
+  const avgX = cluster.reduce((s, e) => s + e.x, 0) / cluster.length;
+  game.energy = C3.charge.max;
+  ok(game.canStrike(), '能量满了大招就能点');
+  ok(game.triggerStrike() === true, '第三关点大招叫出来的是樱桃炸弹');
+  ok(game.cherries.length === C3.pvz.cherry.count, `场上出现 ${game.cherries.length} 颗樱桃`);
+  const hpBeforeC = cluster.map((e) => e.hp);
+  ok(Math.abs(game.cherries[0].x - avgX) < 1.2, '樱桃落在人堆的横向中心（自动找人堆）');
+  let fuse = 0;
+  while (game.cherries.length && fuse++ < 60) step(50);
+  ok(game.cherries.length === 0, '引信烧完樱桃就炸了');
+  const hurt = cluster.filter((e, i) => e.dead || e.hp < hpBeforeC[i]).length;
+  ok(hurt >= 2, `炸开范围内的怪都掉血（${hurt}/${cluster.length} 只）`);
+
+  // 收尾：回到第一关的开局状态，别影响第 4~8 段
+  setLv3(0);
+  game.newRun(0);
+  game.enemies.length = 0;
+  game.spawnQueue.length = 0;
+  game.suns.length = 0;
+  game.cherries.length = 0;
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ 第三关（疯狂草坪）抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : err}`);
 }
 
 // ---------------------------------------------------------

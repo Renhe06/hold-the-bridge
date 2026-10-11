@@ -149,10 +149,14 @@ export const CFG = {
   // 这一轮再放大到 0.26（桥头约 110px，占屏高 13%），同时把 zFar 从 50 压到 42，
   // 让"刚出怪时"的远处丧尸也不再是一个小点。
   // body 决定渲染用的躯干形状：normal / fat（胖）/ wide（宽肩大块头）
+  //
+  // 皮肤（skin）：一个 kind 可以挂多套外观，game.js 的 spawnEnemy 按 CFG.level.skin
+  // 挑一份挂到实体上（e.color/e.dark/e.animal），渲染器再按 e.animal 画对应部件。
+  // ocean = 第二关疯狂水世界的海洋动物；pvz = 第三关疯狂草坪的僵尸种类。
   kinds: {
-    walker: { size: 0.26, speedMul: 1.0, hpMul: 1.0, score: 10, body: 'normal', color: '#7e9a52', dark: '#3f5129', ocean: { color: '#5fae9c', dark: '#27564c', animal: 'fish' } },
-    runner: { size: 0.235, speedMul: 1.7, hpMul: 0.6, score: 14, body: 'normal', color: '#b06442', dark: '#5c3121', ocean: { color: '#e08a6a', dark: '#7a4028', animal: 'squid' } },
-    brute: { size: 0.36, speedMul: 0.62, hpMul: 3.2, score: 26, body: 'wide', color: '#77879b', dark: '#3a4551', ocean: { color: '#8fa8c2', dark: '#3b5470', animal: 'crab' } },
+    walker: { size: 0.26, speedMul: 1.0, hpMul: 1.0, score: 10, body: 'normal', color: '#7e9a52', dark: '#3f5129', ocean: { color: '#5fae9c', dark: '#27564c', animal: 'fish' }, pvz: { color: '#8f9c86', dark: '#3f4a3a', animal: 'basic' } },
+    runner: { size: 0.235, speedMul: 1.7, hpMul: 0.6, score: 14, body: 'normal', color: '#b06442', dark: '#5c3121', ocean: { color: '#e08a6a', dark: '#7a4028', animal: 'squid' }, pvz: { color: '#b45a45', dark: '#5c2a20', animal: 'pole' } },
+    brute: { size: 0.36, speedMul: 0.62, hpMul: 3.2, score: 26, body: 'wide', color: '#77879b', dark: '#3a4551', ocean: { color: '#8fa8c2', dark: '#3b5470', animal: 'crab' }, pvz: { color: '#7d8a74', dark: '#37402f', animal: 'gargantuar' } },
     // 血量倍数和体型倍数（0.60 / 0.26 ≈ 2.3）对齐；原来写 5 会在第 5 波插一个血量尖峰
     // 用户要求：BOSS 体型再翻一倍（0.6 → 1.2）、血条更厚（hpMul 3.2 → 6.5）、
     // 走得更慢（speedMul 0.46 → 0.38）。
@@ -187,13 +191,15 @@ export const CFG = {
       dark: '#4c261f',
       // 第二关：鲨鱼王（灰蓝、三角背鳍、血盆大口）
       ocean: { color: '#6f93ab', dark: '#2b4a5e', animal: 'shark' },
+      // 第三关：僵王博士（金属机械头 + 玻璃罩 + 红眼）——它的必杀导弹就是"火球"
+      pvz: { color: '#8b9490', dark: '#2f3a37', animal: 'zomboss' },
     },
     // 吐酸者：停在远处往桥上喷酸液，逼玩家走位而不是站着对射
-    spitter: { size: 0.26, speedMul: 0.9, hpMul: 1.1, score: 24, body: 'fat', spit: true, color: '#8fbe3f', dark: '#42591d', ocean: { color: '#e8c24a', dark: '#7a5f16', animal: 'puffer' } },
+    spitter: { size: 0.26, speedMul: 0.9, hpMul: 1.1, score: 24, body: 'fat', spit: true, color: '#8fbe3f', dark: '#42591d', ocean: { color: '#e8c24a', dark: '#7a5f16', animal: 'puffer' }, pvz: { color: '#8d7a5f', dark: '#453a2a', animal: 'catapult' } },
     // 铁盾兵：正面带盾，前 3 发子弹伤害减半并会破盾
-    shielded: { size: 0.28, speedMul: 0.8, hpMul: 1.4, score: 26, body: 'normal', shield: 3, color: '#8d8f7a', dark: '#45473a', ocean: { color: '#7fae86', dark: '#37543c', animal: 'turtle' } },
+    shielded: { size: 0.28, speedMul: 0.8, hpMul: 1.4, score: 26, body: 'normal', shield: 3, color: '#8d8f7a', dark: '#45473a', ocean: { color: '#7fae86', dark: '#37543c', animal: 'turtle' }, pvz: { color: '#8a8f7d', dark: '#40453a', animal: 'bucket' } },
     // 分裂者：死后裂成两只小兵，越打越多，逼你换目标优先级
-    splitter: { size: 0.3, speedMul: 0.95, hpMul: 1.7, score: 18, body: 'fat', split: 2, color: '#9a6bb5', dark: '#4a2f5c', ocean: { color: '#c98bd8', dark: '#5d3a6b', animal: 'jelly' } },
+    splitter: { size: 0.3, speedMul: 0.95, hpMul: 1.7, score: 18, body: 'fat', split: 2, color: '#9a6bb5', dark: '#4a2f5c', ocean: { color: '#c98bd8', dark: '#5d3a6b', animal: 'jelly' }, pvz: { color: '#a2ae97', dark: '#4d5647', animal: 'imp' } },
   },
 
   // BOSS 的必杀导弹（m02878 加、m03096 改）：落点 = 它开火那一刻你站的位置，
@@ -226,6 +232,41 @@ export const CFG = {
   puffer: {
     blastR: 0.6,
     blastDmg: 2,
+  },
+
+  // ---- 第三关专属机制：疯狂草坪（植物大战僵尸）----
+  // 三样都从 PvZ 搬过来，但都改造成能塞进"守桥"的东西：
+  // ① 开场：戴夫喊一句「歪比巴布」→ 警报 → 3 2 1 → 开打（模仿 PvZ 的关卡开场）
+  // ② 阳光：天上掉阳光，走过去自动捡，充能给大招；大招不再是飞机轰炸，
+  //    改成一颗巨型【樱桃炸弹】——PvZ 里最爽的那个东西。
+  // ③ 寒冰 / 炎火：奖励门专属，吃到只改【一条】弹道（不是全队变属性），
+  //    所以弹道多了以后能混出"冰火两重天"，这是这一关的构筑乐趣。
+  pvz: {
+    // 开场节奏：警报响一会儿，然后大字倒数 3 / 2 / 1（每步 0.75 秒）
+    // calm = 倒数喊完之后再留多久备战（这段时间里第一对奖励门滑到面前让你挑）
+    alert: { alarm: 1.3, step: 0.75, calm: 2.6 },
+    // 阳光：隔一会儿掉一个，落地后躺着等你走去捡（走位 = 收益）
+    sun: {
+      first: 3.0,
+      every: 6.0,
+      live: 16, // 躺多久消失
+      drift: 0.22, // 左右飘的速度，别掉成一条直线
+      size: 0.085, // 画多大（世界单位）
+      charge: 12, // 捡到一个充多少能量
+      bigEvery: 5, // 每 5 个里有一个大的
+      bigMul: 1.7, // 大的画多大、充多少（倍率）
+    },
+    // 弹道属性：走 e.slowT / e.burnT 那套现成机制（和升级里的液氮弹/燃烧弹同一套字段）
+    ice: { slowMul: 0.45, time: 2.2, color: '#8fe8ff', glow: '#2aa8ff' },
+    fire: { dps: 1.6, time: 2.4, color: '#ff9a3c', glow: '#ff4d16' },
+    // 樱桃炸弹（大招）：比空袭的散弹大得多的一发，落在你点的地方
+    cherry: {
+      radius: 1.7, // 横向炸开半径（世界单位）
+      zRadius: 2.4, // 纵向判定半径
+      damage: 14,
+      fuse: 0.45, // 落地到炸开的引信时间
+      count: 1,
+    },
   },
 
   // 从第几波开始出现特殊怪
@@ -330,6 +371,18 @@ export const CFG = {
       skin: 'ocean', // 海洋动物化的丧尸 + 图片人物主角
       intro: true, // 进来先播一段进场对话（STATE.TALK），点「疯狂水世界 · 启动！」才开打
     },
+    {
+      // 用户 m02771：第三关做植物大战僵尸风格 —— 戴夫开场、警报 + 321 倒计时、
+      // 主角是豌豆射手（弹道 +1 = 多一个头）、奖励墙独属寒冰/炎火。
+      id: 3,
+      name: '疯狂草坪',
+      hud: '第 3 关 · 疯狂草坪',
+      waves: 15,
+      coinRatio: 0.12,
+      theme: 'lawn',
+      skin: 'pvz', // 植物大战僵尸的僵尸种类 + 豌豆射手主角
+      intro: 'dave', // 戴夫先喊一句「歪比巴布」，点掉之后走"警报 + 321"开场
+    },
   ],
   levelIndex: 0,
   // 当前关卡的快捷引用（初始化时 = levels[0]）。全工程都读 CFG.level.xxx，
@@ -362,7 +415,35 @@ export const WEAPON_TIERS = [
 ];
 
 // 哪些升级算作"攻击类"，用于推进武器质变
-export const OFFENSIVE_KEYS = ['damage', 'rateMul', 'pierce', 'bullets', 'crit', 'critMul', 'bulletSpeedMul', 'splash'];
+// （iceLane/fireLane 是第三关给单条弹道加属性的，本质也是进攻手段，算进去）
+export const OFFENSIVE_KEYS = ['damage', 'rateMul', 'pierce', 'bullets', 'crit', 'critMul', 'bulletSpeedMul', 'splash', 'iceLane', 'fireLane'];
+
+// ---- 第三关：主角变身豌豆射手 ----
+// 用户 m02771 的原话是"弹道 +1 换双头豌豆射手，以此类推"，所以这里的档位
+// 【完全按弹道数走】，而不是按 WEAPON_TIERS 的攻击点数走：
+// 弹道 1/2/3/4/5 → 豌豆射手 / 双发射手 / 三线射手 / 机枪豌豆 / 玉米加农炮。
+// heads = 画几个头（渲染器按它决定造型），名字同时进 HUD 的武器称号。
+export const PVZ_PLANTS = [
+  { bullets: 1, name: '豌豆射手', short: '豌豆', heads: 1, color: '#5fbf3a', dark: '#2f6b1d' },
+  { bullets: 2, name: '双发射手', short: '双发', heads: 2, color: '#57c236', dark: '#2a6318' },
+  { bullets: 3, name: '三线射手', short: '三线', heads: 3, color: '#4cc42f', dark: '#275c16' },
+  { bullets: 4, name: '机枪豌豆', short: '机枪', heads: 4, color: '#3fc728', dark: '#235413' },
+  { bullets: 5, name: '玉米加农炮', short: '加农', heads: 5, color: '#ffd23f', dark: '#9a6c12' },
+];
+
+/** 按弹道数取第三关的植物档位（超出表格就取最后一档，名字后面加 +N）。 */
+export function pvzPlant(bullets) {
+  const n = Math.max(1, bullets | 0);
+  const t = PVZ_PLANTS[Math.min(PVZ_PLANTS.length, n) - 1];
+  if (!t) return PVZ_PLANTS[0];
+  if (n <= PVZ_PLANTS.length) return t;
+  return { ...t, name: t.name + ' +' + (n - PVZ_PLANTS.length), short: t.short + '+' };
+}
+
+/** 当前关卡是不是"疯狂草坪"皮肤（渲染器和玩法逻辑都拿它分支）。 */
+export function isPvz() {
+  return !!CFG.level && CFG.level.skin === 'pvz';
+}
 
 // ---- 加成表 ----
 // v1 是"清完一波弹三张卡让你选"，用户反馈不要弹窗。
@@ -398,6 +479,16 @@ export const UPGRADES = [
   { id: 'bubbleShield', name: '气泡护盾', desc: '每波开始时获得 2 层护盾', tag: '生存', max: 3, op: '+', amt: '2', short: '每波护盾', apply: { shieldPerWave: 2 }, l2: true },
   { id: 'mine', name: '布设水雷', desc: '每波开始时在前方布 3 颗水雷，敌人碰到就炸', tag: '特效', max: 3, op: '+', amt: '3 颗', short: '水雷', apply: { mine: 1 }, l2: true },
   { id: 'torpedo', name: '鱼类鱼雷', desc: '空袭伤害 ×1.6', tag: '特效', max: 3, op: '×', amt: '1.6', short: '空袭伤害', apply: { strikeMul: 1.6 }, l2: true },
+
+  // ---- 第三关专属（l3: true，只在"疯狂草坪"的奖励门里出现）----
+  // 用户 m02771 明确要求：奖励墙独属【寒冰】【炎火】，而且吃到只改一条弹道
+  // （不是全队变属性）—— 所以 iceLane / fireLane 是这一关的核心构筑件，
+  // 弹道越多，越能混出"一半冰一半火"的场面。
+  { id: 'iceLane', name: '寒冰弹道', desc: '一条弹道变成寒冰：命中减速 55%', tag: '特效', max: 5, op: '+', amt: '寒冰', short: '寒冰豌豆', apply: { iceLane: 1 }, l3: true },
+  { id: 'fireLane', name: '炎火弹道', desc: '一条弹道变成炎火：命中持续燃烧', tag: '特效', max: 5, op: '+', amt: '炎火', short: '炎火豌豆', apply: { fireLane: 1 }, l3: true },
+  { id: 'sunflower', name: '向日葵', desc: '每波开始时多掉 1 个阳光', tag: '特效', max: 3, op: '+', amt: '1 个', short: '阳光', apply: { sunWave: 1 }, l3: true },
+  { id: 'sunValue', name: '阳光充沛', desc: '阳光充能 ×1.6', tag: '特效', max: 3, op: '×', amt: '1.6', short: '阳光充能', apply: { sunMul: 1.6 }, l3: true },
+  { id: 'cherryBig', name: '巨型樱桃', desc: '樱桃炸弹范围 ×1.35', tag: '特效', max: 3, op: '×', amt: '1.35', short: '樱桃范围', apply: { cherryR: 1.35 }, l3: true },
 ];
 
 // ============================================================
@@ -468,6 +559,53 @@ CFG.themes = {
       weed: '#3fbf8f',
       weedDark: '#1d7a58',
       fish: ['#ffd166', '#ff8fab', '#7df9ff'],
+    },
+  },
+
+  // 第三关：疯狂草坪（用户 m02771：植物大战僵尸风格）
+  // 这一套和上面两关反着来 —— 白天，不是夜晚。天空是亮蓝 + 白云，
+  // 桥面铺成绿草皮，两边栏杆换成木头栅栏，两旁那片"海"其实是草坪，
+  // 远处是郊区民房和树。所有键名和 city/water 一一对应，渲染器不用改结构。
+  lawn: {
+    sky: ['#3ea7e8', '#66c2f2', '#9fdcf8', '#d8f2ff'],
+    pollute: ['rgba(255,244,196,0.22)', 'rgba(255,255,255,0.12)'],
+    starRGB: '255,255,255',
+    skyDeco: 'clouds',
+    moon: '#fff6d8',
+    moonSpot: 'rgba(255,236,168,0.35)',
+    skyline: 'houses',
+    horizon: ['rgba(190,240,255,0)', 'rgba(214,246,255,0.30)', 'rgba(255,255,255,0)'],
+    sea: ['#6fbe55', '#4f9c3c', '#2f6f26'],
+    foam: ['rgba(255,255,255,0)', 'rgba(246,255,238,', 'rgba(255,255,255,0)'],
+    deck: ['#4f8f34', '#61a840', '#74bd4d', '#8ed162'],
+    seam: 'rgba(28,64,20,0.28)',
+    dash: 'rgba(255,255,255,0.34)',
+    edge: ['rgba(255,255,255,0.10)', 'rgba(240,255,220,0.34)', 'rgba(255,255,255,0.5)'],
+    railBar: 'rgba(160,112,58,0.9)',
+    railPost: 'rgba(138,94,46,0.95)',
+    railTop: 'rgba(214,166,96,0.6)',
+    haze: ['rgba(226,250,255,0.55)', 'rgba(232,252,255,0.26)', 'rgba(240,255,255,0)'],
+    fog: ['rgba(238,255,250,0.95)', 'rgba(232,252,244,0.78)', 'rgba(226,248,240,0.32)', 'rgba(224,246,238,0)'],
+    stain: ['#3a1010', '#7c1a1a'],
+    dust: '#ffffff',
+    lamp: ['rgba(255,246,196,0.18)', 'rgba(255,246,196,0)'],
+    panel: 'rgba(24,58,18,0.72)',
+    // 疯狂草坪专属颜色（渲染器画草坪条纹 / 民房 / 栅栏 / 白云 / 阳光时读这里）
+    lawn: {
+      stripeA: '#5aa63c',
+      stripeB: '#69b747',
+      dirt: '#a9773f',
+      fence: '#c9a165',
+      fenceDark: '#8a6234',
+      house: '#f2e6c8',
+      roof: '#c9502f',
+      tree: '#2f6f2a',
+      treeDark: '#1d4a1c',
+      cloud: 'rgba(255,255,255,',
+      sun: '#fff0a8',
+      sunCore: '#ffd23f',
+      pea: '#69d13c',
+      peaDark: '#2f7a1c',
     },
   },
 };
