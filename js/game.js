@@ -598,7 +598,11 @@ export class Game {
   estimateDps() {
     const w = this.weapon;
     const crit = 1 + w.crit * (w.critMul - 1);
-    const perShot = w.damage * crit * Math.min(w.bullets, 6) * this.atkMul();
+    const nb = Math.min(w.bullets, 6);
+    // 【m02503】第三关带寒冰/炎火的那几条弹道会多发一颗效果弹（也是实打实的伤害），
+    // 估算 DPS 得算进去 —— 不然 BOSS 血量校准会偏低，冰火一多就变成秒杀。
+    const extra = isPvz() ? Math.min(this._flavoredLanes(), nb) : 0;
+    const perShot = w.damage * crit * (nb + extra) * this.atkMul();
     const shots = 1 / Math.max(0.05, w.interval / w.rateMul);
     let dps = perShot * shots * 0.75; // 折算：BOSS 很大，但散开的弹道不会发发命中
     dps += (w.splash || 0) * 1.6 + (w.burn || 0) * 0.5 + (w.pulse || 0) * 0.4;
@@ -996,8 +1000,19 @@ export class Game {
     // 关卡专属加成（l2 = 第二关的水雷/鱼雷，l3 = 第三关的寒冰/炎火/阳光）
     // 只在对应那一关的奖励门里出现；通用条目哪一关都在。
     // 第一关的奖励池保持原样，免得一关里突然冒出没见过的水雷/阳光。
+    // 【m02503】寒冰/炎火在"所有弹道都带上属性"之后就不再出现 ——
+    // 再给也没地方铺（_noteLane 只能去改中间那条），属于白给一次升级。
+    const lanesFull = isPvz() && this._flavoredLanes() >= this._laneCount();
     const sk = CFG.level.skin;
-    const pool = UPGRADES.filter((u) => (u.l2 ? sk === 'ocean' : u.l3 ? sk === 'pvz' : true));
+    const pool = UPGRADES.filter((u) => {
+      if (u.l2) return sk === 'ocean';
+      if (u.l3) {
+        if (sk !== 'pvz') return false;
+        if (lanesFull && (u.id === 'iceLane' || u.id === 'fireLane')) return false;
+        return true;
+      }
+      return true;
+    });
     const avail = pool.filter((u) => (this.stacks[u.id] || 0) < u.max);
     if (avail.length === 0) {
       this.gates = null;
@@ -1081,7 +1096,7 @@ export class Game {
     if (laneIdx >= 0) {
       const isIce = !!a.iceLane;
       const col = isIce ? CFG.pvz.ice.color : CFG.pvz.fire.color;
-      this.addPopup(pl.x, pl.z + 3.1, `第 ${laneIdx + 1} 条弹道 · ${isIce ? '寒冰' : '炎火'}`, col, 1.5);
+      this.addPopup(pl.x, pl.z + 3.1, `第 ${laneIdx + 1} 条弹道 · ${isIce ? '寒冰' : '炎火'}（一发两颗）`, col, 1.5);
       this.rings.push({ x: pl.x, z: pl.z + 1.2, t: 0, life: 0.5, maxR: 0.75, color: col });
     }
 
@@ -1117,15 +1132,29 @@ export class Game {
     return idx;
   }
 
+  /** 现在有几条弹道在开火（第三关的寒冰/炎火就是按它铺属性的） */
+  _laneCount() {
+    return Math.max(1, Math.min(this.lanes.length, Math.round(this.weapon.bullets)));
+  }
+
+  /** 已经带上寒冰/炎火的那几条弹道（【m02503】每条都会"一发两颗"） */
+  _flavoredLanes() {
+    const n = this._laneCount();
+    let c = 0;
+    for (let i = 0; i < n; i++) if (this.lanes[i]) c++;
+    return c;
+  }
+
   /**
    * 给"一条弹道"挂上寒冰 / 炎火（第三关的核心构筑，用户 m02771 要求）。
-   * 优先找还没属性的那条（顺序见 laneOrder：中间先亮，再往两边扩）；
-   * 每条都铺满了就改中间那条 —— 连吃 5 次寒冰不会全堆在同一条上白白浪费，
-   * 玩家看到的是"一条接一条亮起来"。
+   * 优先找还没属性的那条（顺序见 laneOrder：中间先亮，再往两边扩）。
+   * 【m02503】属性不再是"把这条弹道的子弹换成寒冰"，而是让这条弹道**一发吐两颗**
+   * （一颗普通 + 一颗带效果，见 fire()）—— 所以铺满之后奖励门就不再给这两条了
+   * （见 openGates 里的 lanesFull）。
    * 返回改的是第几条（0 起），没改到返回 -1。
    */
   _noteLane(kind) {
-    const n = Math.max(1, Math.min(this.lanes.length, Math.round(this.weapon.bullets)));
+    const n = this._laneCount();
     const order = this.laneOrder(n);
     for (const i of order) {
       if (!this.lanes[i]) {
@@ -1208,24 +1237,33 @@ export class Game {
 
     for (let i = 0; i < n; i++) {
       const off = (i - (n - 1) / 2) * CFG.weapon.spread;
-      const isCrit = Math.random() < w.crit;
       const lane = pvz ? this.lanes[i] || '' : '';
-      this.bullets.push({
-        x: this.cam.clampToRoad(pl.x + off, 0),
-        z: z0,
-        pz: z0,
-        vz: w.bulletSpeed,
-        dmg: w.damage * fwd * this.atkMul() * (isCrit ? w.critMul : 1),
-        crit: isCrit,
-        pierceLeft: w.pierce,
-        splash: Math.max(CFG.weapon.splash, w.splash, tier.splash),
-        ice: pvz ? (lane === 'ice' ? 1 : 0) : w.ice,
-        burn: pvz ? (lane === 'fire' ? 1 : 0) : w.burn,
-        lane, // 渲染器按它决定这颗豌豆的颜色（'' = 绿豌豆）
-        hitSet: new Set(),
-        dead: false,
-        seed: rand(0, Math.PI * 2),
-      });
+      // 【m02503】带属性的那条弹道"一发吐两颗"（用户：寒冰/炎火改成每次多吐一颗
+      // 效果子弹，等于一次吐两颗）：第一颗还是普通豌豆，第二颗才是寒冰/炎火豌豆。
+      // 第二颗往旁边错开一点，不然两颗完全重叠、屏幕上看不出多了一颗。
+      const shots = lane ? 2 : 1;
+      for (let k = 0; k < shots; k++) {
+        const eff = k ? lane : ''; // 只有第二颗带寒冰/炎火
+        const isCrit = Math.random() < w.crit;
+        const bx = off + (k ? CFG.weapon.spread * 0.45 : 0);
+        const bz = z0 + k * 0.06;
+        this.bullets.push({
+          x: this.cam.clampToRoad(pl.x + bx, 0),
+          z: bz,
+          pz: bz,
+          vz: w.bulletSpeed,
+          dmg: w.damage * fwd * this.atkMul() * (isCrit ? w.critMul : 1),
+          crit: isCrit,
+          pierceLeft: w.pierce,
+          splash: Math.max(CFG.weapon.splash, w.splash, tier.splash),
+          ice: pvz ? (eff === 'ice' ? 1 : 0) : w.ice,
+          burn: pvz ? (eff === 'fire' ? 1 : 0) : w.burn,
+          lane: eff, // 渲染器按它决定这颗豌豆的颜色（'' = 绿豌豆）
+          hitSet: new Set(),
+          dead: false,
+          seed: rand(0, Math.PI * 2),
+        });
+      }
     }
 
     w.cd = Math.max(0.06, w.interval / w.rateMul);

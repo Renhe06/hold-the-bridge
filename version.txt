@@ -1,3 +1,3 @@
-version v1.0.9
-build   2026-10-11 19:29:08
-msg     lv3: sun +3% per pickup cap +100% spawn every 7.6s; drop sunflower gate; ice/fire gates weight x3
+version v1.0.10
+build   2026-10-11 19:43:59
+msg     lv3: remove pulse AOE upgrade; ice/fire lanes now fire an extra flavored pea and stop appearing once every lane is flavored

@@ -1146,6 +1146,58 @@ try {
   game.applyUpgrade('iceLane');
   ok(game.lanes[0] === 'ice', `第三个属性才轮到中间左边（${game.lanes.slice(0, 3).join('/')}）`);
 
+  // (e2) 【m02503】寒冰/炎火改成"那条弹道一发吐两颗"，且全铺满后不再出现这两条
+  {
+    const { UPGRADES } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
+    ok(!UPGRADES.some((u) => u.id === 'pulse'), '奖励墙里已经把「过载脉冲」摘掉了（m02503 去掉脉冲 AOE）');
+    ok(!UPGRADES.some((u) => u.id === 'sunflower'), '奖励墙里也没有「阳光 +1」了（m02403）');
+
+    // 带属性那条吐两颗：第一颗普通、第二颗才带寒冰
+    game.weapon.bullets = 1;
+    game.lanes = ['ice', '', '', '', '', ''];
+    game.bullets = [];
+    game.fire();
+    ok(game.bullets.length === 2, `寒冰那条弹道一发吐两颗（1 条弹道 → ${game.bullets.length} 颗）`);
+    ok(
+      game.bullets[0].ice === 0 && game.bullets[1].ice === 1,
+      `两颗里只有第二颗带寒冰（${game.bullets.map((b) => (b.ice ? '冰' : '普通')).join('+')}）`
+    );
+    game.lanes = ['', '', '', '', '', ''];
+    game.bullets = [];
+    game.fire();
+    ok(game.bullets.length === 1, '没带属性的弹道还是一发一颗');
+
+    // 三条弹道全带上属性 → 冰火不再出现在奖励门里（避免重复白给）
+    game.weapon.bullets = 3;
+    game.lanes = ['ice', 'fire', 'ice', '', '', ''];
+    ok(
+      game._flavoredLanes() === 3 && game._laneCount() === 3,
+      `三条弹道全带属性（${game._flavoredLanes()}/${game._laneCount()}）`
+    );
+    const drawsFlavor = (n) => {
+      let seen = 0;
+      for (let i = 0; i < n; i++) {
+        game.stacks = {};
+        game.openGates();
+        if (!game.gates) continue;
+        for (const u of [game.gates.left, game.gates.right]) if (u.id === 'iceLane' || u.id === 'fireLane') seen++;
+      }
+      return seen;
+    };
+    ok(drawsFlavor(250) === 0, '所有弹道都带上冰火后，奖励门里不再出现这两条');
+    // 只要多出一条空弹道（弹道 +1），冰火就该回来
+    game.weapon.bullets = 4;
+    ok(drawsFlavor(250) > 0, '弹道变多、又有空位之后冰火重新出现');
+
+    // 多吐的那颗算进 DPS 估算（BOSS 血量校准跟着走，不然冰火一多就秒 BOSS）
+    game.weapon.bullets = 1;
+    game.lanes = ['', '', '', '', '', ''];
+    const dps0 = game.estimateDps();
+    game.lanes = ['ice', '', '', '', '', ''];
+    const dps1 = game.estimateDps();
+    ok(Math.abs(dps1 / dps0 - 2) < 0.001, `带属性的那条让估算 DPS ×${(dps1 / dps0).toFixed(2)}（1 条弹道时正好两颗）`);
+  }
+
   // (f) 豌豆射手的称号按弹道数走（用户 m02771 要的"弹道 +1 就换一个植物"）
   game.weapon.bullets = 1;
   const n1 = game.weaponLabel;

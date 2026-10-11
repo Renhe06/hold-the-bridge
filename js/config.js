@@ -553,7 +553,8 @@ export const UPGRADES = [
   { id: 'heal', name: '战地医疗', desc: '立即回复 2 点生命', tag: '生存', max: 99, op: '+', amt: '2', short: '立即回血', apply: { heal: 2 } },
   { id: 'shieldPerWave', name: '能量护盾', desc: '每波开始时获得 1 层护盾', tag: '生存', max: 4, op: '+', amt: '1', short: '每波护盾', apply: { shieldPerWave: 1 } },
   { id: 'dropChance', name: '磁力吸取', desc: '击杀有几率掉落治疗包', tag: '生存', max: 4, op: '+', amt: '7%', short: '掉落几率', apply: { dropChance: 0.07 } },
-  { id: 'pulse', name: '过载脉冲', desc: '每 6.5 秒释放冲击波，伤害全场敌人', tag: '特效', max: 4, op: '+', amt: '脉冲', short: '自动 AOE', apply: { pulse: 1 } },
+  // 【m02503】用户要求"去掉脉冲 AOE"：原 { id: 'pulse', name: '过载脉冲', max: 4,
+  // apply: { pulse: 1 } } 已从奖励墙下架（机制代码还留着，只是再也不会被抽到）。
   { id: 'chargeMul', name: '超导电容', desc: '空袭充能速度 ×1.4', tag: '特效', max: 4, op: '×', amt: '1.4', short: '充能速度', apply: { chargeMul: 1.4 } },
   { id: 'strikeMul', name: '重装弹头', desc: '空袭伤害 ×1.5', tag: '特效', max: 4, op: '×', amt: '1.5', short: '空袭伤害', apply: { strikeMul: 1.5 } },
 
@@ -573,8 +574,11 @@ export const UPGRADES = [
   // 弹道越多，越能混出"一半冰一半火"的场面。
   // 【m02403】用户要求"提高炎火和寒冰的出现概率"：给这两条 3 倍权重
   // （weight 见 openGates 的加权抽取，没写 weight 的都按 1 算）。
-  { id: 'iceLane', name: '寒冰弹道', desc: '一条弹道变成寒冰：命中减速 55%', tag: '特效', max: 5, op: '+', amt: '寒冰', short: '寒冰豌豆', apply: { iceLane: 1 }, l3: true, weight: 3 },
-  { id: 'fireLane', name: '炎火弹道', desc: '一条弹道变成炎火：命中持续燃烧', tag: '特效', max: 5, op: '+', amt: '炎火', short: '炎火豌豆', apply: { fireLane: 1 }, l3: true, weight: 3 },
+  // 【m02503】效果改了：不再是"把那条弹道换成寒冰/炎火"，而是**那条弹道一发吐两颗**
+  // （一颗普通豌豆 + 一颗带效果的）—— 所以它同时也是实打实的火力增长；
+  // 所有弹道都带上属性之后，这两条就不再出现在奖励门里（避免重复）。
+  { id: 'iceLane', name: '寒冰弹道', desc: '一条弹道变寒冰：一发两颗，寒冰弹命中减速 55%', tag: '特效', max: 6, op: '+', amt: '寒冰', short: '寒冰豌豆', apply: { iceLane: 1 }, l3: true, weight: 3 },
+  { id: 'fireLane', name: '炎火弹道', desc: '一条弹道变炎火：一发两颗，炎火弹命中持续燃烧', tag: '特效', max: 6, op: '+', amt: '炎火', short: '炎火豌豆', apply: { fireLane: 1 }, l3: true, weight: 3 },
   // 【m02403】用户要求去掉奖励墙上的「阳光 +1」（原 sunflower / sunWave）：
   // 阳光本来就会自己掉、还会自动吸附过来，再多掉一个只是白给；名额让给冰火。
   { id: 'sunValue', name: '阳光充沛', desc: '每个阳光的充能与攻击加成 ×1.6', tag: '特效', max: 3, op: '×', amt: '1.6', short: '阳光效果', apply: { sunMul: 1.6 }, l3: true },
