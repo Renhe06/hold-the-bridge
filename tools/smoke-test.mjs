@@ -736,7 +736,7 @@ try {
 
   // (d) 四个入口：这一版只预留按钮，点了只提示、不实装、也不许误触发开局
   const st0 = game.state;
-  for (const id of ['menuRole', 'menuWeapon', 'menuShop', 'menuLevel']) tap(id);
+  for (const id of ['menuRole', 'menuWeapon', 'menuShop']) tap(id);
   step(2);
   ok(game.state === st0, `四个入口点了只提示（state 仍是 ${game.state}）`);
   ok(ELS.get('startOverlay').classList.contains('show'), '点入口没有误触发「开始挑战」');
@@ -745,6 +745,12 @@ try {
     String(ELS.get('menuHint').textContent).includes('该功能未实装') && ELS.get('menuHint').classList.contains('show'),
     `主界面自己那行提示也亮了（${ELS.get('menuHint').textContent}）`
   );
+  // 「关卡」这一格不能说"未实装"：第二关真能进，只是入口在结算面板上
+  tap('menuLevel');
+  step(2);
+  const lvTip = String(ELS.get('menuHint').textContent);
+  ok(game.state === st0 && !lvTip.includes('未实装') && lvTip.includes('疯狂水世界'),
+    `「关卡」入口改成指路（${lvTip}）`);
 
   // (e) 用户点名：弹道数还不到 3 条时，进攻门必须优先给"弹道 +1"
   game.reset();

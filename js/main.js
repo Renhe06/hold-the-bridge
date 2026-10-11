@@ -313,8 +313,16 @@ for (const [node, name] of MENU_ENTRIES) {
     sfx.uiClick();
     // 提示词给到"未实装"，而且不能只靠 #gainToast —— 它在画布 HUD 层，
     // 被开始遮罩压着看不见，玩家点了会以为按钮坏了。
-    showHint(`${name} · 该功能未实装`, '#7df9ff');
-    setText(el.menuHint, 'menuHint', `${name} · 该功能未实装`);
+    // 「关卡」这一格例外：第二关确实解锁了，但入口在结算面板上，
+    // 直接说"未实装"会让人以为游戏坏了，所以按解锁状态说清楚去哪儿进。
+    let tip = `${name} · 该功能未实装`;
+    if (node === el.menuLevel) {
+      tip = game.clearedLevel >= 1
+        ? '第二关已解锁 · 通关一次后在结算面板点「疯狂水世界 · 启动 →」'
+        : '第二关通了第一关才解锁 · 打完第 15 波看结算面板';
+    }
+    showHint(tip, '#7df9ff');
+    setText(el.menuHint, 'menuHint', tip);
     el.menuHint.classList.add('show');
     e.stopPropagation();
   });
