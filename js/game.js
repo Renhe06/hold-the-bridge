@@ -13,7 +13,7 @@
 // ============================================================
 
 import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave, setLevel, findLevel, isPvz, pvzPlant, heroZRange } from './config.js';
-import { clamp, rand, sample } from './util.js';
+import { clamp, rand, pickWeighted } from './util.js';
 
 export const STATE = {
   START: 'start',
@@ -1011,13 +1011,15 @@ export class Game {
     // 先把弹道铺到 3 条，割草的爽感才立得住。达标后（或已经抽满）恢复随机。
     const wantBullets =
       this.weapon.bullets < CFG.gate.preferBulletsUntil && off.some((u) => u.id === 'bullets');
+    // 【m02403】加权抽取：条目上的 weight 越大越容易抽中（没写按 1 算）。
+    // 现在是给寒冰/炎火 3 倍权重，好让"冰火构筑"在这一关真的抽得出来。
     const left = wantBullets
       ? off.find((u) => u.id === 'bullets')
       : off.length
-        ? sample(off, 1)[0]
-        : sample(avail, 1)[0];
+        ? pickWeighted(off)
+        : pickWeighted(avail);
     const rest = avail.filter((u) => u.id !== left.id);
-    const right = rest.length ? sample(rest, 1)[0] : left;
+    const right = rest.length ? pickWeighted(rest) : left;
     this.gates = { z: CFG.gate.zStart, left, right };
   }
 

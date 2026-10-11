@@ -19,6 +19,19 @@ export function sample(arr, n) {
   return out;
 }
 
+/** 按权重随机取一个：元素上的 .weight 越大越容易被抽中（没写就当 1）
+ *  【m02403】奖励门用它给寒冰/炎火加权，好让冰火构筑抽得出来 */
+export function pickWeighted(arr) {
+  let total = 0;
+  for (const it of arr) total += it.weight || 1;
+  let r = Math.random() * total;
+  for (const it of arr) {
+    r -= it.weight || 1;
+    if (r <= 0) return it;
+  }
+  return arr[arr.length - 1];
+}
+
 /** 带种子的伪随机，用于生成星空/城市轮廓这种"每次一样"的东西 */
 export function mulberry32(seed) {
   let a = seed >>> 0;

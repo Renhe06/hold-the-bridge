@@ -1080,7 +1080,8 @@ try {
   }
   ok(pvzKinds.length === 7, '七种怪都换了造型（小兵/撑杆/巨人/僵王/投石车/铁桶/小鬼）');
 
-  // (d) 奖励池：l3 专属（寒冰 / 炎火 / 向日葵 / 阳光 / 巨型樱桃）只在第三关出现
+  // (d) 奖励池：l3 专属（寒冰 / 炎火 / 阳光充沛 / 巨型樱桃）只在第三关出现
+  //     【m02403】「阳光 +1」（向日葵）已按用户要求从奖励墙去掉
   const draw3 = (n) => {
     const seen = new Set();
     for (let i = 0; i < n; i++) {
@@ -1091,9 +1092,35 @@ try {
     }
     return seen;
   };
-  const L3_ONLY = ['iceLane', 'fireLane', 'sunflower', 'sunValue', 'cherryBig'];
+  const L3_ONLY = ['iceLane', 'fireLane', 'sunValue', 'cherryBig'];
   const l3seen = draw3(80);
   ok(L3_ONLY.every((id) => l3seen.has(id)), `第三关抽得到 l3 专属奖励（${L3_ONLY.filter((x) => l3seen.has(x)).join('/')}）`);
+  ok(!draw3(200).has('sunflower'), '第三关奖励墙里已经没有「阳光 +1」（向日葵）');
+  // 【m02403】寒冰/炎火加权：加权抽取本身按 weight 走 + 冰火在门里的出现率确实提上来了
+  {
+    const { pickWeighted } = await import(pathToFileURL(path.join(ROOT, 'js', 'util.js')).href);
+    const bag = [{ id: 'a' }, { id: 'b', weight: 3 }];
+    let gotB = 0;
+    for (let i = 0; i < 4000; i++) if (pickWeighted(bag).id === 'b') gotB++;
+    const share = gotB / 4000;
+    ok(share > 0.65 && share < 0.85, `加权抽取按 weight 走（权重 3 的那条占 ${(share * 100).toFixed(0)}%，理论 75%）`);
+  }
+  let iceFire = 0;
+  const N_DRAW = 400;
+  for (let i = 0; i < N_DRAW; i++) {
+    game.stacks = {};
+    game.openGates();
+    for (const u of [game.gates.left, game.gates.right]) {
+      if (u.id === 'iceLane' || u.id === 'fireLane') {
+        iceFire++;
+        break;
+      }
+    }
+  }
+  ok(
+    iceFire / N_DRAW > 0.2,
+    `冰火在奖励门里更常见了（${N_DRAW} 次里 ${iceFire} 次 = ${Math.round((iceFire / N_DRAW) * 100)}%，不加权约 10%）`
+  );
   setLv3(0);
   const l1again = draw3(80);
   ok(!L3_ONLY.some((id) => l1again.has(id)), '第一关抽不到第三关的专属奖励');
@@ -1191,6 +1218,11 @@ try {
   //      （上一版要求"把手指对准它"，手机上一根手指既走位又瞄准，根本对不准。）
   {
     const S3 = C3.pvz.sun;
+    // 【m02403】用户调参：单个 +3%、上限 +100%、掉落间隔延后 3 秒（4.6 → 7.6）
+    ok(
+      Math.abs(S3.atk - 0.03) < 1e-9 && Math.abs(S3.atkMax - 1.0) < 1e-9 && Math.abs(S3.every - 7.6) < 1e-9,
+      `阳光参数：每个 +${Math.round(S3.atk * 100)}%、上限 +${Math.round(S3.atkMax * 100)}%、每 ${S3.every}s 掉一个`
+    );
     game.reset();
     setLv3(2);
     game.state = STATE.FIGHT;
