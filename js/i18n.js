@@ -28,6 +28,16 @@ const EN = {
   '守 桥': 'HOLD THE BRIDGE',
   '守桥 · 丧尸围城': 'Hold the Bridge · Zombie Siege',
   丧尸围城: 'Zombie Siege',
+  // head 里的标题 / 分享卡片文案（抓取方读的是 index.html 里那份中文，
+  // 但浏览器标签、分享面板、装到主屏幕的名字要跟着玩家选的语言走 —— 见 applyMeta）
+  守大桥: 'Hold the Bridge',
+  '守大桥 · 丧尸围城': 'Hold the Bridge · Zombie Siege',
+  '守大桥：桥面上一大波丧尸冲过来，主角在桥头开火':
+    'Hold the Bridge: a horde of zombies charges down the bridge while the hero fires away',
+  '单指走位、自动射击的竖屏塔防小游戏。手机扫码即玩。':
+    'A portrait tower defense: drag to move, the gun fires itself. Scan the QR code to play on your phone.',
+  '单指走位、自动射击的竖屏塔防小游戏。守住这座桥，别让丧尸潮过去。手机扫码即玩，能添加到主屏幕离线玩。':
+    'A portrait tower defense: drag to move, the gun fires itself. Hold this bridge — do not let the horde through. Scan the QR code to play on your phone, or add it to your home screen and play offline.',
   '丧尸围城 · 你身后是最后一道防线': 'Zombie Siege · the last line stands behind you',
   你身后是最后一道防线: 'The last line stands behind you',
   '单指走位、自动射击的竖屏塔防小游戏。守住这座桥，别让丧尸潮过去。':
@@ -580,6 +590,56 @@ function isEn() {
   return lang === 'en';
 }
 
+// ---------------------------------------------------------
+//  页面标题 + 分享元信息（用户 m02901："页面标题与分享元信息全部覆盖"）
+//  index.html 的 head 里写的是中文（抓取方不看 JS，得有一份默认值），
+//  玩家真正看到的那份（浏览器标签、微信/QQ 分享卡片、加到主屏幕的名字）
+//  在切语言时换成英文。中文字符串本身也留在 EN 表里当键 ——
+//  这样"中文原文 → 英文"只有一处真相，守卫也能核到。
+// ---------------------------------------------------------
+const HEAD = {
+  title: '守桥 · 丧尸围城',
+  appTitle: '守桥',
+  siteName: '守大桥',
+  shareTitle: '守大桥 · 丧尸围城',
+  desc: '单指走位、自动射击的竖屏塔防小游戏。守住这座桥，别让丧尸潮过去。',
+  shareDesc: '单指走位、自动射击的竖屏塔防小游戏。守住这座桥，别让丧尸潮过去。手机扫码即玩，能添加到主屏幕离线玩。',
+  twDesc: '单指走位、自动射击的竖屏塔防小游戏。手机扫码即玩。',
+  imgAlt: '守大桥：桥面上一大波丧尸冲过来，主角在桥头开火',
+};
+
+function applyMeta() {
+  if (typeof document === 'undefined' || !document.documentElement) return;
+  // 冒烟测试里的 document 桩只有 documentElement / body，没有查节点这回事 ——
+  // 这里静默跳过，别让"标题翻译"把不需要 DOM 的测试搞红。
+  if (typeof document.querySelector !== 'function') return;
+  const t = (zh) => (isEn() ? EN[zh] || zh : zh);
+  const meta = (sel, val) => {
+    const node = document.querySelector(sel);
+    if (node && node.getAttribute('content') !== val) node.setAttribute('content', val);
+  };
+  const title = t(HEAD.title);
+  if (document.title !== title) document.title = title;
+  meta('meta[name="description"]', t(HEAD.desc));
+  meta('meta[name="apple-mobile-web-app-title"]', t(HEAD.appTitle));
+  meta('meta[property="og:site_name"]', t(HEAD.siteName));
+  meta('meta[property="og:title"]', t(HEAD.shareTitle));
+  meta('meta[property="og:description"]', t(HEAD.shareDesc));
+  meta('meta[property="og:image:alt"]', t(HEAD.imgAlt));
+  meta('meta[name="twitter:title"]', t(HEAD.shareTitle));
+  meta('meta[name="twitter:description"]', t(HEAD.twDesc));
+  // 装到主屏幕的名字取自 manifest：切语言时换成英文那份清单
+  const man = document.querySelector('link[rel="manifest"]');
+  if (man) {
+    const href = isEn() ? './manifest.en.webmanifest' : './manifest.webmanifest';
+    if (man.getAttribute('href') !== href) man.setAttribute('href', href);
+  }
+  const lg = isEn() ? 'en' : 'zh-CN';
+  if (document.documentElement.getAttribute('lang') !== lg) {
+    document.documentElement.setAttribute('lang', lg);
+  }
+}
+
 // 一句中文 → 英文（查不到就原样返回）
 function toEn(s) {
   const core = String(s);
@@ -701,8 +761,14 @@ export const I18N = {
     if (root.nodeType === 1 && root.hasAttribute && root.hasAttribute('data-no-i18n')) return;
     this._htmlPass(root);
     this._walk(root);
-    if (root === document.body) document.documentElement.setAttribute('data-lang', lang);
+    if (root === document.body) {
+      document.documentElement.setAttribute('data-lang', lang);
+      applyMeta();
+    }
   },
+
+  // 标题 / 分享元信息也单独给一个入口（冒烟测试直接调它，不用造整个 body）
+  applyMeta,
 
   // 这个文本节点是不是在"禁止翻译"的子树里（语言按钮等）
   _blocked(node) {

@@ -2311,6 +2311,64 @@ try {
   fake.calls.length = 0;
   fake.fillText('STRIKE');
   ok(fake.calls[0] === '空 袭', `canvas 反向也通：STRIKE → ${fake.calls[0]}`);
+
+  // 运行时拼出来的短句（奖励门飘字 `−35% 敌人速度`、右上角提示条 `×1.5  重型弹`）：
+  // 整串在字典里查不到，要在"词的边界"上换掉里面那一段中文。
+  I18N.set('en');
+  const composedZh = '−35% 敌人速度';
+  ok(I18N.tr(composedZh) === '−35% Enemy speed', `拼出来的短句：${composedZh} → ${I18N.tr(composedZh)}`);
+  I18N.set('zh');
+  ok(I18N.tr('−35% Enemy speed') === composedZh, `拼出来的短句反向还原：→ ${I18N.tr('−35% Enemy speed')}`);
+
+  // 页面标题 / 分享元信息（用户 m02901）：head 里那份中文默认值要能整组换成英文，
+  // 换回来也要干净。用一个最小的 document 桩，只实现 applyMeta 真的会用到的那几个方法。
+  const headNodes = new Map();
+  const stubNode = () => ({
+    attrs: {},
+    getAttribute(k) {
+      return this.attrs[k];
+    },
+    setAttribute(k, v) {
+      this.attrs[k] = v;
+    },
+  });
+  const stubDoc = {
+    documentElement: stubNode(),
+    title: '',
+    querySelector(sel) {
+      if (!headNodes.has(sel)) headNodes.set(sel, stubNode());
+      return headNodes.get(sel);
+    },
+  };
+  const realDoc = globalThis.document;
+  globalThis.document = stubDoc;
+  try {
+    I18N.set('en');
+    I18N.applyMeta();
+    ok(stubDoc.title === 'Hold the Bridge · Zombie Siege', `页面标题跟着语言走：${stubDoc.title}`);
+    ok(
+      stubDoc.querySelector('meta[property="og:title"]').attrs.content === 'Hold the Bridge · Zombie Siege',
+      `分享卡标题：${stubDoc.querySelector('meta[property="og:title"]').attrs.content}`
+    );
+    ok(
+      stubDoc.querySelector('link[rel="manifest"]').attrs.href === './manifest.en.webmanifest',
+      `英文清单：${stubDoc.querySelector('link[rel="manifest"]').attrs.href}`
+    );
+    ok(stubDoc.documentElement.attrs.lang === 'en', `html lang：${stubDoc.documentElement.attrs.lang}`);
+    I18N.set('zh');
+    I18N.applyMeta();
+    ok(
+      stubDoc.title === '守桥 · 丧尸围城' &&
+        stubDoc.querySelector('link[rel="manifest"]').attrs.href === './manifest.webmanifest' &&
+        stubDoc.documentElement.attrs.lang === 'zh-CN',
+      '切回中文时标题 / 清单 / html lang 一起还原'
+    );
+  } finally {
+    if (realDoc === undefined) delete globalThis.document;
+    else globalThis.document = realDoc;
+    I18N.set('zh');
+  }
+
   ok(I18N.lang === 'zh', '测试结束时回到中文（别把状态留给后面的用例）');
 } catch (err) {
   failures++;

@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 
-const FILES = ['index.html', 'js/main.js', 'js/game.js', 'js/render.js', 'js/config.js', 'js/audio.js', 'manifest.webmanifest'];
+const FILES = ['index.html', 'js/main.js', 'js/game.js', 'js/render.js', 'js/config.js', 'js/audio.js', 'manifest.webmanifest', 'manifest.en.webmanifest'];
 
 // 收集阶段会往里塞：HTML 里 data-i18n="key" 用到的键、含 ${} 的拼接句
 const htmlKeys = new Set();
@@ -73,7 +73,7 @@ function collect() {
       for (const m of src.matchAll(/data-i18n="([^"]+)"/g)) htmlKeys.add(m[1]);
       src = src.replace(/<([a-zA-Z][\w-]*)\b[^>]*\bdata-i18n="[^"]*"[^>]*>[\s\S]*?<\/\1>/g, ' ');
       for (const m of src.matchAll(/>([^<>]+)</g)) add(m[1]);
-      for (const m of src.matchAll(/(?:placeholder|aria-label|title|alt)="([^"]*)"/g)) add(m[1]);
+      for (const m of src.matchAll(/(?:placeholder|aria-label|title|alt|content)="([^"]*)"/g)) add(m[1]);
     } else if (f.endsWith('.json') || f.endsWith('.webmanifest')) {
       for (const m of src.matchAll(/"([^"]*)"/g)) add(m[1]);
     } else {

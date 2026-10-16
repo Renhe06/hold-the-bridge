@@ -8,7 +8,7 @@
 //  断网时又还能打开，离线能力一点没少。
 // ============================================================
 
-const CACHE = 'hold-the-bridge-v1.0.23';
+const CACHE = 'hold-the-bridge-v1.0.24';
 
 const ASSETS = [
   './',
@@ -16,6 +16,8 @@ const ASSETS = [
   './styles.css',
   './fonts/smiley-sans.woff2',
   './manifest.webmanifest',
+  // 英文清单：切到 English 时装到主屏幕的名字也走英文（i18n.js 的 applyMeta 换 href）
+  './manifest.en.webmanifest',
   './img/hero-uncle.jpg',
   // 对话立绘（用户 m02399 头像重构）：说话人是谁就换谁的图
   './img/portrait-hero.png',
