@@ -2384,6 +2384,32 @@ try {
 }
 
 // ---------------------------------------------------------
+// (a11) 更新说明（用户 m04486：版本号左边的入口，条目只写用户要求写的）
+//   内容本身不测"写得对不对"（那是用户的自由），只测格式与排序：
+//   日期/版本号格式、条目非空、最新的排最前（渲染和这里用的是同一套比较规则）。
+//   英文覆盖已经在 (a10) 里由守卫管着 —— js/changelog.js 在守卫的 FILES 里。
+try {
+  const { CHANGELOG } = await import(pathToFileURL(path.join(ROOT, 'js', 'changelog.js')).href);
+  ok(Array.isArray(CHANGELOG) && CHANGELOG.length > 0, `更新说明有 ${CHANGELOG.length} 条版本记录`);
+  const bad = CHANGELOG.filter(
+    (r) => !/^\d+\.\d+\.\d+$/.test(String(r.version || '')) ||
+      !/^\d{2}\/\d{2}\/\d{2}$/.test(String(r.date || '')) ||
+      !Array.isArray(r.items) || r.items.length === 0 ||
+      r.items.some((s) => typeof s !== 'string' || !s.trim())
+  );
+  ok(bad.length === 0, `每条都有版本号 / 日期(YY/MM/DD) / 非空条目${bad.length ? `（有问题：${bad.map((r) => r.version).join(',')}）` : ''}`);
+  const stamp = (r) => {
+    const m = /^(\d{2})\/(\d{2})\/(\d{2})$/.exec(String(r.date || ''));
+    return m ? (+m[1]) * 10000 + (+m[2]) * 100 + (+m[3]) : -1;
+  };
+  const sorted = CHANGELOG.slice().sort((a, b) => stamp(b) - stamp(a));
+  ok(sorted[0] === CHANGELOG[0], `最新的排在最前面（第一眼看到 ${CHANGELOG[0].date} · v${CHANGELOG[0].version}）`);
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ 更新说明测试抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : err}`);
+}
+
+// ---------------------------------------------------------
 
 console.log(notes.join('\n'));
 if (botStats) {

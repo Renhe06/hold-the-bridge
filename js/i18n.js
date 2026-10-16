@@ -112,6 +112,15 @@ const EN = {
   中文: '中文',
   切换到中文: 'Switch to Chinese',
 
+  // ---- 更新说明（用户 m04486）----
+  // 条目原文在 js/changelog.js，这里只放英文；新增条目时两边要一起补
+  更新说明: "What's new",
+  '更 新 说 明': "WHAT'S NEW",
+  'UI和特效重做，视觉效果全面焕新': 'UI and effects rebuilt — a full visual refresh',
+  '底层架构优化，提升运行速度': 'Under-the-hood work for smoother, faster runs',
+  '全面适配英语，双语种同步更新': 'Full English support, both languages updated together',
+  '新增版本说明，更新一目了然~': 'New update notes — see what changed at a glance~',
+
   // ---- HUD / 局内 ----
   波次: 'Wave',
   最高: 'Best',

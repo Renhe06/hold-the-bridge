@@ -768,17 +768,109 @@ html, body {
 
 /* 右下角版本号：主界面专用（放在 #startOverlay 里，遮罩一藏它就跟着没了）。
    位置靠遮罩自身的 padding 让出安全区，所以这里只再加一点点余量，
-   免得贴在 iPhone 的圆角上被切掉。 */
+   免得贴在 iPhone 的圆角上被切掉。
+   用户 m04486：版本号不再单独定位，跟「更新说明」按钮一起放进 .foot-right，
+   这样它和左下角的语言开关落在同一条水平线上。 */
 .build {
-  position: absolute;
-  right: 8px;
-  bottom: 5px;
   font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 1.5px;
   color: rgba(190, 210, 230, 0.38);
   pointer-events: none;
   user-select: none;
+}
+
+/* 右下角一组：更新说明按钮 + 版本号。
+   底边距（12px + safe-b）跟 .lang-btn 完全一致 → 左（语言开关）、右（更新说明 + 版本号）
+   三个东西在同一条水平线上；display:flex + align-items:center 保证组内也齐平。 */
+.foot-right {
+  position: absolute;
+  right: calc(14px + var(--safe-r, 0px));
+  bottom: calc(12px + var(--safe-b, 0px));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 更新说明开关：故意跟 .lang-btn 长得一样（同样的内边距 / 字号 / 圆角），
+   这样三个元素的高度一致，看着才是"一行"。 */
+.log-btn {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(10, 16, 26, 0.72);
+  color: rgba(214, 228, 244, 0.82);
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.log-btn:active {
+  transform: translateY(1px);
+  color: var(--gold);
+  border-color: rgba(255, 209, 102, 0.5);
+}
+
+/* 更新说明列表：一条版本一张小卡（日期 + 版本号 + 逐条说明），最新的排最上面 */
+.log-list {
+  margin: 6px 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+}
+
+.log-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(10, 16, 26, 0.55);
+  padding: 10px 12px;
+}
+
+.log-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.log-date {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--gold);
+}
+
+.log-ver {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: rgba(190, 210, 230, 0.55);
+}
+
+.log-ul {
+  margin: 0;
+  padding: 0 0 0 16px;
+  list-style: disc;
+}
+
+.log-ul li {
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(226, 236, 248, 0.9);
+}
+
+.log-ul li::marker {
+  color: rgba(255, 209, 102, 0.65);
 }
 
 /* 语言开关（用户 m02901）：主界面左下角的小按钮，点了在中英之间切 */

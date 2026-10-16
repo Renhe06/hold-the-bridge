@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 
-const FILES = ['index.html', 'js/main.js', 'js/game.js', 'js/render.js', 'js/config.js', 'js/audio.js', 'manifest.webmanifest', 'manifest.en.webmanifest'];
+const FILES = ['index.html', 'js/main.js', 'js/game.js', 'js/render.js', 'js/config.js', 'js/audio.js', 'js/changelog.js', 'manifest.webmanifest', 'manifest.en.webmanifest'];
 
 // 收集阶段会往里塞：HTML 里 data-i18n="key" 用到的键、含 ${} 的拼接句
 const htmlKeys = new Set();

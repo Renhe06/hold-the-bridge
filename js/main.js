@@ -10,6 +10,7 @@ import { Renderer, TAG_COLOR } from './render.js';
 import { CFG, isHordeWave, isBossWave, findLevel, levelIndexOf } from './config.js';
 import { QUALITY } from './quality.js';
 import { I18N } from './i18n.js';
+import { CHANGELOG } from './changelog.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -39,6 +40,10 @@ const el = {
   guideClose: $('guideClose'),
   menuHint: $('menuHint'),
   langBtn: $('langBtn'),
+  logBtn: $('logBtn'),
+  logOverlay: $('logOverlay'),
+  logList: $('logList'),
+  logClose: $('logClose'),
   overOverlay: $('overOverlay'),
   newBest: $('newBest'),
   overScore: $('overScore'),
@@ -364,6 +369,68 @@ onTap(el.guideBtn, () => {
 onTap(el.guideClose, () => {
   sfx.uiClick();
   hideGuide();
+});
+
+// ---- 更新说明弹窗（用户 m04486：版本号左边的那个小按钮） ----
+// 条目写在 js/changelog.js，这里只管排序和渲染。
+// 排序按日期倒序 —— 打开第一眼看到的就是最新那条。
+// 写进去的是纯中文文本节点，界面上的字典机制会照当前语言翻成英文，
+// 所以新增条目时要一起往 js/i18n.js 的 EN 表补英文（否则守卫会红）。
+function logTime(row) {
+  // 'YY/MM/DD' → 可直接比大小的数字；格式不对的条目排到最后（不丢弃，免得"写了却看不到"）
+  const m = /^(\d{2})\/(\d{2})\/(\d{2})$/.exec(String(row.date || ''));
+  return m ? (+m[1]) * 10000 + (+m[2]) * 100 + (+m[3]) : -1;
+}
+
+function renderChangelog() {
+  if (!el.logList) return;
+  el.logList.textContent = '';
+  for (const row of CHANGELOG.slice().sort((a, b) => logTime(b) - logTime(a))) {
+    const card = document.createElement('div');
+    card.className = 'log-item';
+    const head = document.createElement('div');
+    head.className = 'log-head';
+    const date = document.createElement('span');
+    date.className = 'log-date';
+    date.textContent = row.date;
+    const ver = document.createElement('span');
+    ver.className = 'log-ver';
+    ver.textContent = `v${row.version}`;
+    head.appendChild(date);
+    head.appendChild(ver);
+    const ul = document.createElement('ul');
+    ul.className = 'log-ul';
+    for (const line of row.items) {
+      const li = document.createElement('li');
+      li.textContent = line;
+      ul.appendChild(li);
+    }
+    card.appendChild(head);
+    card.appendChild(ul);
+    el.logList.appendChild(card);
+  }
+}
+
+function showLog() {
+  renderChangelog();
+  el.logOverlay.classList.add('show');
+}
+
+function hideLog() {
+  el.logOverlay.classList.remove('show');
+}
+
+// 先在页面上放好（不显示），这样 MutationObserver 有机会把它们翻成当前语言
+renderChangelog();
+
+onTap(el.logBtn, () => {
+  sfx.unlock();
+  sfx.uiClick();
+  showLog();
+});
+onTap(el.logClose, () => {
+  sfx.uiClick();
+  hideLog();
 });
 
 // 三条命没了不能一点就重开（玩家可能正在猛戳屏幕走位）
