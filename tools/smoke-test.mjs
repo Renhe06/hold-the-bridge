@@ -2116,7 +2116,11 @@ try {
       '角色卡片改成展示全身立绘（.hero-art），不再是圆形头像');
     for (const who of ['knight', 'fairy']) {
       ok(html.includes(`data-src="./img/hero-${who}.png"`), `角色面板里挂了 ${who} 的全身图`);
-      ok(sw.includes(`./img/hero-${who}.png`), `${who} 的全身图进了离线缓存清单`);
+      // 【用户 m06896】「不用完全追求离线游玩，先保证游戏体验」
+      //   两张全身立绘一共 ~800KB，放进预缓存清单 = 每次改版本都要先下完才装好 SW，
+      //   首开会明显卡。所以现在的规矩反过来：**外壳预缓存、图片交给浏览器缓存**，
+      //   这里钉住"它们不在外壳清单里"，免得以后又被人塞回去。
+      ok(!sw.includes(`./img/hero-${who}.png`), `${who} 的全身图不进预缓存外壳（首开要快）`);
       let size = 0;
       let portrait = 0;
       try { size = fs.statSync(path.join(ROOT, 'img', `hero-${who}.png`)).size; } catch (_) { size = 0; }
@@ -2124,6 +2128,9 @@ try {
       ok(size > 20000, `${who} 的全身图存在且有内容（${size} 字节）`);
       ok(portrait > 20000, `${who} 的对话立绘也是同一套图裁的（${portrait} 字节）`);
     }
+    // 外壳 / 图片的分流规则本身也要在（图片不 respondWith，才不会拖住安装）
+    ok(/function isShell\s*\(/.test(sw), 'sw.js 里有 isShell() 分流：只有外壳走预缓存');
+    ok(!/CACHE[\s\S]{0,400}\.png/.test(sw.slice(0, sw.indexOf('isShell') + 1)), '预缓存清单里没有图片');
     ok(!html.includes('img/portrait-elder.png') && !sw.includes('./img/portrait-elder.png'),
       '手绘的村长头像已经退役（不再引用）');
     ok(html.includes('class="lv hero"'), '角色卡片复用了关卡卡片的样式');

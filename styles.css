@@ -1293,6 +1293,29 @@ html, body {
 @keyframes pop { 0% { transform: scale(0.7); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
 
 /* ============================================================
+   启动加载页（用户 m06896：「可以做加载动画等待资源加载」）
+   ------------------------------------------------------------
+   结构在 index.html 的 <body> 第一行，关键样式是内联的（样式表到之前就要能画）；
+   这里只管动效和三颗点的节奏，以及"等到了"以后怎么淡出。
+   注意：它**不负责下载资源**（那是 Service Worker + 下面 JS 的事），
+   删掉它游戏照常跑 —— 所以冒烟测试里没有它也不该报错。
+   ============================================================ */
+.boot { opacity: 1; transition: opacity 0.42s ease; }
+.boot.done { opacity: 0; pointer-events: none; }
+.boot-dots { display: flex; gap: 7px; justify-content: center; }
+.boot-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #7df9ff;
+  opacity: 0.35;
+  animation: bootDot 1.05s ease-in-out infinite;
+}
+.boot-dots i:nth-child(2) { animation-delay: 0.16s; background: #bfe9ff; }
+.boot-dots i:nth-child(3) { animation-delay: 0.32s; background: #ffe08a; }
+@keyframes bootDot { 0%, 100% { opacity: 0.25; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } }
+
+/* ============================================================
    第二关进场对话
    ============================================================ */
 /* 底下一层偏海洋的深蓝，别用纯黑：一进对话就要让人感觉"换场景了" */
@@ -1684,6 +1707,7 @@ html, body {
 /* 动效降级：用户开了"减少动态效果"就把扫光和弹跳关掉，只留淡入 */
 @media (prefers-reduced-motion: reduce) {
   .btn.primary::after { animation: none; opacity: 0; }
+  .boot-dots i { animation: none; opacity: 0.7; }
   .menu-hint.show, .newbest.show { animation: none; }
   .talk-more { animation: none; opacity: 0.75; }
   .overlay.show { animation: overlayIn 0.16s ease both; }

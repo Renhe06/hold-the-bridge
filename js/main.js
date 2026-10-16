@@ -371,6 +371,95 @@ function warmPortraits() {
 if (typeof requestIdleCallback === 'function') requestIdleCallback(warmPortraits, { timeout: 1500 });
 else setTimeout(warmPortraits, 600);
 
+// ---------------------------------------------------------
+// 【用户 m06896】启动加载动画 + "先保证游戏体验，不用执着离线"
+//   只等"进主界面马上要用"的东西：几张对话立绘（每张几十 KB）。
+//   两张第四关全身立绘（~800KB）**故意不在这里等**——那是玩到第四关才要的，
+//   首开等它只会更卡；改成进第四关对话时再悄悄预热（见 warmHeroArt）。
+//   兜底两条：最多等 2.6 秒、点一下屏幕立刻进。绝不把玩家卡在加载页上。
+// ---------------------------------------------------------
+const BOOT_MAX_MS = 2600;
+const BOOT_MIN_MS = 480; // 太快的机器上也不能一闪而过（会像页面抖了一下）
+let bootClosed = false;
+
+function closeBoot() {
+  if (bootClosed) return;
+  bootClosed = true;
+  // 给自动化留个数（viz/probe-boot.mjs 用它量"玩家被拦住多久"，
+  // 页面自己的时钟才准：外面量进去还得算上无头浏览器启动那 1 秒）
+  try { window.__HBT_BOOT_MS = Math.round(performance.now()); } catch (_) { /* 无 window 的桩环境 */ }
+  const el = document.getElementById('bootOverlay');
+  if (!el) return;
+  el.classList.add('done');
+  // 淡出动画走完再摘掉节点（样式表里 .boot.done 是 0.42s）
+  setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 520);
+}
+
+function runBootLoader() {
+  const el = document.getElementById('bootOverlay');
+  if (!el) return;
+  // 无浏览器环境（tools/smoke-test.mjs 的 document 桩）：没有 rAF 就当加载完了
+  if (typeof requestAnimationFrame !== 'function') {
+    el.classList.add('done');
+    if (el.parentNode) el.parentNode.removeChild(el);
+    bootClosed = true;
+    return;
+  }
+  const bar = document.getElementById('bootBar');
+  const t0 = performance.now();
+  let ready = false;
+  let raf = 0;
+  const finish = () => {
+    ready = true;
+    cancelAnimationFrame(raf);
+    if (bar) bar.style.width = '100%';
+    // 太快的机器上也不能一闪而过（会像页面抖了一下）
+    setTimeout(closeBoot, Math.max(0, BOOT_MIN_MS - (performance.now() - t0)));
+  };
+  // 点一下就走（加载页永远是可跳过的）
+  el.addEventListener('pointerdown', closeBoot);
+  setTimeout(closeBoot, BOOT_MAX_MS);
+  // 【用户 m06896】这里**不再等立绘**：外壳（html/css/js/字体）到这一步其实已经好了，
+  // 真正要等的是"第一帧画出来"。立绘全部交给下面的空闲预热（warmPortraits），
+  // 不占玩家的等待时间 —— 之前等 6 张立绘（约 630KB）要 1.5 秒，那才是"打开就卡"。
+  // 进度条用一条时间斜坡撑住动效（最长 0.65s 爬到 90%），首帧一到立刻满格。
+  let frames = 2;
+  const tick = () => {
+    frames -= 1;
+    if (frames > 0) requestAnimationFrame(tick);
+    else finish();
+  };
+  const ramp = () => {
+    if (ready) return;
+    const p = Math.min(90, Math.round(((performance.now() - t0) / 650) * 90));
+    if (bar) bar.style.width = `${p}%`;
+    raf = requestAnimationFrame(ramp);
+  };
+  raf = requestAnimationFrame(ramp);
+  requestAnimationFrame(tick);
+}
+
+// 第四关的全身立绘（两张共 ~800KB）只在"真的要打那关"时才取：
+// 对话一弹出来就开始预热，等玩家读完三句点「出 发」时图早就到了，
+// 开打不会出现"先一个手绘小人、过一会才换成立绘"。
+let warmHeroArtKey = '';
+function warmHeroArt(id) {
+  const key = id === 'fairy' ? 'fairy' : 'knight';
+  if (warmHeroArtKey === key) return;
+  warmHeroArtKey = key;
+  if (typeof Image === 'undefined') return; // 冒烟测试的桩环境没有 Image
+  const im = new Image();
+  im.decoding = 'async';
+  im.src = `./img/hero-${key}.png`;
+  if (typeof im.decode === 'function') {
+    const pr = im.decode();
+    if (pr && typeof pr.catch === 'function') pr.catch(() => {});
+  }
+}
+
+// 立刻开始等（外壳已经由 Service Worker 缓存优先返回了，这里主要是几张立绘）
+runBootLoader();
+
 function renderTalk() {
   const lines = talkSet.lines;
   const line = lines[Math.min(talkIdx, lines.length - 1)];
@@ -382,6 +471,9 @@ function renderTalk() {
   const otherName = (HEROES.find((h) => h.id === otherId) || HEROES[0]).name;
   const who = (p) => (p === 'self' ? heroName : p === 'ally' ? otherName : p);
   const portrait = (p) => (p === 'self' ? heroId : p === 'ally' ? otherId : (p || 'hero'));
+  // 【用户 m06896】第四关的全身立绘在对话这一屏预热：等玩家读完三句，
+  // 开打时贴图已经在缓存里，不会出现"先手绘小人、随后忽然换人"的跳变。
+  if (CFG.level && CFG.level.skin === 'fantasy') warmHeroArt(heroId);
   setText(el.talkName, 'tkN', who(line.who));
   setText(el.talkText, 'tkT', line.text);
   setText(el.talkStamp, 'tkS', `${String(Math.min(talkIdx + 1, lines.length)).padStart(2, '0')} / 0${lines.length}`);

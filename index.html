@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<!-- build: 2026-10-17 00:59:34 -->
+<!-- build: 2026-10-17 01:18:44 -->
 <meta charset="UTF-8" />
 <title>守桥 · 丧尸围城</title>
 
@@ -41,6 +41,21 @@
 <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
+<!-- 【用户 m06896】启动加载动画
+     外壳（html/css/js/字体）由 Service Worker 缓存优先秒出，这里只等几张对话立绘（每张几十 KB）；
+     两张第四关全身立绘（~800KB）故意不在这里等 —— 那是"玩到第四关才要"的，首开等它只会更卡，
+     进第四关对话时再悄悄预热（js/main.js 的 warmHeroArt）。
+     内联样式是有意的：样式表到之前它就得画得出来，否则会先闪一下黑底白字。
+     最多等 2.6 秒、点一下也能立刻进（runBootLoader 里有兜底）。 -->
+<div class="boot" id="bootOverlay" style="position:fixed;inset:0;z-index:99;display:flex;align-items:center;justify-content:center;background:radial-gradient(130% 90% at 50% 32%,#13284a,#04070d 72%);color:#dff3ff">
+  <div style="text-align:center">
+    <div style="font-size:40px;font-weight:900;letter-spacing:12px;text-indent:12px;text-shadow:0 4px 20px rgba(125,249,255,.35)">守 桥</div>
+    <div style="margin:24px auto 0;width:178px;height:4px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden">
+      <i id="bootBar" style="display:block;width:8%;height:100%;border-radius:999px;background:linear-gradient(90deg,#7df9ff,#ffe08a);transition:width .25s ease"></i>
+    </div>
+    <div class="boot-dots" style="margin-top:14px"><i></i><i></i><i></i></div>
+  </div>
+</div>
 <div id="app">
   <canvas id="game"></canvas>
 
@@ -95,7 +110,7 @@
          版本号由 deploy.ps1 每次部署自动 +1（别手改，改了会被下次部署覆盖） -->
     <div class="foot-right">
       <button class="log-btn" id="logBtn" type="button">更 新 说 明</button>
-      <div class="build" id="buildLabel">v1.0.31</div>
+      <div class="build" id="buildLabel">v1.0.32</div>
     </div>
   </div>
 

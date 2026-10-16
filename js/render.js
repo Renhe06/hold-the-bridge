@@ -542,7 +542,10 @@ export class Renderer {
   // ---------------------------------------------------------
 
   draw(game, dt) {
-    this.time += dt;
+    // dt 兜底：walkthrough 脚本/探针如果 `R.draw(g)` 忘了传 dt，`this.time += undefined`
+    // 会把时间戳变成 NaN —— 之后所有按时间算的东西（波浪、呼吸、火花）全废，
+    // 而且 NaN 自己恢复不了（NaN + 有限数 = NaN）。缺参数时按 60fps 走。
+    this.time += Number.isFinite(dt) ? dt : 1 / 60;
     const ctx = this.ctx;
     const cam = this.cam;
     const w = this.w;
@@ -2628,10 +2631,12 @@ export class Renderer {
     const swing = Math.min(1, pl.muzzle * 3.4);
     const step = pl.moving ? Math.sin(pl.anim) : 0;
     const breathe = 1 + Math.sin(this.time * 3.1) * 0.008;
-    // 烘图用"呼吸后"的基准高度（不含挥击放大），挥击的 5% 放大放到逐帧 blit 里做，
-    // 否则每次开火都会因为尺寸档位变化重烘一次。
-    const hBase = H * 1.12 * breathe;
-    const h = hBase * (1 + swing * 0.05);
+    // 【用户 m06896】"老是卡顿"的一个源头就在这三行：
+    // 烘焙缓存是按"量化后的高度"取键的，基准高度里一旦含 breathe，
+    // 档位会随呼吸在相邻两格之间来回跳 → 每几帧就重烘一张 canvas（可见的顿一下）。
+    // 所以烘图只用**不含呼吸**的固定基准，呼吸和挥击都放到逐帧 blit 的 k = h / baked.base 里。
+    const hBase = H * 1.12;
+    const h = hBase * breathe * (1 + swing * 0.05);
     const w = h * (art.width / art.height);
     const lean = step * 0.05 * pl.moving + swing * -0.07;
 
@@ -4222,11 +4227,66 @@ export class Renderer {
       const gallop = Math.sin(this.time * 22);
       const feet = p.y;
 
-      // 扬尘：跑过的地方一串粉色光点（越靠后越淡）
-      for (let i = 1; i <= 5; i++) {
-        const back = cam.project(u.x + Math.sin(i * 1.7 + this.time * 6) * 0.06, u.z - i * 0.55);
-        this._drawGlow(back.x, back.y - H * 0.16, H * 0.42, U.mane, (1 - i / 6) * 0.4);
+      // 彩虹尾迹（【用户 m06470】视觉升级第一步：独角兽空袭特效）
+      // 独角兽是匀速跑的（z 按 t 线性插值），所以能直接反推它刚跑过的位置，
+      // 沿路铺一条"逐段换色"的飘带 + 贴地粉光 + 四角星。加色混合才像魔法冲锋。
+      // 尾巴长度按"世界里的固定长度"算（不用速度折算）：不管跑得快慢，
+      // 拖在后面的都是一条彗星尾；用速度折算的话，慢速调试时会缩成一团。
+      const N = 9;
+      const trailStep = 5.5 / N;
+      const RB = ['#ff5d6c', '#ffa14a', '#ffe066', '#7ee787', '#5bc8ff', '#b18cff'];
+      const tp = [];
+      for (let i = 0; i <= N; i++) {
+        const back = cam.project(u.x, u.z - i * trailStep);
+        tp.push({
+          x: back.x + Math.sin(i * 0.85 + this.time * 5.5) * back.s * 0.014,
+          y: back.y,
+          s: back.s,
+        });
       }
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < N; i++) {
+        const a = 1 - i / N;
+        const y0 = tp[i].y - H * 0.46 * (tp[i].s / s) * (0.9 + 0.1 * Math.sin(i));
+        const y1 = tp[i + 1].y - H * 0.46 * (tp[i + 1].s / s);
+        ctx.globalAlpha = 0.3 * a;
+        ctx.fillStyle = RB[i % RB.length];
+        ctx.beginPath();
+        ctx.moveTo(tp[i].x - H * 0.3 * a, y0);
+        ctx.lineTo(tp[i].x + H * 0.3 * a, y0);
+        ctx.lineTo(tp[i + 1].x + H * 0.3 * (1 - (i + 1) / N), y1);
+        ctx.lineTo(tp[i + 1].x - H * 0.3 * (1 - (i + 1) / N), y1);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // 贴地粉光：路上留一串越远越淡的光斑
+      ctx.globalAlpha = 1;
+      for (let i = 1; i <= 4; i++) {
+        const q = tp[Math.min(N, i * 2)];
+        if (!q) continue;
+        this._drawGlow(q.x, q.y, H * 0.5 * (1 - i / 5), U.mane, 0.22 * (1 - i / 5));
+      }
+      // 星星：尾迹上闪烁的四角星（形状是"四段内凹弧"，比圆点更像魔法火花）
+      for (let i = 1; i <= 6; i++) {
+        const q = tp[Math.min(N, i)];
+        if (!q) continue;
+        const tw = 0.5 + 0.5 * Math.sin(this.time * 9 + i * 2.1);
+        const r2 = H * (0.05 + 0.04 * tw) * (1 - i / 9);
+        if (r2 < 0.7) continue;
+        ctx.globalAlpha = 0.6 * tw * (1 - i / 9);
+        ctx.fillStyle = i % 2 ? '#fff3ff' : RB[(i * 2) % RB.length];
+        const y2 = q.y - H * 0.42 * (q.s / s);
+        ctx.beginPath();
+        ctx.moveTo(q.x, y2 - r2);
+        ctx.quadraticCurveTo(q.x, y2, q.x + r2, y2);
+        ctx.quadraticCurveTo(q.x, y2, q.x, y2 + r2);
+        ctx.quadraticCurveTo(q.x, y2, q.x - r2, y2);
+        ctx.quadraticCurveTo(q.x, y2, q.x, y2 - r2);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
 
       ctx.save();
       ctx.translate(p.x, feet);
@@ -4321,13 +4381,93 @@ export class Renderer {
       ctx.lineTo(hornTipX - H * 0.02, hornTipY + H * 0.03);
       ctx.stroke();
 
+      // 角尖射出的光束（【用户 m06470】）：一根加色的锥形光 + 尖端亮点，
+      // 微微呼吸；这是这一招最该被看见的一笔。
+      const beam = 0.72 + 0.28 * Math.sin(this.time * 8);
+      const bg = ctx.createLinearGradient(hornTipX, hornTipY, hornTipX + H * 0.75, hornTipY - H * 0.5);
+      bg.addColorStop(0, `rgba(255, 246, 214, ${0.5 * beam})`);
+      bg.addColorStop(0.45, `rgba(255, 214, 120, ${0.22 * beam})`);
+      bg.addColorStop(1, 'rgba(255, 214, 120, 0)');
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      ctx.moveTo(hornTipX - H * 0.02, hornTipY + H * 0.02);
+      ctx.lineTo(hornTipX + H * 0.09, hornTipY - H * 0.06);
+      ctx.lineTo(hornTipX + H * 0.78, hornTipY - H * 0.46);
+      ctx.lineTo(hornTipX + H * 0.66, hornTipY - H * 0.62);
+      ctx.closePath();
+      ctx.fill();
+      this._drawGlow(hornTipX + H * 0.02, hornTipY - H * 0.02, H * 0.22 * beam, '#fff6d6', 0.5 * beam);
       ctx.restore();
 
-      // 冲到最后：一圈光环收尾
+      ctx.restore();
+
+      // 刚出场：脚下一团白光 + 几颗星（从"雾里冲出来"的感觉）
+      if (k < 0.08) {
+        const a0 = 1 - k / 0.08;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        this._drawGlow(p.x, feet - H * 0.42, H * (0.8 + 0.5 * (1 - a0)), U.mane, 0.45 * a0);
+        for (let i = 0; i < 5; i++) {
+          const a1 = (i / 5) * TAU + 0.4;
+          const rr = H * (0.5 + 0.55 * (1 - a0));
+          ctx.globalAlpha = 0.5 * a0;
+          ctx.fillStyle = i % 2 ? '#fff3ff' : U.horn;
+          ctx.beginPath();
+          ctx.arc(p.x + Math.cos(a1) * rr, feet - H * 0.4 + Math.sin(a1) * rr * 0.45, Math.max(0.8, H * 0.035), 0, TAU);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      // 冲到桥头：两圈扩散光环 + 放射光条 + 彩虹花瓣（收尾要"炸"一下）
       if (k > 0.94) {
-        ctx.globalAlpha = (1 - k) / 0.06 * 0.6;
-        this._drawGlow(p.x, feet - H * 0.5, H * 1.2, U.horn, 0.7);
+        const a = (1 - k) / 0.06;
+        const flat = clamp(CFG.camHeight / Math.max(0.5, u.z), 0.06, 0.42);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = a * 0.7;
+        this._drawGlow(p.x, feet - H * 0.5, H * 1.25, U.horn, 0.7);
         ctx.globalAlpha = 1;
+        for (let i = 0; i < 2; i++) {
+          const rr = H * (0.5 + i * 0.45) * (1 + (1 - a) * 0.55);
+          ctx.globalAlpha = a * (0.7 - i * 0.25);
+          ctx.strokeStyle = i ? U.mane : '#fff6d6';
+          ctx.lineWidth = Math.max(1, H * (0.05 - i * 0.02));
+          ctx.beginPath();
+          ctx.ellipse(p.x, feet - H * 0.06, rr, rr * flat, 0, 0, TAU);
+          ctx.stroke();
+        }
+        // 放射光条：12 根，长短按序号错开，看起来才不呆板
+        ctx.lineWidth = Math.max(1, H * 0.035);
+        for (let i = 0; i < 12; i++) {
+          const ang = (i / 12) * TAU + this.time * 0.8;
+          const len = H * (0.5 + 0.42 * ((i % 3) / 2 + 0.5));
+          ctx.globalAlpha = a * (i % 2 ? 0.5 : 0.34);
+          ctx.strokeStyle = i % 3 === 0 ? '#fff6d6' : (i % 3 === 1 ? U.mane : U.horn);
+          ctx.beginPath();
+          ctx.moveTo(p.x + Math.cos(ang) * H * 0.34, feet - H * 0.5 + Math.sin(ang) * H * 0.34 * flat * 1.6);
+          ctx.lineTo(p.x + Math.cos(ang) * len, feet - H * 0.5 + Math.sin(ang) * len * flat * 1.6);
+          ctx.stroke();
+        }
+        // 花瓣：8 片，随扩散往外飘
+        for (let i = 0; i < 8; i++) {
+          const ang = (i / 8) * TAU + 0.3;
+          const rr = H * (0.4 + (1 - a) * 0.7);
+          ctx.globalAlpha = a * 0.65;
+          ctx.fillStyle = RB[i % RB.length];
+          ctx.beginPath();
+          ctx.ellipse(
+            p.x + Math.cos(ang) * rr,
+            feet - H * 0.5 + Math.sin(ang) * rr * flat * 1.6,
+            Math.max(0.8, H * 0.055),
+            Math.max(0.6, H * 0.03),
+            ang, 0, TAU
+          );
+          ctx.fill();
+        }
+        ctx.restore();
       }
     }
   }

@@ -2,15 +2,21 @@
 //  Service Worker —— 让游戏加到主屏幕后能离线打开
 //  只在 https 下注册（main.js 里已跳过 localhost，方便开发时改完就生效）
 //
-//  策略：网络优先，失败再回缓存。
-//  刻意不用"缓存优先"：这个游戏要反复调手感，缓存优先会让手机上永远跑旧版本，
-//  而且表现是"我明明改了怎么没变"，最难查。网络优先时在线永远拿最新代码，
-//  断网时又还能打开，离线能力一点没少。
+//  【用户 m06896】"不用完全追求离线游玩，先保证游戏体验，不然老是卡顿"：
+//  以前 install 时把**全部资源**（含两张 300~460KB 的第四关立绘）一次性 addAll，
+//  每次改版本号都要重下一遍，首开还得等这一坨下载完 —— 卡顿的一大来源。
+//  现在分两类：
+//    ① 外壳（html/css/js/字体/图标）：这层小（~200KB），预缓存，
+//       取的时候**缓存优先**，命中就直接出、不再等网络；同时后台顺手更新缓存
+//       （版本号变了新 SW 会重新预缓存并清掉旧缓存，所以不会"永远跑旧版本"）。
+//    ② 图片等大资源：**不拦**，交给浏览器自己的 HTTP 缓存。
+//       离线时外壳还在、能打开游戏；图片没缓存上顶多暂时缺图（渲染器有手绘兜底）。
 // ============================================================
 
-const CACHE = 'hold-the-bridge-v1.0.31';
+const CACHE = 'hold-the-bridge-v1.0.32';
 
-const ASSETS = [
+// 只预缓存"外壳"：打开游戏必需的那几样，体积小、改动频繁
+const SHELL = [
   './',
   './index.html',
   './styles.css',
@@ -18,18 +24,6 @@ const ASSETS = [
   './manifest.webmanifest',
   // 英文清单：切到 English 时装到主屏幕的名字也走英文（i18n.js 的 applyMeta 换 href）
   './manifest.en.webmanifest',
-  './img/hero-uncle.jpg',
-  // 对话立绘（用户 m02399 头像重构）：说话人是谁就换谁的图
-  './img/portrait-hero.png',
-  './img/portrait-uncle.png',
-  './img/portrait-cmd.png',
-  './img/portrait-dave.png',
-  // 第四关「穿越异世界」的角色（用户 m06012）：对话立绘 + 局内贴图用的是同一份原图，
-  // 立绘是从全身图裁出来的头肩像，所以两者风格一定一致。
-  './img/portrait-knight.png',
-  './img/portrait-fairy.png',
-  './img/hero-knight.png',
-  './img/hero-fairy.png',
   './js/main.js',
   './js/config.js',
   './js/util.js',
@@ -45,11 +39,18 @@ const ASSETS = [
   './icons/icon-512.png',
 ];
 
+// 哪些请求算"外壳"：html / css / js / 字体 / 站点清单 / 根路径
+function isShell(url) {
+  const p = url.pathname;
+  if (p.endsWith('/hold-the-bridge/') || p.endsWith('/')) return true;
+  return /\.(?:html|css|js|mjs|woff2?|webmanifest)$/i.test(p);
+}
+
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches
       .open(CACHE)
-      .then((c) => c.addAll(ASSETS))
+      .then((c) => c.addAll(SHELL))
       .then(() => self.skipWaiting())
       .catch(() => self.skipWaiting())
   );
@@ -75,21 +76,31 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   if (url.origin !== location.origin) return;
+  // 图片 / 音频这类大资源不拦：让浏览器自己的 HTTP 缓存去管，少一层转发就少一次卡顿
+  if (!isShell(url)) return;
 
   e.respondWith(
-    fetch(req)
-      .then((res) => {
-        // 只回填同源的正常响应；opaque 响应（跨域）不缓存，免得把错误页存进去
-        if (res && res.status === 200 && res.type === 'basic') {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-        }
-        return res;
-      })
-      .catch(() =>
-        // 断网兜底：缓存里没有就一律回游戏本体
-        // （原先还判过一个独立的说明页，用户 m02534 说整合进游戏里了，那个文件已经删掉）
-        caches.match(req).then((hit) => hit || caches.match('./index.html'))
-      )
+    caches.match(req).then((hit) => {
+      // 后台顺手更新（stale-while-revalidate）：这一帧先用缓存，下一轮就是新的
+      const fresh = fetch(req)
+        .then((res) => {
+          if (res && res.status === 200 && res.type === 'basic') {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          }
+          return res;
+        })
+        .catch(() => null);
+      if (hit) {
+        e.waitUntil(fresh.catch(() => {}));
+        return hit;
+      }
+      return fresh.then(
+        (res) =>
+          res ||
+          // 断网 + 没缓存：兜底回游戏本体（用户 m02534 把独立说明页整合进游戏里了）
+          caches.match('./index.html')
+      );
+    })
   );
 });
