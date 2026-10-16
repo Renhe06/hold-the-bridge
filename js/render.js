@@ -2371,8 +2371,13 @@ export class Renderer {
 
     // 第四关（穿越异世界）主角按选中的角色切换（用户 m04749）：
     // 勇者挥剑（剑气）或花仙子挥魔法棒（魔法粒子）。game.heroId 由主界面「角色」写入。
+    // 【用户 m06010】原来的手绘太简略 —— 现在直接用用户给的全身立绘贴图（hero-knight /
+    // hero-fairy），贴图没加载好时退回手绘版兜底。
     if (CFG.level.skin === 'fantasy') {
-      if (game.heroId === 'fairy') this._heroFairy(ctx, H, sw, pl);
+      const id = game.heroId === 'fairy' ? 'fairy' : 'knight';
+      const art = this._heroArt(id);
+      if (art) this._heroSprite(ctx, H, pl, art, id);
+      else if (id === 'fairy') this._heroFairy(ctx, H, sw, pl);
       else this._heroKnight(ctx, H, sw, pl);
       ctx.restore();
       this._heroShieldAndFlash(ctx, game, p, feet, H);
@@ -2592,9 +2597,142 @@ export class Renderer {
    * 所以吃到"寒冰弹道"时，玩家能直接看见某一个头变蓝了，一眼知道哪条线变了。
    */
   /**
+   * 第四关主角的立绘贴图（用户 m06010：角色模型要精致精美，用给的全身图）。
+   * 懒加载 + 记忆化：第一帧就开始加载，加载好之前先用手绘版顶着。
+   */
+  _heroArt(id) {
+    if (typeof Image === 'undefined') return null; // 冒烟测试的 document 桩里没有 Image
+    this._arts = this._arts || {};
+    let rec = this._arts[id];
+    if (!rec) {
+      rec = this._arts[id] = { img: null, ok: false };
+      const im = new Image();
+      im.decoding = 'async';
+      im.onload = () => { rec.ok = (im.naturalWidth || 0) > 0; };
+      im.src = `./img/hero-${id}.png`;
+      rec.img = im;
+    }
+    return rec.ok ? rec.img : null;
+  }
+
+  /**
+   * 立绘贴图版主角。贴图是「正面站立」的全身图，让它活起来的办法：
+   * 呼吸缩放 + 走动侧倾 + 开火前倾 + 脚下暖光 + 挥击时一层加色辉光；
+   * 花仙子额外撒几颗漂浮的魔法火花（用户 m04749：偏少女风格特效）。
+   *
+   * 锚点说明：贴图裁出来的矩形包含剑尖/裙摆，人物真正踩地的那条线在高度
+   * 的 95.5% 处（量过：勇者 0.961、花仙子 0.941），所以底边要往下压一点点。
+   */
+  _heroSprite(ctx, H, pl, art, id) {
+    const ANCHOR = 0.955;
+    const swing = Math.min(1, pl.muzzle * 3.4);
+    const step = pl.moving ? Math.sin(pl.anim) : 0;
+    const breathe = 1 + Math.sin(this.time * 3.1) * 0.008;
+    // 烘图用"呼吸后"的基准高度（不含挥击放大），挥击的 5% 放大放到逐帧 blit 里做，
+    // 否则每次开火都会因为尺寸档位变化重烘一次。
+    const hBase = H * 1.12 * breathe;
+    const h = hBase * (1 + swing * 0.05);
+    const w = h * (art.width / art.height);
+    const lean = step * 0.05 * pl.moving + swing * -0.07;
+
+    // 脚下一圈暖光：把"照片感"的立绘压进这个手绘夜景里
+    const g = ctx.createRadialGradient(0, -H * 0.05, 0, 0, -H * 0.05, H * 0.52);
+    g.addColorStop(0, 'rgba(255, 228, 176, 0.26)');
+    g.addColorStop(1, 'rgba(255, 228, 176, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(0, -H * 0.05, H * 0.44, H * 0.5, 0, 0, TAU);
+    ctx.fill();
+
+    // 花仙子：身边飘几颗星星（不用状态，纯按时间算，停帧也稳）
+    if (id === 'fairy') {
+      for (let i = 0; i < 5; i++) {
+        const t = this.time * 0.55 + i * 1.9;
+        const sx = Math.sin(t) * H * 0.36;
+        const sy = -H * (0.14 + ((t * 0.27 + i * 0.31) % 1) * 0.86);
+        const r = H * (0.016 + 0.012 * (0.5 + 0.5 * Math.sin(t * 2.3)));
+        const a = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(t * 1.7));
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = a;
+        ctx.fillStyle = i % 2 ? '#ffd0f0' : '#fff6ff';
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, TAU);
+        ctx.fill();
+        ctx.globalAlpha = a * 0.5;
+        ctx.fillStyle = '#ff9ad8';
+        ctx.beginPath();
+        ctx.arc(sx, sy, r * 2.1, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    ctx.save();
+    ctx.rotate(lean);
+    // 开火瞬间补一层暖辉（比逐帧重采样两张全身图便宜得多）
+    if (swing > 0.02) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      this._drawGlow(0, -h * 0.56, h * 0.4, id === 'fairy' ? '#ff9ad8' : '#7fd4ff', 0.26 * swing);
+      ctx.restore();
+    }
+    // 逐帧把 427×640 的立绘重采样到屏幕尺寸太贵（CPU 光栅化下实测 +18ms/帧），
+    // 所以按尺寸烘一张缓存图（含边缘光），正常帧只做一次小尺寸 blit。
+    const baked = this._heroBake(id, art, hBase);
+    if (baked) {
+      const k = h / baked.base;
+      ctx.drawImage(baked.cv, -baked.w * k / 2, -h * ANCHOR - baked.pad * k, baked.w * k, baked.h * k);
+    } else {
+      ctx.drawImage(art, -w / 2, -h * ANCHOR, w, h);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * 把立绘烘成"屏幕尺寸 + 边缘光"的缓存画布。
+   * 高度按 4px 量化、且**同一张画布复用**（每帧 new 一个 canvas 会被重烘拖死）；
+   * 只有尺寸档位变化（或换角色）时才重烘一次。
+   */
+  _heroBake(id, art, h) {
+    const key = `${id}|${Math.round(h / 4)}`;
+    if (this._heroBaked && this._heroBaked.key === key) return this._heroBaked;
+    if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
+    const hh = Math.max(2, Math.round(h));
+    const ww = Math.max(2, Math.round(hh * (art.width / art.height)));
+    const pad = Math.max(2, Math.ceil(hh * 0.045));
+    let rec = this._heroBaked;
+    if (!rec || !rec.cv) {
+      const cv = document.createElement('canvas');
+      rec = this._heroBaked = { key: '', cv, w: 0, h: 0, pad: 0, base: 0 };
+    }
+    rec.cv.width = ww + pad * 2;
+    rec.cv.height = hh + pad * 2;
+    const gg = typeof rec.cv.getContext === 'function' ? rec.cv.getContext('2d') : null;
+    if (!gg) return null;
+    if ('imageSmoothingQuality' in gg) gg.imageSmoothingQuality = 'high';
+    // 先垫一圈微微放大的加色副本 → 边缘光（夜景里立绘不至于像贴纸）
+    gg.globalCompositeOperation = 'lighter';
+    gg.globalAlpha = 0.16;
+    const rw = Math.round(ww * 1.04);
+    const rh = Math.round(hh * 1.04);
+    gg.drawImage(art, pad + (ww - rw) / 2, pad + (hh - rh) / 2, rw, rh);
+    gg.globalCompositeOperation = 'source-over';
+    gg.globalAlpha = 1;
+    gg.drawImage(art, pad, pad, ww, hh);
+    rec.key = key;
+    rec.w = ww + pad * 2;
+    rec.h = hh + pad * 2;
+    rec.pad = pad;
+    rec.base = hh;
+    return rec;
+  }
+
+  /**
    * 第四关主角之一：勇者（用户 m04749：默认勇者挥剑，攻击是剑气冲击波）。
    * 背影视角：看到的是披风、头盔和右手的剑；开枪（pl.muzzle）时剑往前挥，
    * 剑刃后面拖一道月牙形的剑气 —— 子弹本身也由 _drawBullet 画成月牙。
+   * （立绘贴图加载好之后走 _heroSprite，这个手绘版是兜底。）
    */
   _heroKnight(ctx, H, sw, pl) {
     const OL = '#232c3a';

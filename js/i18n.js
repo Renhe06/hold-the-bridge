@@ -331,10 +331,10 @@ const EN = {
   勇者: 'Hero',
   '勇 者': 'Hero',
   '出 发 · 清 剿 ！': 'MARCH OUT · CLEAR THEM!',
-  '勇者大人！天刚亮哥布林就冲进村子了 —— 牲口被赶走，麦田也点了火。':
-    'Sir Hero! Goblins rushed the village at dawn — the livestock are gone and the wheat fields are burning.',
-  '先把大伙撤进教堂。剩下的交给我，剑还没生锈。':
-    'Get everyone into the chapel first. Leave the rest to me — this sword is not rusty yet.',
+  '哥布林天刚亮就冲进村子了 —— 牲口全被赶走，麦田也点了火。':
+    'Goblins hit the village at dawn — the livestock are gone and the wheat fields are burning.',
+  '先把大伙撤进教堂。剩下的交给我，一步都不退。':
+    'Get everyone into the chapel first. Leave the rest to me — I am not backing down.',
   '往东就是它们的巢穴……听说那头恶龙也醒了，会喷火，还会召哥布林。':
     'Their lair is east of here… they say the dragon is awake too. It breathes fire, and it calls goblins.',
   '疯 狂 水 世 界 · 启动 ！': 'MAD WATER WORLD · GO!',

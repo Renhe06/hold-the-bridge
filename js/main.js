@@ -319,13 +319,16 @@ const TALKS = {
     ],
   },
   // 【用户 m04749】第四关「穿越异世界」的开场：哥布林袭击村庄 → 勇者前去清剿。
-  // 说话人两张新立绘（村长 elder / 勇者 knight），见 img/portrait-*.png。
+  // 【用户 m06012】说话人不再用"村长"这张手绘头像（和用户给的立绘放一起太丑），
+  // 改成 p: 'self'（玩家当前选的角色）/ p: 'ally'（另一个伙伴）——
+  // 立绘直接用用户给的全身图裁出来的头肩像，谁上场头像就是谁。台词写成中性的，
+  // 换成花仙子当主角时也不会出戏。
   fantasy: {
     start: '出 发 · 清 剿 ！',
     lines: [
-      { p: 'elder', who: '村 长', text: '勇者大人！天刚亮哥布林就冲进村子了 —— 牲口被赶走，麦田也点了火。' },
-      { p: 'knight', who: '勇 者', text: '先把大伙撤进教堂。剩下的交给我，剑还没生锈。' },
-      { p: 'elder', who: '村 长', text: '往东就是它们的巢穴……听说那头恶龙也醒了，会喷火，还会召哥布林。' },
+      { p: 'ally', who: 'ally', text: '哥布林天刚亮就冲进村子了 —— 牲口全被赶走，麦田也点了火。' },
+      { p: 'self', who: 'self', text: '先把大伙撤进教堂。剩下的交给我，一步都不退。' },
+      { p: 'ally', who: 'ally', text: '往东就是它们的巢穴……听说那头恶龙也醒了，会喷火，还会召哥布林。' },
     ],
   },
 };
@@ -341,9 +344,12 @@ let portraitKey = ''; // 当前 <img> 里是哪张立绘（避免重复写 src �
 // 名单从 TALKS 里自动收集（以后加说话人不用记得改这里）。
 // ---------------------------------------------------------
 const PORTRAIT_KEYS = (() => {
-  const set = new Set(['hero']);
+  const set = new Set(['hero', 'knight', 'fairy']); // 第四关两个角色（用户给的立绘）
   for (const t of Object.values(TALKS)) {
-    for (const l of t.lines || []) set.add(l.p || 'hero');
+    for (const l of t.lines || []) {
+      if (l.p === 'self' || l.p === 'ally') continue; // 运行时才决定是谁，两张都预热了
+      set.add(l.p || 'hero');
+    }
   }
   return [...set];
 })();
@@ -368,19 +374,27 @@ else setTimeout(warmPortraits, 600);
 function renderTalk() {
   const lines = talkSet.lines;
   const line = lines[Math.min(talkIdx, lines.length - 1)];
-  setText(el.talkName, 'tkN', line.who);
+  // 【用户 m06012】说话人可以是 'self'（玩家当前选的角色）或 'ally'（另一个伙伴），
+  // 这样第四关的对话头像就是用户给的立绘，谁上场就是谁。
+  const heroId = (game.heroId === 'fairy') ? 'fairy' : 'knight';
+  const otherId = heroId === 'fairy' ? 'knight' : 'fairy';
+  const heroName = (HEROES.find((h) => h.id === heroId) || HEROES[0]).name;
+  const otherName = (HEROES.find((h) => h.id === otherId) || HEROES[0]).name;
+  const who = (p) => (p === 'self' ? heroName : p === 'ally' ? otherName : p);
+  const portrait = (p) => (p === 'self' ? heroId : p === 'ally' ? otherId : (p || 'hero'));
+  setText(el.talkName, 'tkN', who(line.who));
   setText(el.talkText, 'tkT', line.text);
   setText(el.talkStamp, 'tkS', `${String(Math.min(talkIdx + 1, lines.length)).padStart(2, '0')} / 0${lines.length}`);
   setText(el.talkStart, 'tkStart', talkSet.start);
   // 【用户 m02399】头像跟着说话人换（每个说话人一张立绘）
   // 【用户 m04749】说话人没变就别再写 src：重复赋值会让浏览器重新解码一遍
   if (el.talkPortrait) {
-    const p = line.p || 'hero';
+    const p = portrait(line.p);
     if (portraitKey !== p) {
       portraitKey = p;
       el.talkPortrait.src = portraitSrc(p);
     }
-    el.talkPortrait.alt = line.who;
+    el.talkPortrait.alt = who(line.who);
   }
   const done = talkIdx >= lines.length;
   el.talkMore.classList.toggle('hidden', done);
@@ -553,6 +567,10 @@ function openHeroes() {
     if (!node) continue;
     node.classList.toggle('sel', game.heroId === h.id);
     node.classList.toggle('done', game.heroId === h.id);
+    // 【用户 m06012】全身立绘用 data-src 挂着，打开面板时才真正去取 ——
+    // 不然每个进首页的玩家都要先拖 800KB 立绘，没进第四关的人白付这笔带宽。
+    const img = node.querySelector && node.querySelector('img[data-src]');
+    if (img && !img.getAttribute('src')) img.setAttribute('src', img.getAttribute('data-src'));
   }
   setText(el.heroHint, 'heroHint', CFG.level && CFG.level.skin === 'fantasy'
     ? '当前就在第 4 关 · 换完立刻生效'

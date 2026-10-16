@@ -1944,11 +1944,14 @@ try {
     game.player.shield = 0;
   };
 
-  // (a) 开场对话：哥布林袭击村子 → 勇者出发（村长 / 勇者两张新立绘）
+  // (a) 开场对话：哥布林袭击村子 → 主角出发
+  // 【用户 m06012】说话人改成 self（玩家选的角色）/ ally（另一个伙伴），
+  // 头像用用户给的立绘裁出来的头肩像 —— 默认主角是勇者，所以第一句是花仙子。
   game.beginLevel(3);
   step();
   ok(game.state === STATE.TALK, '第四关进来先停在对话（state=talk）');
-  ok(String(ELS.get('talkPortrait').src).includes('portrait-elder'), '第一句是村长的立绘');
+  ok(String(ELS.get('talkPortrait').src).includes('portrait-fairy'), '第一句是伙伴（花仙子）的立绘');
+  ok(String(ELS.get('talkName').textContent).includes('花仙子'), `说话人写着花仙子：${ELS.get('talkName').textContent}`);
   ok(String(ELS.get('talkText').textContent).includes('哥布林'), `第一句就在说哥布林偷袭：${ELS.get('talkText').textContent}`);
   const tap4 = () => {
     tap('talkOverlay');
@@ -1961,11 +1964,29 @@ try {
     tap4();
   }
   if (String(ELS.get('talkPortrait').src).includes('portrait-knight')) sawKnight = true;
-  ok(sawKnight, '中间那句换成了勇者的立绘（说话人跟着换）');
+  ok(sawKnight, '中间那句换成了主角（勇者）的立绘（说话人跟着换）');
   ok(String(ELS.get('talkStart').textContent).includes('出 发'), `按钮文案是「出 发 · 清 剿 ！」：${ELS.get('talkStart').textContent}`);
   tap('talkStart');
   step();
   ok(game.state === STATE.PREP, '点完对话进备战');
+
+  // (a2) 【用户 m06012】主角换成花仙子之后，self / ally 要跟着对调
+  {
+    const keepHero = game.heroId;
+    game.heroId = 'fairy';
+    game.beginLevel(3);
+    step();
+    ok(String(ELS.get('talkPortrait').src).includes('portrait-knight') && String(ELS.get('talkName').textContent).includes('勇者'),
+      `主角是花仙子时，伙伴那句用勇者的立绘/名字（${ELS.get('talkName').textContent}）`);
+    tap4();
+    ok(String(ELS.get('talkPortrait').src).includes('portrait-fairy') && String(ELS.get('talkName').textContent).includes('花仙子'),
+      `轮到主角自己说话时用花仙子的立绘（${ELS.get('talkName').textContent}）`);
+    game.heroId = keepHero;
+    game.beginLevel(3);
+    step();
+    game.releaseTalk();
+    step();
+  }
 
   // (b) 主题与皮肤：异世界（夜 + 星 + 村子远景 + 古堡），七种怪换成哥布林/郊狼/兽人/鹰身女妖/史莱姆/持盾哥布林/恶龙
   ok(C4.level.skin === 'fantasy' && C4.level.id === 4, `切到第 4 关（${C4.level.name}）`);
@@ -2087,17 +2108,24 @@ try {
   ok(game.tier.name === '制式弹', `回到第一关还是原来的称号（${game.tier.name}）`);
   setLv4(3);
 
-  // (g) 角色面板的立绘（用户 m04749：花仙子免费解锁、建模要精致漂亮）
+  // (g) 角色面板的立项：全身立绘（用户 m06012：展示整体形象、按图重新建模）
   {
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+    ok(html.includes('class="hero-art"') && !html.includes('class="hero-pic"'),
+      '角色卡片改成展示全身立绘（.hero-art），不再是圆形头像');
     for (const who of ['knight', 'fairy']) {
-      ok(html.includes(`img/portrait-${who}.png`), `角色面板里放了 ${who} 的立绘`);
-      ok(sw.includes(`./img/portrait-${who}.png`), `${who} 的立绘进了离线缓存清单`);
+      ok(html.includes(`data-src="./img/hero-${who}.png"`), `角色面板里挂了 ${who} 的全身图`);
+      ok(sw.includes(`./img/hero-${who}.png`), `${who} 的全身图进了离线缓存清单`);
       let size = 0;
-      try { size = fs.statSync(path.join(ROOT, 'img', `portrait-${who}.png`)).size; } catch (_) { size = 0; }
-      ok(size > 8000, `${who} 的立绘文件存在且有内容（${size} 字节）`);
+      let portrait = 0;
+      try { size = fs.statSync(path.join(ROOT, 'img', `hero-${who}.png`)).size; } catch (_) { size = 0; }
+      try { portrait = fs.statSync(path.join(ROOT, 'img', `portrait-${who}.png`)).size; } catch (_) { portrait = 0; }
+      ok(size > 20000, `${who} 的全身图存在且有内容（${size} 字节）`);
+      ok(portrait > 20000, `${who} 的对话立绘也是同一套图裁的（${portrait} 字节）`);
     }
+    ok(!html.includes('img/portrait-elder.png') && !sw.includes('./img/portrait-elder.png'),
+      '手绘的村长头像已经退役（不再引用）');
     ok(html.includes('class="lv hero"'), '角色卡片复用了关卡卡片的样式');
   }
 

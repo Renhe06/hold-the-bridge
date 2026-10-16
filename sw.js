@@ -8,7 +8,7 @@
 //  断网时又还能打开，离线能力一点没少。
 // ============================================================
 
-const CACHE = 'hold-the-bridge-v1.0.29';
+const CACHE = 'hold-the-bridge-v1.0.30';
 
 const ASSETS = [
   './',
@@ -24,10 +24,12 @@ const ASSETS = [
   './img/portrait-uncle.png',
   './img/portrait-cmd.png',
   './img/portrait-dave.png',
-  // 第四关「穿越异世界」的说话人（用户 m04749）：勇者 / 花仙子 / 村长
+  // 第四关「穿越异世界」的角色（用户 m06012）：对话立绘 + 局内贴图用的是同一份原图，
+  // 立绘是从全身图裁出来的头肩像，所以两者风格一定一致。
   './img/portrait-knight.png',
   './img/portrait-fairy.png',
-  './img/portrait-elder.png',
+  './img/hero-knight.png',
+  './img/hero-fairy.png',
   './js/main.js',
   './js/config.js',
   './js/util.js',
