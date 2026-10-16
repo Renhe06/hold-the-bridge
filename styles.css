@@ -1490,8 +1490,20 @@ html, body {
 .lv.locked:active { transform: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 3px 0 rgba(0, 0, 0, 0.45); }
 
 /* 角色面板（用户 m04749）：两张卡（勇者 / 花仙子），选中的那张打亮 + 右上角一个 ✓ */
-.lv.hero { padding: 13px 12px; }
+.lv.hero { padding: 13px 12px; align-items: center; text-align: center; gap: 4px; }
 .lv.hero b { font-size: 17px; letter-spacing: 3px; }
+/* 立绘：和对话头像是同一套图（portrait-knight / portrait-fairy），圆形带一圈描边 */
+.lv.hero .hero-pic {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-bottom: 2px;
+  border: 1px solid rgba(150, 225, 255, 0.45);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+  background: #0b1220;
+}
+.lv.hero.sel .hero-pic { border-color: rgba(255, 214, 130, 0.8); box-shadow: 0 0 16px rgba(255, 200, 110, 0.35); }
 .lv.hero.sel {
   border-color: rgba(255, 214, 130, 0.75);
   background:

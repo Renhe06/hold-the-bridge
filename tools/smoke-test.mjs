@@ -2087,6 +2087,20 @@ try {
   ok(game.tier.name === '制式弹', `回到第一关还是原来的称号（${game.tier.name}）`);
   setLv4(3);
 
+  // (g) 角色面板的立绘（用户 m04749：花仙子免费解锁、建模要精致漂亮）
+  {
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+    for (const who of ['knight', 'fairy']) {
+      ok(html.includes(`img/portrait-${who}.png`), `角色面板里放了 ${who} 的立绘`);
+      ok(sw.includes(`./img/portrait-${who}.png`), `${who} 的立绘进了离线缓存清单`);
+      let size = 0;
+      try { size = fs.statSync(path.join(ROOT, 'img', `portrait-${who}.png`)).size; } catch (_) { size = 0; }
+      ok(size > 8000, `${who} 的立绘文件存在且有内容（${size} 字节）`);
+    }
+    ok(html.includes('class="lv hero"'), '角色卡片复用了关卡卡片的样式');
+  }
+
   // 收尾：回到第一关的开局状态，别影响后面的段
   setLv4(0);
   game.newRun(0);
