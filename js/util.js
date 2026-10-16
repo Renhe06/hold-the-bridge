@@ -59,16 +59,20 @@ export function mulberry32(seed) {
 // ---------------------------------------------------------
 
 const RGB_CACHE = new Map();
-/** #rrggbb -> {r,g,b}（带缓存，返回的对象不要再改） */
+const RE_RGB_STR = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i;
+/** #rrggbb / rgb() / rgba() -> {r,g,b}（带缓存，返回的对象不要再改） */
 export function hexToRgb(hex) {
   let c = RGB_CACHE.get(hex);
   if (c !== undefined) return c;
-  const h = hex.replace('#', '');
-  c = {
-    r: parseInt(h.slice(0, 2), 16),
-    g: parseInt(h.slice(2, 4), 16),
-    b: parseInt(h.slice(4, 6), 16),
-  };
+  const h = String(hex).replace('#', '');
+  const m = RE_RGB_STR.exec(h);
+  c = m
+    ? { r: +m[1], g: +m[2], b: +m[3] }
+    : {
+        r: parseInt(h.slice(0, 2), 16),
+        g: parseInt(h.slice(2, 4), 16),
+        b: parseInt(h.slice(4, 6), 16),
+      };
   if (RGB_CACHE.size > 1024) RGB_CACHE.clear();
   RGB_CACHE.set(hex, c);
   return c;
