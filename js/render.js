@@ -11,6 +11,8 @@
 import { CFG, WEAPON_TIERS, isHordeWave, isBossWave, pvzPlant } from './config.js';
 import { STATE } from './game.js';
 import { clamp, mulberry32, mix, rgba } from './util.js';
+import { QUALITY } from './quality.js';
+import { I18N } from './i18n.js';
 
 const TAU = Math.PI * 2;
 // 画布里的字全用得意黑（子集化的 woff2 在 styles.css 里 @font-face 声明）。
@@ -29,8 +31,10 @@ export const TAG_COLOR = {
   生存: '#6ea8ff',
 };
 
-function roundRect(ctx, x, y, w, h, r) {
-  const rr = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+/** 实体深度排序（提到模块级：原来每帧新建一个比较函数闭包） */
+const BY_Z_DESC = (a, b) => b.z - a.z;
+
+function roundRect(ctx, x, y, w, h, r) {  const rr = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
   ctx.beginPath();
   ctx.moveTo(x + rr, y);
   ctx.lineTo(x + w - rr, y);
@@ -48,11 +52,16 @@ export class Renderer {
   constructor(canvas, camera, game) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
+    // 中英双语（用户 m02901）：画布上所有文字都走 fillText/strokeText，
+    // 在这一层装一次查表就够，渲染代码里不用逐句包 t()
+    I18N.installCanvas(this.ctx);
     this.cam = camera;
     this.game = game;
     this.dpr = 1;
     this.glowCache = new Map();
     this._list = [];
+    this._pool = [];   // 实体排序用的复用对象池（见 _drawEntities）
+    this._active = [];
     this.time = 0;
   }
 
@@ -780,7 +789,9 @@ export class Renderer {
       return s / 4294967296;
     };
     const out = [];
-    for (let i = 0; i < 46; i++) {
+    // 【用户 m02901】痕迹数量跟画质档走（低档只留四分之一）
+    const total = Math.max(6, Math.round(46 * QUALITY.prop.marks));
+    for (let i = 0; i < total; i++) {
       const roll = r();
       const kind = roll < 0.28 ? 'crack' : roll < 0.55 ? 'patch' : 'stain';
       out.push({
@@ -798,27 +809,43 @@ export class Renderer {
 
   /** 淡淡的空气感，压在地平线附近 */
   _drawHaze(ctx, w) {
+    if (!QUALITY.prop.haze) return;
     const T = CFG.theme;
     const horizon = this.cam.horizonY;
     const bottom = horizon + this.h * 0.30;
-    const g = ctx.createLinearGradient(0, horizon - 4, 0, bottom);
-    g.addColorStop(0, T.haze[0]);
-    g.addColorStop(0.45, T.haze[1]);
-    g.addColorStop(1, T.haze[2]);
+    // 【用户 m02901】渐变按 (h, horizon) 缓存 —— 这两个值只在 resize 时变，
+    // 原来每帧新建一次 createLinearGradient 是白花的
+    const key = `${Math.round(horizon)}|${Math.round(this.h)}`;
+    let g = this._hazeGrad;
+    if (!g || this._hazeKey !== key) {
+      g = ctx.createLinearGradient(0, horizon - 4, 0, bottom);
+      g.addColorStop(0, T.haze[0]);
+      g.addColorStop(0.45, T.haze[1]);
+      g.addColorStop(1, T.haze[2]);
+      this._hazeGrad = g;
+      this._hazeKey = key;
+    }
     ctx.fillStyle = g;
     ctx.fillRect(0, horizon - 4, w, bottom - horizon + 4);
   }
 
   /** 浓雾：盖在远景丧尸身上，让他们"从雾里走出来"（水世界里这层是水汽） */
   _drawFog(ctx, w) {
+    if (!QUALITY.prop.fog) return;
     const T = CFG.theme;
     const horizon = this.cam.horizonY;
     const bottom = horizon + this.h * CFG.fogTo;
-    const g = ctx.createLinearGradient(0, horizon - 6, 0, bottom);
-    g.addColorStop(0, T.fog[0]);
-    g.addColorStop(0.3, T.fog[1]);
-    g.addColorStop(0.7, T.fog[2]);
-    g.addColorStop(1, T.fog[3]);
+    const key = `${Math.round(horizon)}|${Math.round(this.h)}`;
+    let g = this._fogGrad;
+    if (!g || this._fogKey !== key) {
+      g = ctx.createLinearGradient(0, horizon - 6, 0, bottom);
+      g.addColorStop(0, T.fog[0]);
+      g.addColorStop(0.3, T.fog[1]);
+      g.addColorStop(0.7, T.fog[2]);
+      g.addColorStop(1, T.fog[3]);
+      this._fogGrad = g;
+      this._fogKey = key;
+    }
     ctx.fillStyle = g;
     ctx.fillRect(0, horizon - 6, w, bottom - horizon + 6);
   }
@@ -828,14 +855,26 @@ export class Renderer {
   // ---------------------------------------------------------
 
   _drawEntities(ctx, game) {
-    const list = this._list;
-    list.length = 0;
-    for (const e of game.enemies) if (!e.dead) list.push({ z: e.z, k: 0, o: e });
-    for (const b of game.bullets) if (!b.dead) list.push({ z: b.z, k: 1, o: b });
-    for (const o of game.orbs) list.push({ z: o.z, k: 2, o });
-    if (game.gates) list.push({ z: game.gates.z, k: 3, o: game.gates });
-    for (const s of game.spits) list.push({ z: s.z, k: 4, o: s });
-    list.sort((a, b) => b.z - a.z);
+    // 【用户 m02901 性能】原来每帧为每个实体 new 一个 {z,k,o} 再 sort：
+    // 50 只丧尸 + 子弹 + 粒子就是每秒上万次分配。现在复用池对象，
+    // _active 只存引用（数组本体也复用，只在实体变多时增长一次）。
+    const pool = this._pool;
+    const list = this._active;
+    let n = 0;
+    const add = (z, k, o) => {
+      let it = pool[n];
+      if (it === undefined) { it = { z: 0, k: 0, o: null }; pool[n] = it; }
+      it.z = z; it.k = k; it.o = o;
+      list[n] = it;
+      n++;
+    };
+    for (const e of game.enemies) if (!e.dead) add(e.z, 0, e);
+    for (const b of game.bullets) if (!b.dead) add(b.z, 1, b);
+    for (const o of game.orbs) add(o.z, 2, o);
+    if (game.gates) add(game.gates.z, 3, game.gates);
+    for (const s of game.spits) add(s.z, 4, s);
+    list.length = n;
+    list.sort(BY_Z_DESC);
 
     for (const it of list) {
       if (it.k === 0) this._drawZombie(ctx, it.o);
@@ -1351,6 +1390,10 @@ export class Renderer {
     const v = (0.9 + ((e.id * 37) % 21) / 105) * (0.42 + 0.58 * hatch); // 每只体型略有差异；孵化期更小
     const isWind = e.atk === 'wind';
     const isLunge = e.atk === 'lunge';
+    // 【用户 m02901 性能】三档 LOD：屏幕高 <22px 的（一屏里最多的那批）只画剪影，
+    // 22~44px 走精简人形，≥44px 才是全细节。远处的细节本来就看不见，
+    // 省下的时间全部还给近处那几只 —— 真机掉帧主要就来自"一屏 40 只全都画全套"。
+    const lod = H < 22 ? 0 : H < 44 ? 1 : 2;
 
     ctx.save();
     ctx.globalAlpha = fade;
@@ -1370,7 +1413,7 @@ export class Renderer {
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, H * (0.33 + 0.025 * puls) * v, H * (0.115 + 0.008 * puls), 0, 0, TAU);
       ctx.stroke();
-      this._drawGlow(p.x, p.y - H * 0.52, H * 0.3, '#ffd666', (0.3 + 0.16 * puls) * fade);
+      if (lod > 1) this._drawGlow(p.x, p.y - H * 0.52, H * 0.3, '#ffd666', (0.3 + 0.16 * puls) * fade);
     }
 
     ctx.translate(p.x, p.y);
@@ -1402,17 +1445,18 @@ export class Renderer {
       ctx.scale(1 + 0.3 * ek, 1 + 0.3 * ek);
     }
 
-    this._zombieBody(ctx, H, col, dark, e.phase, e.kind, isWind, e.id || 0);
+    if (lod === 0) this._zombieSimple(ctx, H, col, dark, e.phase, e.kind, isWind);
+    else this._zombieBody(ctx, H, col, dark, e.phase, e.kind, isWind, e.id || 0, lod);
 
     // 第二关：挂上海洋动物的部件（鱼鳍 / 触手 / 蟹钳 / 背鳍 / 河豚刺 / 龟壳 / 水母伞）
     // 第三关：换成植物大战僵尸那几种僵尸的招牌部件（桶 / 电线杆 / 撑杆 / 投石机…）
-    if (e.animal) {
+    if (e.animal && lod > 0) {
       if (CFG.level.skin === 'pvz') this._pvzBits(ctx, H, e, col, dark);
       else this._oceanBits(ctx, H, e, col, dark);
     }
 
     // 背上的鼓包：吐酸者的酸囊
-    if (e.spit) {
+    if (e.spit && lod > 0) {
       const sacY = -0.86 * H;
       this._drawGlow(0, sacY, H * 0.16, '#b6ff5a', 0.5);
       ctx.fillStyle = '#a8e04a';
@@ -1422,13 +1466,22 @@ export class Renderer {
     }
 
     // 铁盾兵：正面一块盾牌，破盾后留裂纹
-    if (e.maxShield > 0 && e.shield > 0) {      const w = H * 0.62;
+    if (e.maxShield > 0 && e.shield > 0 && lod > 0) {
+      const w = H * 0.62;
       const hh = H * 0.62;
       const top = -0.78 * H;
-      const g = ctx.createLinearGradient(-w / 2, top, w / 2, top + hh);
-      g.addColorStop(0, '#c9cdb8');
-      g.addColorStop(0.45, '#7f8471');
-      g.addColorStop(1, '#4c5044');
+      // 【用户 m02901 性能】渐变按 H 取整缓存 —— 原来每个带盾丧尸每帧都新建一次
+      // createLinearGradient（在真机上这是能明显感觉到的开销）
+      const key = Math.round(H / 3);
+      let g = this._shieldGrad;
+      if (!g || this._shieldGradKey !== key) {
+        g = ctx.createLinearGradient(-w / 2, top, w / 2, top + hh);
+        g.addColorStop(0, '#c9cdb8');
+        g.addColorStop(0.45, '#7f8471');
+        g.addColorStop(1, '#4c5044');
+        this._shieldGrad = g;
+        this._shieldGradKey = key;
+      }
       ctx.fillStyle = g;
       roundRect(ctx, -w / 2, top, w, hh, w * 0.16);
       ctx.fill();
@@ -1666,8 +1719,68 @@ export class Renderer {
     ctx.restore();
   }
 
+  /**
+   * 远处的僵尸（屏幕高 < 22px）只画这个：两条腿 + 一块躯干 + 一个头 + 两点眼睛。
+   * 【用户 m02901 性能】一屏 40 只里通常有二十多只属于这一档，它们本来就只有
+   * 十几个像素高，画全套细节是纯浪费 —— 剪影加红眼睛在这点尺寸上已经足够认出"是丧尸"。
+   */
+  _zombieSimple(ctx, H, col, dark, phase, kind, isWind) {
+    const swing = Math.sin(phase) * 0.06 * H;
+    const bob = Math.abs(Math.cos(phase)) * 0.016 * H;
+    const hipY = -0.42 * H;
+    const shY = -0.70 * H;
+    const broad = kind === 'brute' || kind === 'boss';
+    ctx.save();
+    ctx.translate(0, -bob);
+    // 腿
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = (broad ? 0.13 : 0.105) * H;
+    ctx.lineCap = 'round';
+    for (const s of [-1, 1]) {
+      const sw = swing * s;
+      ctx.beginPath();
+      ctx.moveTo(s * 0.03 * H, hipY);
+      ctx.lineTo(s * 0.05 * H + sw, 0);
+      ctx.stroke();
+    }
+    // 躯干（上宽下窄的一块，加圆角肩）
+    const waist = (broad ? 0.36 : 0.3) * H;
+    const shW = (broad ? 0.5 : 0.42) * H;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(-shW * 0.5, shY + 0.02 * H);
+    ctx.quadraticCurveTo(-shW * 0.2, shY - 0.09 * H, shW * 0.2, shY - 0.09 * H);
+    ctx.quadraticCurveTo(shW * 0.5, shY + 0.02 * H, waist * 0.5, hipY + 0.02 * H);
+    ctx.lineTo(-waist * 0.5, hipY + 0.02 * H);
+    ctx.closePath();
+    ctx.fill();
+    // 手臂
+    ctx.strokeStyle = col;
+    ctx.lineWidth = (broad ? 0.12 : 0.095) * H;
+    for (const s of [-1, 1]) {
+      const sw = -swing * s;
+      ctx.beginPath();
+      ctx.moveTo(s * shW * 0.42, shY + 0.02 * H);
+      ctx.lineTo(s * shW * 0.58 + sw, hipY + 0.02 * H);
+      ctx.stroke();
+    }
+    // 头 + 两点红眼
+    const headR = (broad ? 0.2 : 0.175) * H;
+    const headY = shY - 0.12 * H;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.ellipse(0, headY, headR * 0.92, headR, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = kind === 'brute' || kind === 'boss' ? '#ff3a1f' : isWind ? '#fff36b' : '#ff6a3d';
+    ctx.beginPath();
+    ctx.arc(-headR * 0.36, headY - headR * 0.08, Math.max(0.5, headR * 0.3), 0, TAU);
+    ctx.arc(headR * 0.36, headY - headR * 0.08, Math.max(0.5, headR * 0.3), 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
   /** 在"脚底为原点、头在 -H"的局部坐标里画人形剪影 */
-  _zombieBody(ctx, H, col, dark, phase, kind, isWind, seed = 0) {
+  _zombieBody(ctx, H, col, dark, phase, kind, isWind, seed = 0, lod = 2) {
     const swing = Math.sin(phase);
     const bob = Math.abs(Math.cos(phase)) * 0.016 * H; // 迈步时上下颠一点
     const hipY = -0.42 * H;
@@ -1683,7 +1796,12 @@ export class Renderer {
     const o = Math.max(0.5, H * 0.015);
     // 细节开关：屏幕高不到 30px 的丧尸（远处那一大堆）不画牙/头发/手指/血迹，
     // 反正看不清 —— 省下来的时间留给近处那几只。中低端手机上这一条最关键。
-    const detail = H > 30;
+    // 【用户 m02901 性能】现在改成三档 LOD（由 _drawZombie 按屏幕高度传进来）：
+    //   2 = 近处，全细节；1 = 中景，跳过 clip 明暗层 + 描边只走一遍；
+    //   0 = 远景（<22px），走 _zombieSimple 的剪影画法（连这里都不进）。
+    const detail = lod >= 2;
+    // 中远景不画"先描边后填色"的第二遍，也不进 clip 铺明暗 —— 一屏 40 只时这是最大的一笔
+    const fast = lod <= 1;
     // 稳定的伪随机：同一只僵尸每帧的"破洞位置/有没有头发"都一样，不会抖
     const rnd = (n) => {
       const x = Math.sin(seed * 12.9898 + n * 78.233) * 43758.5453;
@@ -1704,8 +1822,8 @@ export class Renderer {
       legs.push({ s, footX, footY, kneeX: footX * 0.5, kneeY: hipY * 0.54 });
     }
     const legW = (broad ? 0.132 : 0.108) * H;
-    for (let pass = 0; pass < 2; pass++) {
-      ctx.strokeStyle = pass ? dark : outline;
+    for (let pass = 0; pass < (fast ? 1 : 2); pass++) {
+      ctx.strokeStyle = fast ? col : pass ? dark : outline;
       ctx.lineWidth = legW + (pass ? 0 : o * 2);
       for (const L of legs) {
         ctx.beginPath();
@@ -1716,10 +1834,11 @@ export class Renderer {
     }
     // 鞋
     for (const L of legs) {
-      ctx.fillStyle = outline;
+      ctx.fillStyle = fast ? dark : outline;
       ctx.beginPath();
-      ctx.ellipse(L.footX, L.footY + 0.012 * H, 0.06 * H + o, 0.03 * H + o * 0.6, 0, 0, TAU);
+      ctx.ellipse(L.footX, L.footY + 0.012 * H, 0.06 * H + (fast ? 0 : o), 0.03 * H + (fast ? 0 : o * 0.6), 0, 0, TAU);
       ctx.fill();
+      if (fast) continue;
       ctx.fillStyle = shade;
       ctx.beginPath();
       ctx.ellipse(L.footX, L.footY + 0.012 * H, 0.06 * H, 0.03 * H, 0, 0, TAU);
@@ -1759,8 +1878,8 @@ export class Renderer {
         handY,
       });
     }
-    for (let pass = 0; pass < 2; pass++) {
-      ctx.strokeStyle = pass ? col : outline;
+    for (let pass = 0; pass < (fast ? 1 : 2); pass++) {
+      ctx.strokeStyle = fast ? col : pass ? col : outline;
       ctx.lineWidth = armW + (pass ? 0 : o * 2);
       for (const A of arms) {
         ctx.beginPath();
@@ -1772,10 +1891,11 @@ export class Renderer {
     // 手 + 几根手指
     for (const A of arms) {
       const hr = 0.037 * H;
-      ctx.fillStyle = outline;
+      ctx.fillStyle = fast ? mix(col, '#ffffff', 0.14) : outline;
       ctx.beginPath();
-      ctx.arc(A.handX, A.handY, hr + o * 0.8, 0, TAU);
+      ctx.arc(A.handX, A.handY, hr + (fast ? 0 : o * 0.8), 0, TAU);
       ctx.fill();
+      if (fast) continue;
       ctx.fillStyle = mix(col, '#ffffff', 0.14);
       ctx.beginPath();
       ctx.arc(A.handX, A.handY, hr, 0, TAU);
@@ -1821,6 +1941,7 @@ export class Renderer {
     ctx.stroke();
     ctx.fillStyle = col;
     ctx.fill();
+    if (!fast) {
     ctx.save();
     torsoPath();
     ctx.clip();
@@ -1862,6 +1983,7 @@ export class Renderer {
     ctx.quadraticCurveTo(-waist * 0.35, hipY - 0.12 * H, -waist * 0.1, hipY - 0.02 * H);
     ctx.stroke();
     ctx.restore();
+    }
     // 破衣服的下摆
     ctx.fillStyle = outline;
     ctx.beginPath();
@@ -1961,7 +2083,8 @@ export class Renderer {
     // 眼睛（唯一的高饱和亮点，小屏上辨识度靠它）
     const eyeR = Math.max(0.6, headR * (kind === 'boss' ? 0.3 : 0.22));
     const eyeCol = kind === 'brute' || kind === 'boss' ? '#ff3a1f' : isWind ? '#fff36b' : '#ff6a3d';
-    for (const s of [-1, 1]) {
+    // 远处那一堆不画眼睛的光晕（每次都是一次贴图采样，40 只就是 80 次）
+    if (detail) for (const s of [-1, 1]) {
       this._drawGlow(s * headR * 0.42, headY - headR * 0.06, eyeR * 3.6, eyeCol, 0.7);
     }
     ctx.fillStyle = eyeCol;
@@ -3262,6 +3385,9 @@ export class Renderer {
    */
   _drawAmbient(ctx, game) {
     const T = CFG.theme;
+    // 【用户 m02901】浮尘按画质档取前 N 颗（低档 0 颗 = 整层不画）
+    const want = Math.round(44 * QUALITY.prop.motes);
+    if (want <= 0) return;
     if (!this._motes) {
       let s = 0x51ed2701;
       const r = () => {
@@ -3283,7 +3409,10 @@ export class Renderer {
       this._motes = m;
     }
     const t = this.time;
-    for (const m of this._motes) {
+    const list = this._motes;
+    const n = Math.min(want, list.length);
+    for (let i = 0; i < n; i++) {
+      const m = list[i];
       const k = (t * m.spd + m.ph) % 1; // 0 → 1 的生命进度，决定飘多高、多淡
       const z = m.z + Math.sin(t * 0.5 + m.ph * 6.28) * 1.2;
       const p = this.cam.project(m.x + Math.sin(t * m.sway + m.ph * 9) * 0.12, z);
@@ -3336,7 +3465,7 @@ export class Renderer {
       const d = e.z - game.player.z;
       if (d < near) near = d;
     }
-    if (near < 3.6 && game.state !== 'over') {
+    if (near < 3.6 && game.state !== 'over' && QUALITY.prop.vignette) {
       if (!this._dangerGrad || this._dangerW !== w || this._dangerH !== h) {
         const dg = ctx.createRadialGradient(w / 2, h * 0.6, h * 0.2, w / 2, h * 0.6, h * 0.72);
         dg.addColorStop(0, 'rgba(255,20,16,0)');
@@ -3568,7 +3697,10 @@ export class Renderer {
       ctx.font = `900 ${fs}px ${FONT}`;
       ctx.lineWidth = 5;
       ctx.strokeStyle = 'rgba(0,0,0,0.66)';
-      const cy2 = safeTop + fs * 0.72;
+      // 备战期 DOM 的「← 走位吃奖励 →」/倒计时就挂在这一带（styles.css 的 .hud-mid，
+      // top: safe-t + 104），连杀数字正压在上面 —— 英文提示更长，两串字糊在一起更明显。
+      // 备战期把连杀数字整体让一行下去，两边都不挡（用户 m03096 反馈过同类压字）。
+      const cy2 = safeTop + fs * 0.72 + (game.prepT > 0 ? Math.round(fs * 1.05) : 0);
       ctx.strokeText(`${game.combo} 连杀`, w / 2, cy2);
       ctx.fillStyle = col;
       ctx.fillText(`${game.combo} 连杀`, w / 2, cy2);

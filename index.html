@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<!-- build: 2026-10-16 14:36:38 -->
+<!-- build: 2026-10-16 20:13:25 -->
 <meta charset="UTF-8" />
 <title>守桥 · 丧尸围城</title>
 
@@ -88,8 +88,10 @@
       <!-- 免费声明 + 可转发的网址：只写文字、不做成链接（用户要求点了不跳转） -->
       <p class="tiny free">本游戏完全免费<br /><span class="url">https://renhe06.github.io/hold-the-bridge/</span></p>
     </div>
+    <!-- 语言开关（用户 m02901）：主界面左下角，中英自由切；文字由 js 按当前语言写，不参与字典 -->
+    <button class="lang-btn" id="langBtn" type="button" data-no-i18n>English</button>
     <!-- 右下角版本号：deploy.ps1 每次部署自动 +1（别手改，改了会被下次部署覆盖） -->
-    <div class="build" id="buildLabel">v1.0.22</div>
+    <div class="build" id="buildLabel">v1.0.23</div>
   </div>
 
   <!-- ============ 使用说明弹窗（第一次自动弹出，之后点首页「使用说明」才显示） ============ -->
@@ -100,7 +102,8 @@
   <div class="overlay guide" id="guideOverlay">
     <div class="panel wide">
       <h2 class="title sm">玩 法 与 使 用 说 明</h2>
-      <div class="guide-body">
+      <!-- 说明正文整段交给 js/i18n.js 的 HTML 表（英文版写在那边，避免被 <b> 切成碎片逐条翻） -->
+      <div class="guide-body" data-i18n="guide">
         <h3>怎么玩</h3>
         <ul class="howto">
           <li><b>单指按住屏幕拖动</b>：左右走位，顺便上下微调位置 —— 站得越靠前，子弹打得越疼，但被扑到的风险也越大</li>

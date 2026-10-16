@@ -781,6 +781,32 @@ html, body {
   user-select: none;
 }
 
+/* 语言开关（用户 m02901）：主界面左下角的小按钮，点了在中英之间切 */
+.lang-btn {
+  position: absolute;
+  left: calc(14px + var(--safe-l, 0px));
+  bottom: calc(12px + var(--safe-b, 0px));
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(10, 16, 26, 0.72);
+  color: rgba(214, 228, 244, 0.82);
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  backdrop-filter: blur(6px);
+  transition: color 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
+}
+
+.lang-btn:active {
+  transform: translateY(1px);
+  color: var(--gold);
+  border-color: rgba(255, 209, 102, 0.5);
+}
+
 /* ============================================================
    局内左下角：返回 / 暂停
    底部右侧是画布上画的「空袭」，顶部左侧是静音，所以这两个放左下角；

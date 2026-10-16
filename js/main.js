@@ -8,6 +8,8 @@ import { Sound } from './audio.js';
 import { Game, STATE } from './game.js';
 import { Renderer, TAG_COLOR } from './render.js';
 import { CFG, isHordeWave, isBossWave, findLevel, levelIndexOf } from './config.js';
+import { QUALITY } from './quality.js';
+import { I18N } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -36,6 +38,7 @@ const el = {
   guideBtn: $('guideBtn'),
   guideClose: $('guideClose'),
   menuHint: $('menuHint'),
+  langBtn: $('langBtn'),
   overOverlay: $('overOverlay'),
   newBest: $('newBest'),
   overScore: $('overScore'),
@@ -89,6 +92,27 @@ const el = {
 };
 
 // ---------------------------------------------------------
+//  中英双语（用户 m02901）
+//  按钮上永远写"另一种语言"：中文界面显示 English，英文界面显示 中文
+// ---------------------------------------------------------
+function syncLangBtn() {
+  if (!el.langBtn) return;
+  el.langBtn.textContent = I18N.isEn() ? '中文' : 'English';
+  el.langBtn.setAttribute('aria-label', I18N.isEn() ? '切换到中文' : 'Switch to English');
+}
+
+if (el.langBtn) {
+  el.langBtn.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    I18N.toggle(); // set() 内部会重扫一遍 DOM
+    syncLangBtn();
+    document.documentElement.setAttribute('data-lang', I18N.isEn() ? 'en' : 'zh');
+  });
+}
+document.documentElement.setAttribute('data-lang', I18N.isEn() ? 'en' : 'zh');
+
+// ---------------------------------------------------------
 //  核心对象
 // ---------------------------------------------------------
 
@@ -115,7 +139,9 @@ function measureTopHud() {
 function fit() {
   const w = Math.max(1, el.app.clientWidth || window.innerWidth);
   const h = Math.max(1, el.app.clientHeight || window.innerHeight);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // 【用户 m02901】DPR 上限跟画质档走：真机上"全屏半透明叠好几层"是填充率大头，
+  // 2 → 1.5 就少画 44% 的像素。档位由 QUALITY 盯着真实帧时间自动调。
+  const dpr = Math.min(window.devicePixelRatio || 1, QUALITY.prop.dpr);
   cam.resize(w, h);
   renderer.resize(w, h, dpr);
   measureTopHud();
@@ -719,6 +745,15 @@ function frame(now) {
   last = now;
   if (dt > 0.1) dt = 0.1; // 切回前台 / 首帧跳变
 
+  // 【用户 m02901】画质自适应：把真实帧时间喂给守门员；档位一变（DPR 变了）就地重新 fit
+  if (QUALITY.auto) {
+    QUALITY.sample(dt * 1000);
+    if (QUALITY.dirty) {
+      QUALITY.dirty = false;
+      fit();
+    }
+  }
+
   // 「返回」等确认的 2.5 秒过了就自己变回「返回」
   // （用 performance.now() 对齐 onTap 里记的时间戳：RAF 的 now 起点跟它不是一个基准）
   if (backAt && performance.now() - backAt > BACK_WINDOW) resetBack();
@@ -822,7 +857,20 @@ const fontReady =
         new Promise((r) => setTimeout(r, 1200)),
       ])
     : Promise.resolve();
-fontReady.then(() => requestAnimationFrame(frame));
+fontReady.then(() => {
+  // 语言：先把已有 DOM 翻一遍，再挂上观察器 —— 之后任何界面文案变化都会自动跟着切
+  I18N.applyDom();
+  I18N.watchDom();
+  syncLangBtn();
+  syncState();
+  // 从这里开始让画质守门员盯真实帧时间（离线渲染工具不会打开这个开关）
+  QUALITY.auto = true;
+  if (QUALITY.dirty) {
+    QUALITY.dirty = false;
+    fit();
+  }
+  requestAnimationFrame(frame);
+});
 
 // 调试/自测钩子：给自动化冒烟测试留一个入口（对玩家无副作用）
 window.__HBT = {

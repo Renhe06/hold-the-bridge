@@ -2194,6 +2194,130 @@ try {
 }
 
 // ---------------------------------------------------------
+// (a9) 画质自适应（用户 m02901：真机"频发卡顿掉帧"）
+// 思路是盯着真实帧时间自己降档，所以这里直接喂假的帧时间，验证它的判断逻辑。
+// ---------------------------------------------------------
+try {
+  const Q = (await import(pathToFileURL(path.join(ROOT, 'js', 'quality.js')).href)).QUALITY;
+  const R = __HBT.renderer;
+
+  Q.reset();
+  Q.auto = false;
+  ok(Q.level === 0 && Q.prop.dpr === 2, `画质默认最高档（dpr ${Q.prop.dpr}）`);
+
+  // auto 关着时怎么喂都不动 —— 离线渲染工具（bench/shot）靠这条保证基准可比
+  for (let i = 0; i < 200; i++) Q.sample(40);
+  ok(Q.level === 0, 'auto 关闭时不管帧多慢都不动（给离线基准留的开关）');
+
+  // 打开 auto：热身期内不动，之后连续慢帧才降
+  Q.auto = true;
+  Q.warmup = 10;
+  for (let i = 0; i < 10; i++) Q.sample(40);
+  ok(Q.level === 0, '热身期（前 10 帧）里再慢也不降档');
+  for (let i = 0; i < 40; i++) Q.sample(30);
+  ok(Q.level === 1 && Q.prop.dpr === 1.5, `连续 40 帧偏慢就降一档（dpr 2 → ${Q.prop.dpr}）`);
+  ok(Q.dirty === true, '降档后标记需要重新 fit（DPR 变了要重建画布）');
+  Q.dirty = false;
+  // 每次切档后都有一小段热身期（避免降档本身造成的卡顿又触发下一次降档），
+  // 所以这里要多喂 60 帧热身 + 40 帧慢帧
+  for (let i = 0; i < 100; i++) Q.sample(30);
+  ok(Q.level === 2 && Q.prop.dpr === 1.25, `再连续 40 帧偏慢降到最低档（dpr ${Q.prop.dpr}）`);
+  for (let i = 0; i < 200; i++) Q.sample(30);
+  ok(Q.level === 2, '已经最低档就不再往下掉（不会把自己关死）');
+
+  // 反过来：长时间流畅才升回去（滞回）
+  Q.warmup = 0;
+  for (let i = 0; i < 200; i++) Q.sample(8);
+  ok(Q.level === 2, '只流畅 200 帧还不升档（避免画质来回跳）');
+  for (let i = 0; i < 300; i++) Q.sample(8);
+  ok(Q.level === 1 && Q.prop.dpr === 1.5, '连续流畅够久才升回一档');
+  for (let i = 0; i < 300; i++) Q.sample(8);
+  ok(Q.level === 0, '一直流畅就升回最高档');
+
+  // 三档真的会改变画的东西
+  const marks0 = R._makeDeckMarks().length;
+  Q.force(2);
+  const marksLow = R._makeDeckMarks().length;
+  ok(marksLow < marks0, `低档桥面痕迹更少（${marks0} → ${marksLow}）`);
+  ok(Q.prop.haze === false && Q.prop.fog === false && Q.prop.vignette === false, '低档关掉雾/水汽/危险红晕三层全屏叠加');
+  Q.force(0);
+  Q.auto = false;
+  Q.dirty = false;
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ 画质自适应测试抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : err}`);
+}
+
+// ---------------------------------------------------------
+// (a10) 中英双语（用户 m02901：主界面加 English 按钮，后续更新也要同步适配）
+//  两件事一起守：
+//   ① 字典覆盖 —— 直接复用守卫 tools/i18n-check.mjs 的判定（同一个函数，两边不可能对不上），
+//      以后加了一句中文忘了补英文，冒烟测试这里就红；
+//   ② 翻译运行时 —— 精确键、正则表、反向（英→中）、canvas 上的 fillText 包装都要真的能用。
+// ---------------------------------------------------------
+try {
+  const { checkI18N } = await import(pathToFileURL(path.join(ROOT, 'tools', 'i18n-check.mjs')).href);
+  const guard = checkI18N();
+  ok(guard.missing.length === 0, `字典覆盖：${guard.counts.size} 条中文全部有英文（缺 ${guard.missing.length} 条）`);
+  ok(guard.missingHtml.length === 0, `整段说明的英文版齐全（缺 ${guard.missingHtml.length} 条）`);
+  ok(guard.composed.size > 0, `拼出来的句子认出来 ${guard.composed.size} 条（走正则表 / L()，不进字典）`);
+
+  const { I18N } = await import(pathToFileURL(path.join(ROOT, 'js', 'i18n.js')).href);
+  ok(!I18N.isEn(), '默认是中文（没存过语言设置时）');
+
+  I18N.set('en');
+  ok(I18N.isEn(), '切到英文');
+  ok(I18N.tr('开 始 挑 战') === 'START', `精确键：开 始 挑 战 → ${I18N.tr('开 始 挑 战')}`);
+  ok(I18N.tr('第 7 / 15 波') === 'Wave 7 / 15', `正则表：第 7 / 15 波 → ${I18N.tr('第 7 / 15 波')}`);
+  ok(
+    I18N.tr('第 3/15 波 精英来袭 · 12') === 'Wave 3/15 · ELITE incoming · 12',
+    `正则表 + 波次标签：→ ${I18N.tr('第 3/15 波 精英来袭 · 12')}`
+  );
+  ok(
+    I18N.tr('第 4 条弹道 · 炎火（一发两颗）') === 'Lane 4 · Fire (two peas)',
+    `正则表：寒冰/炎火弹道 → ${I18N.tr('第 4 条弹道 · 炎火（一发两颗）')}`
+  );
+  ok(I18N.tr('☀ 攻击 +25%') === '☀ ATK +25%', `正则表：阳光加成 → ${I18N.tr('☀ 攻击 +25%')}`);
+  ok(I18N.L('中文句子', 'English sentence') === 'English sentence', '调用点 L() 跟着语言走');
+
+  // 切回中文：精确键查反向表，正则句查"翻译时记下来的对照表"
+  I18N.set('zh');
+  ok(!I18N.isEn(), '切回中文');
+  ok(I18N.tr('START') === '开 始 挑 战', `反向：START → ${I18N.tr('START')}`);
+  ok(I18N.tr('Wave 7 / 15') === '第 7 / 15 波', `反向（正则句）：Wave 7 / 15 → ${I18N.tr('Wave 7 / 15')}`);
+  ok(I18N.tr('没翻过的句子') === '没翻过的句子', '翻不到的原样返回（不会把界面弄丢）');
+
+  // canvas：画布上的字全走 fillText / strokeText，所以这一层包住就全覆盖
+  const fake = {
+    calls: [],
+    fillText(t) {
+      this.calls.push(t);
+    },
+    strokeText(t) {
+      this.calls.push(t);
+    },
+  };
+  I18N.installCanvas(fake);
+  I18N.installCanvas(fake); // 第二次不该再包一层
+  ok(fake.__i18nWrapped === true, 'canvas 包装只装一次（重复 install 不会套娃）');
+  I18N.set('en');
+  fake.fillText('空 袭');
+  fake.strokeText('已 暂 停');
+  ok(
+    fake.calls.join('|') === 'STRIKE|PAUSED',
+    `canvas 上的中文被翻掉：${fake.calls.join('|')}`
+  );
+  I18N.set('zh');
+  fake.calls.length = 0;
+  fake.fillText('STRIKE');
+  ok(fake.calls[0] === '空 袭', `canvas 反向也通：STRIKE → ${fake.calls[0]}`);
+  ok(I18N.lang === 'zh', '测试结束时回到中文（别把状态留给后面的用例）');
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ 双语测试抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : err}`);
+}
+
+// ---------------------------------------------------------
 
 console.log(notes.join('\n'));
 if (botStats) {

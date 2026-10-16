@@ -14,6 +14,7 @@
 
 import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, pvzPlant, heroZRange } from './config.js';
 import { clamp, rand, pickWeighted } from './util.js';
+import { QUALITY } from './quality.js';
 
 export const STATE = {
   START: 'start',
@@ -2296,7 +2297,9 @@ export class Game {
   }
 
   spawnParticles(x, z, n, kind, color) {
-    if (this.particles.length > 420) n = Math.min(n, 3);
+    // 【用户 m02901】粒子池上限跟画质档走（高档 420 / 中 300 / 低 200）：
+    // 粒子是每帧一次 fill 的小图元，一屏几百个在弱机上很吃填充率。
+    if (this.particles.length > QUALITY.prop.particles) n = Math.min(n, 3);
     for (let i = 0; i < n; i++) {
       const a = rand(0, Math.PI * 2);
       const sp = kind === 'blood' ? rand(0.5, 2.0) : rand(0.3, 1.2);
