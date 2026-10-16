@@ -947,11 +947,20 @@ try {
   step(2);
   ok(ELS.get('levelOverlay').classList.contains('show'), '点「关卡」弹出选关面板');
   ok(game.state === st0, `选关面板弹出时不改变游戏状态（state=${game.state}）`);
-  // 第 4~10 关是灰按钮，点了只提示"该关卡未实装"（第 3 关这一版已经实装了）
-  tap('lv4');
+  // 第 5~10 关是灰按钮，点了只提示"该关卡未实装"（第 4 关这一版已经实装了）
+  tap('lv5');
   step(2);
   ok(String(ELS.get('levelHint').textContent).includes('未实装'), `点灰关卡只提示（${ELS.get('levelHint').textContent}）`);
   ok(ELS.get('levelOverlay').classList.contains('show'), '点了未实装的关卡，面板留着不走');
+  // 第 4 关现在是真关卡：点了要进第四关的开场对话
+  tap('lv4');
+  step(2);
+  ok(C.level.id === 4, `选关能选到第 4 关（${C.level.name}）`);
+  ok(game.state === STATE.TALK, `第 4 关进来先停在对话（state=${game.state}）`);
+  game.backToMenu();
+  step(2);
+  tap('menuLevel');
+  step(2);
   // 第 2 关点了直接进场（第二关有关卡对话，所以停在 TALK）
   tap('lv2');
   step(2);
@@ -971,7 +980,7 @@ try {
   game.backToMenu();
   step(2);
 
-  // 第三关（目前最后一关）通关：后面没有下一关，结算面板的主按钮换回「再玩一次」
+  // 第三关通关：后面还有第四关，结算面板的主按钮是「下一关 →」
   game.beginLevel(2);
   game.releaseTalk();
   game.wave = C.level.waves;
@@ -981,10 +990,27 @@ try {
   game.onWaveClear();
   step(2);
   ok(game.state === STATE.CLEAR, `第 3 关清完也走通关结算（state=${game.state}）`);
-  ok(game.lastReward.nextLevel === 0, `第 3 关后面没有下一关（nextLevel=${game.lastReward.nextLevel}）`);
+  ok(game.lastReward.nextLevel === 4, `第 3 关后面接着第 4 关（nextLevel=${game.lastReward.nextLevel}）`);
+  ok(!ELS.get('clearNext').classList.contains('hidden'), '有下一关时「下一关 →」亮着');
+  ok(ELS.get('clearAgain').classList.contains('hidden'), '有下一关时「再玩一次」收起来');
+  ok(game.clearedLevel >= 3, `通关进度记到第 ${game.clearedLevel} 关`);
+  game.backToMenu();
+  step(2);
+
+  // 第四关（这一版最后一关）通关：后面没有下一关，结算面板的主按钮换回「再玩一次」
+  game.beginLevel(3);
+  game.releaseTalk();
+  game.wave = C.level.waves;
+  game.enemies.length = 0;
+  game.spawnQueue.length = 0;
+  game.state = STATE.FIGHT;
+  game.onWaveClear();
+  step(2);
+  ok(game.state === STATE.CLEAR, `第 4 关清完也走通关结算（state=${game.state}）`);
+  ok(game.lastReward.nextLevel === 0, `第 4 关后面没有下一关（nextLevel=${game.lastReward.nextLevel}）`);
   ok(ELS.get('clearNext').classList.contains('hidden'), '没有下一关时「下一关 →」收起来');
   ok(!ELS.get('clearAgain').classList.contains('hidden'), '没有下一关时「再玩一次」亮出来');
-  ok(game.clearedLevel >= 3, `通关进度记到第 ${game.clearedLevel} 关`);
+  ok(game.clearedLevel >= 4, `通关进度记到第 ${game.clearedLevel} 关`);
   game.backToMenu();
   step(2);
 
@@ -1898,7 +1924,182 @@ try {
 }
 
 // ---------------------------------------------------------
-// -- 3e. 用户 m02534：局内「返回 / 暂停」、主界面版本号、通用的使用说明 --
+// -- 3g. 第四关「穿越异世界」（用户 m04749）：哥布林 / 独角兽 / 恶龙 / 角色切换 --
+// ---------------------------------------------------------
+try {
+  const { CFG: C4, HEROES: HEROES4, UPGRADES: UP4, setLevel: setLv4 } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
+  const mk4 = (kind, dz = 4) => {
+    game.spawnEnemy(kind, 0, game.player.z + dz, 1);
+    return game.enemies[game.enemies.length - 1];
+  };
+  const wipe4 = () => {
+    game.enemies.length = 0;
+    game.spawnQueue.length = 0;
+    game.bullets.length = 0;
+    game.unicorns.length = 0;
+    game.spits.length = 0;
+    game.strikeUses = 0;
+    game.player.hp = 50;
+    game.player.iframe = 0;
+    game.player.shield = 0;
+  };
+
+  // (a) 开场对话：哥布林袭击村子 → 勇者出发（村长 / 勇者两张新立绘）
+  game.beginLevel(3);
+  step();
+  ok(game.state === STATE.TALK, '第四关进来先停在对话（state=talk）');
+  ok(String(ELS.get('talkPortrait').src).includes('portrait-elder'), '第一句是村长的立绘');
+  ok(String(ELS.get('talkText').textContent).includes('哥布林'), `第一句就在说哥布林偷袭：${ELS.get('talkText').textContent}`);
+  const tap4 = () => {
+    tap('talkOverlay');
+    for (let i = 0; i < 25; i++) step();
+  };
+  let g4 = 0;
+  let sawKnight = false;
+  while (!ELS.get('talkActions').classList.contains('show') && g4++ < 8) {
+    if (String(ELS.get('talkPortrait').src).includes('portrait-knight')) sawKnight = true;
+    tap4();
+  }
+  if (String(ELS.get('talkPortrait').src).includes('portrait-knight')) sawKnight = true;
+  ok(sawKnight, '中间那句换成了勇者的立绘（说话人跟着换）');
+  ok(String(ELS.get('talkStart').textContent).includes('出 发'), `按钮文案是「出 发 · 清 剿 ！」：${ELS.get('talkStart').textContent}`);
+  tap('talkStart');
+  step();
+  ok(game.state === STATE.PREP, '点完对话进备战');
+
+  // (b) 主题与皮肤：异世界（夜 + 星 + 村子远景 + 古堡），七种怪换成哥布林/郊狼/兽人/鹰身女妖/史莱姆/持盾哥布林/恶龙
+  ok(C4.level.skin === 'fantasy' && C4.level.id === 4, `切到第 4 关（${C4.level.name}）`);
+  ok(C4.theme.skyline === 'village', `远景换成"被袭的村子 + 古堡"（skyline=${C4.theme.skyline}）`);
+  ok(C4.theme.skyDeco === 'stars', '天上是星空，不是第三关那轮白天');
+  game.reset();
+  game.state = STATE.FIGHT;
+  wipe4();
+  const famKinds = [];
+  for (const kind of ['walker', 'runner', 'brute', 'spitter', 'shielded', 'splitter', 'boss']) {
+    const e = mk4(kind, 5 + famKinds.length * 1.2);
+    const skin = C4.kinds[kind].fantasy;
+    if (e.animal === skin.animal && e.color === skin.color) famKinds.push(skin.name);
+  }
+  ok(famKinds.length === 7, `七种怪都换了造型（${famKinds.join(' / ')}）`);
+
+  // (c) 独角兽冲锋：充能更慢、一撞清空一路、一局最多 3 次
+  game.energy = 0;
+  game.energyMul = 1;
+  game.gainEnergy(20);
+  const eFantasy = game.energy;
+  setLv4(0);
+  game.energy = 0;
+  game.energyMul = 1;
+  game.gainEnergy(20);
+  const eCity = game.energy;
+  ok(eFantasy < eCity, `独角兽充能更慢（同样 20 点充能：第 4 关 ${eFantasy} vs 第 1 关 ${eCity}）`);
+  setLv4(3);
+  game.reset();
+  game.state = STATE.FIGHT;
+  wipe4();
+  const group = [mk4('walker', 3), mk4('brute', 6), mk4('runner', 9)];
+  game.energy = C4.charge.max;
+  ok(game.canStrike(), '能量满了就能放大招');
+  game.triggerStrike();
+  ok(game.unicorns.length === 1, `第四关的大招换成独角兽（${game.unicorns.length} 头）`);
+  ok(game.strikeUses === 1, `记一次使用（strikeUses=${game.strikeUses}）`);
+  for (let i = 0; i < 200; i++) step(16);
+  const cleared = group.filter((e) => e.dead).length;
+  ok(cleared === 3, `独角兽一路冲过去把 3 只全清了（${cleared}/3）`);
+  game.strikeUses = C4.level.strikeCap;
+  game.energy = C4.charge.max;
+  ok(!game.canStrike(), `一局最多 ${C4.level.strikeCap} 次：用满就点不动了`);
+
+  // (d) 恶龙 BOSS：喷火 / 挥翅冲击波 / 持续召唤哥布林
+  wipe4();
+  const dragon = mk4('boss', 12);
+  ok(dragon.animal === 'dragon', `第四关的 BOSS 画的是恶龙（animal=${dragon.animal}）`);
+  ok(dragon.title === '恶龙', `血条名字是「${dragon.title}」`);
+  dragon.form = 2;
+  dragon.skillIdx = 0;
+  C4.fantasy.boss2.skills = ['fire', 'wind', 'summon'];
+  game.hazardCd = 0;
+  game.bossSkill2(dragon);
+  const fires = game.spits.filter((s) => s.dragon).length;
+  ok(fires === C4.fantasy.boss2.fireCount, `喷火焰吐息（一口 ${fires} 颗火）`);
+  game.spits.length = 0;
+  game.hazardCd = 0;
+  game.bossSkill2(dragon);
+  const gusts = game.spits.filter((s) => s.wind).length;
+  ok(gusts === C4.fantasy.boss2.windCount, `挥翅膀打出 ${gusts} 道冲击波`);
+  const beforeAdds = game.enemies.length;
+  game.hazardCd = 0;
+  game.bossSkill2(dragon);
+  ok(game.enemies.length > beforeAdds, `持续召唤哥布林（怪 ${beforeAdds} → ${game.enemies.length}）`);
+  ok(game.spits.filter((s) => s.wind).every((s) => s.hot === false), '风压不烫人（是推开不是烧血）');
+
+  // (e) 角色系统：默认勇者、可换花仙子、选择会存进 localStorage，且只在第 4 关生效
+  ok(HEROES4.length === 2 && HEROES4[0].id === 'knight', '两个角色：勇者（默认）+ 花仙子');
+  ok(C4.level.hero === 'knight', '第四关默认角色是勇者');
+  game.heroId = 'fairy';
+  game.newRun(0);
+  ok(game.heroId === 'fairy', '玩家选过的角色不会被关卡默认值顶掉');
+  game.newRun(3);
+  ok(game.heroId === 'fairy', '第四关也认玩家选的花仙子');
+  game.heroId = 'knight';
+  game.newRun(0);
+
+  // (f) 关卡专属奖励与武器称号（用户 m04749："添加更多关卡专属玩法和效果"）
+  setLv4(3);
+  game.reset();
+  game.state = STATE.FIGHT;
+  wipe4();
+  const seen4 = new Set();
+  for (let i = 0; i < 60; i++) {
+    game.openGates();
+    if (game.gates) {
+      seen4.add(game.gates.left.id);
+      seen4.add(game.gates.right.id);
+    }
+  }
+  const l2l3 = [...seen4].filter((id) => {
+    const u = UP4.find((x) => x.id === id);
+    return u && (u.l2 || u.l3);
+  });
+  ok(l2l3.length === 0, `第四关的奖励门里不会混进别的关卡专属（混进来的：${l2l3.join(',') || '无'}）`);
+  const l4Seen = [...seen4].filter((id) => {
+    const u = UP4.find((x) => x.id === id);
+    return u && u.l4;
+  });
+  ok(l4Seen.length >= 3, `抽得到第四关专属奖励（60 次里出现 ${l4Seen.length} 种：${l4Seen.join(' / ')}）`);
+  game.applyUpgrade('bladeWave', null);
+  ok(game.weapon.pierce >= 2, `「剑气纵横」给穿透（pierce=${game.weapon.pierce}）`);
+  game.applyUpgrade('blessing', null);
+  ok(Math.abs(game.atkMul() - 1.15) < 0.001, `「精灵祝福」加攻击（atkMul=${game.atkMul().toFixed(2)}）`);
+  game.applyUpgrade('uniCharge', null);
+  ok(game.strikeCapBonus === 1, `「独角兽加能」多给一次（上限 ${C4.level.strikeCap} + ${game.strikeCapBonus}）`);
+  game.strikeUses = C4.level.strikeCap;
+  game.energy = C4.charge.max;
+  ok(game.canStrike(), '吃满上限之后还能再放一次（多了那一次）');
+  game.strikeUses = C4.level.strikeCap + game.strikeCapBonus;
+  ok(!game.canStrike(), '加出来的次数也用完之后照样点不动');
+  ok(game.tier.name === (game.heroId === 'fairy' ? '花杖' : '白刃'), `第四关的武器称号走剑/法杖那条线（${game.tier.name}）`);
+  game.heroId = 'fairy';
+  ok(game.tier.name === '花杖', `换成花仙子之后称号跟着变（${game.tier.name}）`);
+  game.heroId = 'knight';
+  setLv4(0);
+  game.updateTier();
+  ok(game.tier.name === '制式弹', `回到第一关还是原来的称号（${game.tier.name}）`);
+  setLv4(3);
+
+  // 收尾：回到第一关的开局状态，别影响后面的段
+  setLv4(0);
+  game.newRun(0);
+  game.enemies.length = 0;
+  game.spawnQueue.length = 0;
+  game.unicorns.length = 0;
+  game.spits.length = 0;
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ 第四关（穿越异世界）抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : err}`);
+}
+
+
 // ---------------------------------------------------------
 try {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
@@ -2423,6 +2624,32 @@ try {
 } catch (err) {
   failures++;
   notes.push(`  ✗ 英文版面校准测试抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : err}`);
+}
+
+// (a13) 用户 m04749 那一批小修：第三关改名 / 脑子被吃掉弹窗 / 头像预热 / 音效自愈
+//   这些都不好在无浏览器的环境里"看效果"，但最怕的是后来整理代码时被删掉：
+//   改名漏一处、pvz 类名没切、头像预热没了、自愈簿记被清掉 —— 都会悄悄回归。
+try {
+  const cfg = fs.readFileSync(path.join(ROOT, 'js', 'config.js'), 'utf8');
+  ok(/name:\s*'疯狂戴夫'/.test(cfg) && /hud:\s*'第 3 关 · 疯狂戴夫'/.test(cfg), '第三关已改名「疯狂戴夫」（name + 局内 hud 两处）');
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  ok(html.includes('<span>疯狂戴夫</span>'), '选关面板第 3 关的按钮也是「疯狂戴夫」');
+  ok(/id="overBrain"/.test(html) && /id="overTitle"/.test(html), '失守面板有脑子图标 + 可改标题的 id');
+  const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+  ok(/#overOverlay\.pvz/.test(css) && /\.brain\s*\{\s*display:\s*none/.test(css), '失守面板的 PvZ 皮肤在（默认不显示脑子，pvz 时才亮）');
+  const main = fs.readFileSync(path.join(ROOT, 'js', 'main.js'), 'utf8');
+  ok(/CFG\.level\.skin === 'pvz'/.test(main) && main.includes('你的脑子被僵尸吃掉了'), 'showGameOver() 按 pvz 皮肤切标题');
+  ok(/function warmPortraits\(\)/.test(main) && /PORTRAIT_KEYS/.test(main), '进场对话立绘在启动时预热（名单从 TALKS 自动收）');
+  ok(/if \(portraitKey !== p\)/.test(main), '说话人没变就不重复写头像 src（避免重新解码）');
+  const audio = fs.readFileSync(path.join(ROOT, 'js', 'audio.js'), 'utf8');
+  ok(/this\.diag = \{/.test(audio) && /_watchStuck\(\)/.test(audio) && /_rebuild\(\)/.test(audio), '音效自愈在（diag 簿记 + 卡死重建）');
+  for (const ev of ['pointerdown', 'touchstart', 'touchend', 'click', 'keydown']) {
+    ok(audio.includes(`'${ev}'`), `音效解锁监听收下了 ${ev}（iOS 只认 touchend/click 那类）`);
+  }
+  ok(/audioHintCheck/.test(main) && main.includes('音效没开 · 点一下画面'), '没声音时会给玩家一句「点一下画面」的提示');
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ m04749 小修测试抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : err}`);
 }
 
 // ---------------------------------------------------------

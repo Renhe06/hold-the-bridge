@@ -65,10 +65,16 @@ const EN = {
   '第 1 关 可打': 'Stage 1 open',
   '第 1~2 关 可选': 'Stages 1-2 open',
   '第 1~3 关 可选': 'Stages 1-3 open',
+  '第 1~4 关 可选': 'Stages 1-4 open',
   '第 1 ~ 3 关可以打，第 4 关往后还在做': 'Stages 1-3 are playable, 4 and up are still being built',
+  '第 1 ~ 4 关可以打，第 5 关往后还在做': 'Stages 1-4 are playable, 5 and up are still being built',
   '第 2、3 关已解锁 · 选一关开打': 'Stages 2-3 unlocked · pick one',
   '第 3 关已解锁 · 选一关开打': 'Stage 3 unlocked · pick one',
+  '第 4 关已解锁 · 选一关开打': 'Stage 4 unlocked · pick one',
+  '第 1~4 关都能进 · 选一关开打': 'Stages 1-4 are all open · pick one',
+  '第 2~4 关已解锁 · 选一关开打': 'Stages 2-4 unlocked · pick one',
   '先打第 1 关 · 第 2、3 关也可以直接进': 'Start with stage 1 · 2 and 3 are open too',
+  '先打第 1 关 · 第 2~4 关也可以直接进': 'Start with stage 1 · 2-4 are open too',
   '第一关 · 15 波': 'Stage 1 · 15 waves',
   '第 1 关': 'Stage 1',
   '第 2 关': 'Stage 2',
@@ -82,7 +88,8 @@ const EN = {
   '第 10 关': 'Stage 10',
   '第 1 关 · 血色大桥': 'Stage 1 · Blood Bridge',
   '第 2 关 · 疯狂水世界': 'Stage 2 · Mad Water World',
-  '第 3 关 · 疯狂草坪': 'Stage 3 · Crazy Lawn',
+  '第 4 关 · 穿越异世界': 'Stage 4 · Into Another World',
+  '第 3 关 · 疯狂戴夫': 'Stage 3 · Crazy Dave',
   开始挑战: 'START',
   '开 始 挑 战': 'START',
   使用说明: 'HOW TO PLAY',
@@ -101,6 +108,10 @@ const EN = {
   下一关: 'Next stage',
   '新 纪 录': 'NEW RECORD',
   '桥 头 失 守': 'BRIDGE LOST',
+  // 第三关（疯狂戴夫）失守：PvZ 名场面（用户 m04749）
+  你的脑子被僵尸吃掉了: 'THE ZOMBIES ATE YOUR BRAINS!',
+  // 声音没起来时的提示条（用户 m04749）
+  '音效没开 · 点一下画面': 'Sound is off · tap the screen',
   '第 一 关 · 通 关': 'STAGE 1 · CLEARED',
   通关: 'Cleared',
   '守 住 大 桥 ！': 'HOLD THE BRIDGE!',
@@ -205,7 +216,7 @@ const EN = {
   // ---- 关卡名 / 专属大场面 / 主题 ----
   血色大桥: 'Blood Bridge',
   疯狂水世界: 'Mad Water World',
-  疯狂草坪: 'Crazy Lawn',
+  疯狂戴夫: 'Crazy Dave',
   狂奔潮: 'Stampede',
   '全员狂奔 · 别让它们贴脸': 'All sprinters · do not let them touch you',
   迷雾压桥: 'Choking Fog',
@@ -219,6 +230,69 @@ const EN = {
   '全员铁桶 · 先破盾再打': 'All shielded · break the shield first',
   巨人潮: 'Giant Tide',
   '巨人成群 · 火力拉满': 'Giants in packs · max firepower',
+  // 第四关（用户 m04749）：关卡名 + 两场专属大场面
+  穿越异世界: 'Into Another World',
+  哥布林潮: 'Goblin Tide',
+  '成群哥布林 · 前排顶住': 'Goblins in packs · hold the front line',
+  巨龙咆哮: 'Dragon Roar',
+  '兽人压阵 · 恶龙在天上': 'Orcs press the line · a dragon overhead',
+
+  // 第四关的敌人换皮名（血条 / 图鉴里会用到，用户 m04749）
+  哥布林: 'Goblin',
+  郊狼: 'Coyote',
+  兽人: 'Orc',
+  鹰身女妖: 'Harpy',
+  史莱姆: 'Slime',
+  持盾哥布林: 'Shield Goblin',
+  恶龙: 'Evil Dragon',
+
+  // 第四关的大招与 BOSS 技能（画布飘字）
+  '独角兽就绪 · 点右下角': 'Unicorn ready · tap bottom right',
+  '独 角 兽': 'UNICORN',
+  '冲 ！': 'CHARGE!',
+  '火焰吐息': 'Flame breath',
+  '振翅冲击波': 'Wing shockwave',
+  '召唤哥布林': 'Summon goblins',
+  已用完: 'Used up',
+
+  // 第四关的专属奖励（剑气 / 星尘 / 独角兽 / 精灵祝福，用户 m04749）
+  剑气纵横: 'Blade Storm',
+  '穿透 +2，剑气一刀扫过一整排': 'Pierce +2 · one slash mows a whole row',
+  剑气穿透: 'Blade pierce',
+  星尘散射: 'Stardust Volley',
+  '弹道 +1，魔法粒子多撒一条': 'Lane +1 · one more stream of magic motes',
+  独角兽加能: 'Unicorn Overcharge',
+  '本局独角兽可多用 1 次': 'One extra unicorn charge this run',
+  '1 次': '1 use',
+  独角兽次数: 'Unicorn uses',
+  精灵祝福: 'Faerie Blessing',
+  '子弹伤害 ×1.15': 'Bullet damage ×1.15',
+  攻击力: 'Attack',
+  荆棘皮甲: 'Thorn Hide',
+  疾风皮靴: 'Swift Boots',
+  '移动速度 ×1.2': 'Move speed ×1.2',
+
+  // 第四关的武器称号（勇者一条剑线，花仙子一条法杖线）
+  白刃: 'Blade',
+  精钢剑: 'Steel Sword',
+  符文剑: 'Rune Blade',
+  龙牙圣剑: 'Dragonfang Blade',
+  花杖: 'Flower Wand',
+  银月法杖: 'Silvermoon Wand',
+  星辰法杖: 'Star Wand',
+  星辉圣杖: 'Starlight Wand',
+
+  // 角色面板（用户 m04749）
+  勇者: 'Hero',
+  '勇 者': 'Hero',
+  花仙子: 'Flower Fairy',
+  '挥剑 · 剑气冲击波': 'Sword · blade shockwave',
+  '魔法棒 · 魔法粒子': 'Wand · magic particles',
+  近战: 'Melee',
+  远程: 'Ranged',
+  '只在第 4 关「穿越异世界」生效': 'Stage 4 only · Into Another World',
+  '只在第 4 关「穿越异世界」生效 · 前三关沿用原主角': 'Stage 4 only · stages 1-3 keep the original hero',
+  '当前就在第 4 关 · 换完立刻生效': 'You are on stage 4 · the swap applies right away',
 
   // ---- 介绍对话 ----
   司令: 'Commander',
@@ -251,6 +325,18 @@ const EN = {
   '甭慌 —— 你有豌豆，天上掉的阳光记得捡，攒满了扔樱桃。':
     'Easy there — you have peas, grab the suns falling from the sky, and throw cherries when charged.',
   '好 了 · 开 打 ！': 'GO TIME!',
+  // ---- 第四关「穿越异世界」（用户 m04749）：说话人 + 开场三句 ----
+  村长: 'Elder',
+  '村 长': 'Elder',
+  勇者: 'Hero',
+  '勇 者': 'Hero',
+  '出 发 · 清 剿 ！': 'MARCH OUT · CLEAR THEM!',
+  '勇者大人！天刚亮哥布林就冲进村子了 —— 牲口被赶走，麦田也点了火。':
+    'Sir Hero! Goblins rushed the village at dawn — the livestock are gone and the wheat fields are burning.',
+  '先把大伙撤进教堂。剩下的交给我，剑还没生锈。':
+    'Get everyone into the chapel first. Leave the rest to me — this sword is not rusty yet.',
+  '往东就是它们的巢穴……听说那头恶龙也醒了，会喷火，还会召哥布林。':
+    'Their lair is east of here… they say the dragon is awake too. It breathes fire, and it calls goblins.',
   '疯 狂 水 世 界 · 启动 ！': 'MAD WATER WORLD · GO!',
   '▼ 点一下继续': '▼ TAP TO CONTINUE',
   '点一下继续': 'Tap to continue',

@@ -1139,6 +1139,68 @@ html, body {
 }
 .newbest.show { display: block; animation: pop 0.5s ease both; }
 
+/* ============================================================
+   第三关失守：植物大战僵尸味道（用户 m04749）
+   ------------------------------------------------------------
+   用户原话：「如果通关失败，会有一个弹窗：你的脑子被僵尸吃掉了，
+   视觉效果参考植物大战僵尸」。只在当前关卡皮肤是 pvz 时生效
+   （showGameOver() 给 #overOverlay 加 .pvz），前三关一个字不变：
+   - 底：草坪条纹 + 顶部偏绿的暗角（PvZ 的后院草坪）
+   - 面板：深草绿卡 + 黄绿描边
+   - 标题：黄绿手写体、两行折行，配一颗会轻轻搏动的脑子
+   ============================================================ */
+.brain { display: none; }
+
+#overOverlay.pvz {
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(86, 138, 52, 0.20) 0 34px,
+      rgba(58, 104, 36, 0.20) 34px 68px
+    ),
+    radial-gradient(130% 90% at 50% 0%, rgba(24, 46, 16, 0.72) 0%, rgba(4, 10, 4, 0.95) 62%, rgba(2, 4, 2, 0.98) 100%);
+}
+#overOverlay.pvz .panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 24%),
+    linear-gradient(180deg, rgba(28, 50, 22, 0.95), rgba(12, 24, 10, 0.97));
+  border-color: rgba(150, 224, 96, 0.5);
+  box-shadow:
+    inset 0 0 0 1px rgba(196, 255, 128, 0.12),
+    0 18px 50px rgba(0, 0, 0, 0.6);
+}
+#overOverlay.pvz .brain {
+  display: block;
+  width: 72px;
+  height: 64px;
+  margin: -2px auto 8px;
+  filter: drop-shadow(0 4px 10px rgba(255, 90, 140, 0.4));
+  animation: brainPulse 2.4s ease-in-out infinite;
+}
+@keyframes brainPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.07); }
+}
+#overOverlay.pvz .over-title {
+  /* 中文原句 11 个字，白色 nowrap 会横着冲出面版，这里必须允许折行 */
+  white-space: normal;
+  max-width: 300px;
+  margin: 0 auto;
+  font-size: 29px;
+  line-height: 1.24;
+  letter-spacing: 3px;
+  text-indent: 3px;
+  color: #e9ff96;
+  text-shadow:
+    0 2px 0 #4c6b16,
+    0 0 18px rgba(190, 255, 90, 0.5),
+    0 0 46px rgba(140, 220, 60, 0.28),
+    0 7px 20px rgba(0, 0, 0, 0.9);
+}
+#overOverlay.pvz .stat i { color: #cfe9a6; }
+#overOverlay.pvz .stat b { color: #f3ffd8; }
+
+
 /* 通关结算的金币数字：最大的那个"奖杯" */
 .coin-big {
   display: flex;
@@ -1426,6 +1488,18 @@ html, body {
 .lv.locked b { font-weight: 600; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6); }
 .lv.locked span { color: #6b7784; }
 .lv.locked:active { transform: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 3px 0 rgba(0, 0, 0, 0.45); }
+
+/* 角色面板（用户 m04749）：两张卡（勇者 / 花仙子），选中的那张打亮 + 右上角一个 ✓ */
+.lv.hero { padding: 13px 12px; }
+.lv.hero b { font-size: 17px; letter-spacing: 3px; }
+.lv.hero.sel {
+  border-color: rgba(255, 214, 130, 0.75);
+  background:
+    linear-gradient(180deg, rgba(255, 236, 190, 0.16), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(96, 78, 40, 0.62) 0%, rgba(38, 30, 20, 0.68) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 214, 130, 0.35), 0 0 22px rgba(255, 200, 110, 0.28);
+}
+.lv.hero.sel span { color: #ffe6ad; }
 
 .level-hint {
   margin: 0 0 14px;

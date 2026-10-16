@@ -1,9 +1,19 @@
 // ============================================================
 //  WebAudio 程序化音效合成器（零音频素材）
 //
-//  iOS 限制：AudioContext 必须在用户手势里创建/resume，
-//  所以 unlock() 只在第一次 touchstart / pointerdown 里调用。
+//  iOS 限制：AudioContext 必须在用户手势里创建/resume。
+//  【用户 m04749】"频繁出现没有声音"的复现描述是"随机、没规律、有时刚进来就静音"，
+//  所以这里不再只在画布 pointerdown 上解锁，改成：
+//    1) 任何一次用户手势（pointerdown / touchstart / touchend / click / keydown）
+//       都叫一次 unlock —— iOS 历来只认 touchend/click 那类"完成态"手势，
+//       只挂 pointerdown 的话首局经常会碰上一个"建好了但一直 suspended"的上下文；
+//    2) 回到前台 / pageshow / focus / RAF 每秒兜一次 wake()；
+//    3) 上下文被系统打断后"叫不醒"超过 2.5 秒就整个重建一次（见 _watchStuck）；
+//    4) diag 记数，出问题时能一眼看出是"没建起来"还是"被挂起"还是"被静音"。
 // ============================================================
+
+const nowMs = () =>
+  typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
 
 export class Sound {
   constructor() {
@@ -14,6 +24,44 @@ export class Sound {
     this.ready = false;
     this._sessionHooked = false;
     this._seed = 0x9e3779b9; // 音效自己的随机数种子（见 _rnd）
+    // 【用户 m04749】自愈用的簿记：出问题时 diag 能还原"到底卡在哪一步"
+    this.diag = { wakes: 0, resumes: 0, rebuilds: 0, gestures: 0, lastPlay: 0, plays: 0 };
+    this._stuckSince = 0;
+    this._rebuildAt = 0;
+    this._gesturesHooked = false;
+    this._hookGestures();
+  }
+
+  /**
+   * 【用户 m04749】把手势/前台事件都挂上。
+   * 构造函数里就挂（早于任何 unlock），这样"第一次点击"也不会漏。
+   */
+  _hookGestures() {
+    if (this._gesturesHooked || typeof window === 'undefined') return;
+    this._gesturesHooked = true;
+    const kick = () => {
+      this.diag.gestures++;
+      this.unlock();
+    };
+    // pointerdown/touchstart 是"最早"的手势；touchend/click 才是 iOS 认的解锁手势。
+    // 两类都收 —— unlock() 幂等，重复调用只是顺手 wake 一下。
+    for (const ev of ['pointerdown', 'touchstart', 'touchend', 'click', 'keydown']) {
+      try {
+        window.addEventListener(ev, kick, { capture: true, passive: true });
+      } catch (_) {
+        try { window.addEventListener(ev, kick, true); } catch (__) {}
+      }
+    }
+    // 切后台 / 锁屏 / 来电结束后立刻叫醒（不等下一次触摸）
+    try {
+      if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) this.wake();
+        });
+      }
+      window.addEventListener('pageshow', () => this.wake());
+      window.addEventListener('focus', () => this.wake());
+    } catch (_) {}
   }
 
   /**
@@ -27,12 +75,55 @@ export class Sound {
   wake() {
     const c = this.ctx;
     if (!c) return;
+    this.diag.wakes++;
     try {
       if (c.state !== 'running' && typeof c.resume === 'function') {
+        this.diag.resumes++;
         const p = c.resume();
         if (p && typeof p.catch === 'function') p.catch(() => {});
       }
     } catch (_) {}
+    this._watchStuck();
+  }
+
+  /**
+   * 【用户 m04749】"叫不醒的上下文"兜底。
+   * WebKit 偶发：AudioContext 被来电/切后台打断后一直停在 suspended，
+   * 之后 resume() 永远返回 pending（既不 resolve 也不 reject）——
+   * 症状就是玩家说的"一直没声音，退回桌面再进来才好"。
+   * 这里盯着：没在跑超过 2.5 秒就整个重建一个（后台里不重建，怕白折腾）。
+   */
+  _watchStuck() {
+    const c = this.ctx;
+    if (!c || c.state === 'running' || this.muted) {
+      this._stuckSince = 0;
+      return;
+    }
+    if (typeof document !== 'undefined' && document.hidden) return;
+    const t = nowMs();
+    if (!this._stuckSince) {
+      this._stuckSince = t;
+      return;
+    }
+    if (t - this._stuckSince < 2500) return;
+    if (t - this._rebuildAt < 2000 || this.diag.rebuilds >= 8) return;
+    this._rebuildAt = t;
+    this._stuckSince = 0;
+    this._rebuild();
+  }
+
+  /** 丢掉被系统关死/叫不醒的上下文，原地重建一个（不用刷新页面） */
+  _rebuild() {
+    this.diag.rebuilds++;
+    const old = this.ctx;
+    try {
+      if (old && typeof old.close === 'function') old.close();
+    } catch (_) {}
+    this.ctx = null;
+    this.master = null;
+    this.noiseBuf = null;
+    this.ready = false;
+    this.unlock();
   }
 
   unlock() {
@@ -109,6 +200,18 @@ export class Sound {
   setMuted(m) {
     this.muted = m;
     if (this.master) this.master.gain.value = m ? 0 : 0.34;
+    // 【用户 m04749】取消静音时顺手叫醒一次：静音期间可能已经被系统挂起，
+    // 否则玩家会以为"点了音量键还是没声音"。
+    if (!m) this.wake();
+  }
+
+  /** 自愈簿记（调试用：__HBT.sfx.diagText） */
+  get diagText() {
+    const d = this.diag;
+    const st = !this.ctx ? 'no-ctx' : this.ctx.state;
+    return `state=${st} ready=${this.ready} muted=${this.muted} plays=${d.plays} wakes=${d.resumes} gestures=${d.gestures} rebuilds=${d.rebuilds} lastPlay=${
+      d.lastPlay ? Math.round(nowMs() - d.lastPlay) + 'ms ago' : 'never'
+    }`;
   }
 
   toggleMute() {
@@ -145,6 +248,11 @@ export class Sound {
   tone({ freq = 440, freq2 = null, type = 'sine', dur = 0.15, vol = 0.2, delay = 0, attack = 0.004, bus = null }) {
     if (!this.ready || this.muted) return;
     const c = this.ctx;
+    // 【用户 m04749】挂起时把音排进队列，只会在恢复的一瞬间"哗"出一堆迟到音；
+    // 索性丢掉这一次，同时顺手叫醒（下一次发声就是正常的）。
+    if (c.state !== 'running') { this.wake(); return; }
+    this.diag.plays++;
+    this.diag.lastPlay = nowMs();
     const t = this.t0 + delay;
     const osc = c.createOscillator();
     const g = c.createGain();
@@ -164,6 +272,9 @@ export class Sound {
   burst({ dur = 0.08, vol = 0.2, type = 'bandpass', freq = 1600, q = 1.2, delay = 0, sweepTo = null }) {
     if (!this.ready || this.muted) return;
     const c = this.ctx;
+    if (c.state !== 'running') { this.wake(); return; } // 同上：挂起时不排队，等叫醒
+    this.diag.plays++;
+    this.diag.lastPlay = nowMs();
     const t = this.t0 + delay;
     const src = c.createBufferSource();
     src.buffer = this.noiseBuf;

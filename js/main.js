@@ -7,7 +7,7 @@ import { Camera } from './camera.js';
 import { Sound } from './audio.js';
 import { Game, STATE } from './game.js';
 import { Renderer, TAG_COLOR } from './render.js';
-import { CFG, isHordeWave, isBossWave, findLevel, levelIndexOf } from './config.js';
+import { CFG, isHordeWave, isBossWave, findLevel, levelIndexOf, HEROES, HERO_KEY } from './config.js';
 import { QUALITY } from './quality.js';
 import { I18N } from './i18n.js';
 import { CHANGELOG } from './changelog.js';
@@ -45,6 +45,7 @@ const el = {
   logList: $('logList'),
   logClose: $('logClose'),
   overOverlay: $('overOverlay'),
+  overTitle: $('overTitle'),
   newBest: $('newBest'),
   overScore: $('overScore'),
   overBest: $('overBest'),
@@ -85,6 +86,13 @@ const el = {
   lv8: $('lv8'),
   lv9: $('lv9'),
   lv10: $('lv10'),
+  // 角色面板（用户 m04749）：勇者 / 花仙子，只在第四关生效
+  heroOverlay: $('heroOverlay'),
+  heroGrid: $('heroGrid'),
+  heroHint: $('heroHint'),
+  heroClose: $('heroClose'),
+  heroKnight: $('heroKnight'),
+  heroFairy: $('heroFairy'),
   // 局内左下角：返回主界面 / 暂停；以及暂停面板
   ingameBtns: $('ingameBtns'),
   backBtn: $('backBtn'),
@@ -310,9 +318,52 @@ const TALKS = {
       { p: 'dave', who: '戴 夫', text: '甭慌 —— 你有豌豆，天上掉的阳光记得捡，攒满了扔樱桃。' },
     ],
   },
+  // 【用户 m04749】第四关「穿越异世界」的开场：哥布林袭击村庄 → 勇者前去清剿。
+  // 说话人两张新立绘（村长 elder / 勇者 knight），见 img/portrait-*.png。
+  fantasy: {
+    start: '出 发 · 清 剿 ！',
+    lines: [
+      { p: 'elder', who: '村 长', text: '勇者大人！天刚亮哥布林就冲进村子了 —— 牲口被赶走，麦田也点了火。' },
+      { p: 'knight', who: '勇 者', text: '先把大伙撤进教堂。剩下的交给我，剑还没生锈。' },
+      { p: 'elder', who: '村 长', text: '往东就是它们的巢穴……听说那头恶龙也醒了，会喷火，还会召哥布林。' },
+    ],
+  },
 };
 let talkSet = TALKS.city;
 let talkIdx = 0;
+let portraitKey = ''; // 当前 <img> 里是哪张立绘（避免重复写 src 触发重新解码）
+
+// ---------------------------------------------------------
+// 【用户 m04749】"对话头像需要等一会才能加载出来"
+// 原来立绘是在 renderTalk() 里才第一次设 src —— 图就在那一刻才去
+// 取文件 + 解码（手机上尤其明显：对话弹出来先是一个空框，过一会儿才出人）。
+// 现在启动时就把所有出场过的立绘预热好，再进对话就是"插上就有"。
+// 名单从 TALKS 里自动收集（以后加说话人不用记得改这里）。
+// ---------------------------------------------------------
+const PORTRAIT_KEYS = (() => {
+  const set = new Set(['hero']);
+  for (const t of Object.values(TALKS)) {
+    for (const l of t.lines || []) set.add(l.p || 'hero');
+  }
+  return [...set];
+})();
+const portraitSrc = (p) => `./img/portrait-${p}.png`;
+
+function warmPortraits() {
+  for (const p of PORTRAIT_KEYS) {
+    const im = new Image();
+    im.decoding = 'async';
+    im.src = portraitSrc(p);
+    // decode() 会把"取文件"推进到"解码完"——只设 src 的话第一帧还是要等解码
+    if (typeof im.decode === 'function') {
+      const pr = im.decode();
+      if (pr && typeof pr.catch === 'function') pr.catch(() => {});
+    }
+  }
+}
+// 首屏先让渲染跑起来，空闲了再预热（不然 4 张立绘会跟首帧抢带宽）
+if (typeof requestIdleCallback === 'function') requestIdleCallback(warmPortraits, { timeout: 1500 });
+else setTimeout(warmPortraits, 600);
 
 function renderTalk() {
   const lines = talkSet.lines;
@@ -322,9 +373,13 @@ function renderTalk() {
   setText(el.talkStamp, 'tkS', `${String(Math.min(talkIdx + 1, lines.length)).padStart(2, '0')} / 0${lines.length}`);
   setText(el.talkStart, 'tkStart', talkSet.start);
   // 【用户 m02399】头像跟着说话人换（每个说话人一张立绘）
+  // 【用户 m04749】说话人没变就别再写 src：重复赋值会让浏览器重新解码一遍
   if (el.talkPortrait) {
     const p = line.p || 'hero';
-    el.talkPortrait.src = `./img/portrait-${p}.png`;
+    if (portraitKey !== p) {
+      portraitKey = p;
+      el.talkPortrait.src = portraitSrc(p);
+    }
     el.talkPortrait.alt = line.who;
   }
   const done = talkIdx >= lines.length;
@@ -463,10 +518,8 @@ onTap(el.clearNext, () => {
 });
 
 // ---- 主界面四个入口 ----
-// 现在只预留按钮：点下去给一条"即将开放"的提示，不做任何功能。
-// 以后分别接：角色切换 / 武器切换 / 商店购买 ——「关卡」已经接好了（用户 m02264）
+// 「角色」已经接好了（用户 m04749）；武器 / 商店还是占位提示。
 const MENU_ENTRIES = [
-  [el.menuRole, '角色'],
   [el.menuWeapon, '武器'],
   [el.menuShop, '商店'],
 ];
@@ -484,6 +537,50 @@ for (const [node, name] of MENU_ENTRIES) {
   });
 }
 
+// ---- 角色面板（首页「角色」入口，用户 m04749）----
+// 默认「勇者」，可换「花仙子」（免费解锁）。两个角色**只在第四关生效**，
+// 前三关保持原来的主角 —— 选择存在 localStorage 的 HERO_KEY 里。
+function loadHero() {
+  let id = '';
+  try { id = localStorage.getItem(HERO_KEY) || ''; } catch (_) {}
+  if (!HEROES.some((h) => h.id === id)) id = HEROES[0].id;
+  game.heroId = id;
+}
+
+function openHeroes() {
+  for (const h of HEROES) {
+    const node = el['hero' + h.id.charAt(0).toUpperCase() + h.id.slice(1)];
+    if (!node) continue;
+    node.classList.toggle('sel', game.heroId === h.id);
+    node.classList.toggle('done', game.heroId === h.id);
+  }
+  setText(el.heroHint, 'heroHint', CFG.level && CFG.level.skin === 'fantasy'
+    ? '当前就在第 4 关 · 换完立刻生效'
+    : '只在第 4 关「穿越异世界」生效 · 前三关沿用原主角');
+  el.heroOverlay.classList.add('show');
+}
+
+function hideHeroes() {
+  el.heroOverlay.classList.remove('show');
+}
+
+function pickHero(id) {
+  if (!HEROES.some((h) => h.id === id)) return;
+  game.heroId = id;
+  try { localStorage.setItem(HERO_KEY, id); } catch (_) {}
+  openHeroes();
+}
+
+onTap(el.menuRole, (e) => {
+  sfx.unlock();
+  sfx.uiClick();
+  openHeroes();
+  e.stopPropagation();
+});
+onTap(el.heroKnight, (e) => { sfx.uiClick(); pickHero('knight'); e.stopPropagation(); });
+onTap(el.heroFairy, (e) => { sfx.uiClick(); pickHero('fairy'); e.stopPropagation(); });
+onTap(el.heroClose, (e) => { sfx.uiClick(); hideHeroes(); guardClick(); e.stopPropagation(); });
+
 // ---- 选关面板（首页「关卡」入口）----
 // 第 1~3 关真的能进；第 4~10 关是灰按钮，点了只提示"该关卡未实装"。
 function openLevels() {
@@ -495,7 +592,7 @@ function openLevels() {
     const lv = findLevel(i);
     node.classList.toggle('done', !!lv && game.clearedLevel >= i);
   }
-  setText(el.levelHint, 'lvH', game.clearedLevel >= 2 ? '第 3 关已解锁 · 选一关开打' : game.clearedLevel >= 1 ? '第 2、3 关已解锁 · 选一关开打' : '先打第 1 关 · 第 2、3 关也可以直接进');
+  setText(el.levelHint, 'lvH', game.clearedLevel >= 3 ? '第 4 关已解锁 · 选一关开打' : game.clearedLevel >= 2 ? '第 1~4 关都能进 · 选一关开打' : game.clearedLevel >= 1 ? '第 2~4 关已解锁 · 选一关开打' : '先打第 1 关 · 第 2~4 关也可以直接进');
   el.levelOverlay.classList.add('show');
 }
 
@@ -647,6 +744,21 @@ onTap(el.muteBtn, (e) => {
 let lastSeq = -1;
 let gainT = 0;
 
+/**
+ * 【用户 m04749】"频繁出现没有声音"。
+ * 音频自愈在 frame() 里每秒跑一次，但玩家不一定知道"没声音"是可以点一下救回来的。
+ * 进局时如果确认没在出声（既不是静音、也不是"还没启动"），就用提示条说一句 ——
+ * 一个会话只提一次，避免每次开局都刷屏；点过音量键或自己修好了就不再提。
+ */
+let audioHinted = false;
+function audioHintCheck() {
+  if (audioHinted) return;
+  if (game.state !== STATE.PREP && game.state !== STATE.FIGHT) return;
+  if (sfx.muted || !sfx.ready || sfx.running) return;
+  audioHinted = true;
+  showHint('音效没开 · 点一下画面', '#ffd166');
+}
+
 function syncGain(dt) {
   if (game.upgradeSeq !== lastSeq) {
     lastSeq = game.upgradeSeq;
@@ -678,6 +790,13 @@ function setText(node, key, val) {
 }
 
 function showGameOver() {
+  // 【用户 m04749】第三关（植物大战僵尸那套皮）失守不用「桥头失守」，
+  // 换成 PvZ 名场面：僵尸吃掉了你的脑子。类名 .pvz 顺带把面板/背景
+  // 切成草坪配色（见 styles.css 的「第三关失守」一段）。
+  // 中英各一份文案，写在下面的常量里，双语守卫跟着一起查。
+  const pvz = !!(CFG.level && CFG.level.skin === 'pvz');
+  el.overOverlay.classList.toggle('pvz', pvz);
+  setText(el.overTitle, 'oTitle', pvz ? '你的脑子被僵尸吃掉了' : '桥 头 失 守');
   setText(el.overScore, 'oS', String(game.score));
   setText(el.overBest, 'oB', String(game.best));
   setText(el.overWave, 'oW', String(game.wave));
@@ -729,7 +848,8 @@ function syncState() {
       setText(el.startCoins, 'sC', String(game.coins));
       // 关卡入口显示进度（通关第一关后主界面能看出来第二关解锁了）
       // 「关卡」那格的角标：点开是选关面板，所以这里只说到"能选几关"
-      setText(el.menuLevelNote, 'mL', game.clearedLevel >= 2 ? '第 1~3 关 可选' : game.clearedLevel >= 1 ? '第 1~2 关 可选' : '第 1 关 可打');
+      // 【用户 m04749】第 4 关上线后，四关都能直接进（选关面板里的提示也这么说）
+      setText(el.menuLevelNote, 'mL', game.clearedLevel >= 1 ? '第 1~4 关 可选' : '第 1 关 可打');
     }
 
     el.startOverlay.classList.toggle('show', st === STATE.START);
@@ -850,6 +970,7 @@ function frame(now) {
     audioKickAt = now;
     sfx.wake();
   }
+  audioHintCheck();
 
   requestAnimationFrame(frame);
 }
@@ -876,6 +997,9 @@ try {
 } catch (_) {
   showGuide();
 }
+
+// 角色（用户 m04749）：把玩家上次选的角色读回来（不合法就回落成勇者）
+loadHero();
 
 window.addEventListener('resize', scheduleFit);
 window.addEventListener('orientationchange', scheduleFit);

@@ -201,11 +201,15 @@ export const CFG = {
   //
   // 皮肤（skin）：一个 kind 可以挂多套外观，game.js 的 spawnEnemy 按 CFG.level.skin
   // 挑一份挂到实体上（e.color/e.dark/e.animal），渲染器再按 e.animal 画对应部件。
-  // ocean = 第二关疯狂水世界的海洋动物；pvz = 第三关疯狂草坪的僵尸种类。
+  // ocean = 第二关疯狂水世界的海洋动物；pvz = 第三关疯狂草坪的僵尸种类；
+  // fantasy = 第四关穿越异世界的五种怪（用户 m04749：哥布林、史莱姆、兽人、郊狼、鹰身女妖）——
+  //   行为沿用已有的 7 种 kind（走路/狂奔/壮汉/吐酸/铁盾/分裂/BOSS），
+  //   只换皮和挂件：哥布林=walker、郊狼=runner、兽人=brute、鹰身女妖=spitter、
+  //   史莱姆=splitter（死后分裂正好是史莱姆的本事）、铁盾哥布林=shielded、恶龙=boss。
   kinds: {
-    walker: { size: 0.26, speedMul: 1.0, hpMul: 1.0, score: 10, body: 'normal', color: '#7e9a52', dark: '#3f5129', ocean: { color: '#5fae9c', dark: '#27564c', animal: 'fish' }, pvz: { color: '#8f9c86', dark: '#3f4a3a', animal: 'basic' } },
-    runner: { size: 0.235, speedMul: 1.7, hpMul: 0.6, score: 14, body: 'normal', color: '#b06442', dark: '#5c3121', ocean: { color: '#e08a6a', dark: '#7a4028', animal: 'squid' }, pvz: { color: '#b45a45', dark: '#5c2a20', animal: 'pole' } },
-    brute: { size: 0.36, speedMul: 0.62, hpMul: 3.2, score: 26, body: 'wide', color: '#77879b', dark: '#3a4551', ocean: { color: '#8fa8c2', dark: '#3b5470', animal: 'crab' }, pvz: { color: '#7d8a74', dark: '#37402f', animal: 'gargantuar' } },
+    walker: { size: 0.26, speedMul: 1.0, hpMul: 1.0, score: 10, body: 'normal', color: '#7e9a52', dark: '#3f5129', ocean: { color: '#5fae9c', dark: '#27564c', animal: 'fish' }, pvz: { color: '#8f9c86', dark: '#3f4a3a', animal: 'basic' }, fantasy: { color: '#7fae4a', dark: '#4a7028', animal: 'goblin', name: '哥布林' } },
+    runner: { size: 0.235, speedMul: 1.7, hpMul: 0.6, score: 14, body: 'normal', color: '#b06442', dark: '#5c3121', ocean: { color: '#e08a6a', dark: '#7a4028', animal: 'squid' }, pvz: { color: '#b45a45', dark: '#5c2a20', animal: 'pole' }, fantasy: { color: '#b98a52', dark: '#7a5730', animal: 'coyote', name: '郊狼' } },
+    brute: { size: 0.36, speedMul: 0.62, hpMul: 3.2, score: 26, body: 'wide', color: '#77879b', dark: '#3a4551', ocean: { color: '#8fa8c2', dark: '#3b5470', animal: 'crab' }, pvz: { color: '#7d8a74', dark: '#37402f', animal: 'gargantuar' }, fantasy: { color: '#8a9a5b', dark: '#525f36', animal: 'orc', name: '兽人' } },
     // 血量倍数和体型倍数（0.60 / 0.26 ≈ 2.3）对齐；原来写 5 会在第 5 波插一个血量尖峰
     // 用户要求：BOSS 体型再翻一倍（0.6 → 1.2）、血条更厚（hpMul 3.2 → 6.5）、
     // 走得更慢（speedMul 0.46 → 0.38）。
@@ -251,13 +255,16 @@ export const CFG = {
       // 第三关：僵王（金属机械头 + 玻璃罩 + 红眼）——它的必杀导弹就是"火球"。
       // name 是血条上写的名字（见 render 的 BOSS 血条）
       pvz: { color: '#8b9490', dark: '#2f3a37', animal: 'zomboss', name: '僵王' },
+      // 第四关：恶龙（暗红鳞片 + 金腹 + 一对会扇的翼 + 犄角与长尾）。
+      // 用户 m04749：会喷火焰和挥动翅膀（冲击波），并持续召唤哥布林。
+      fantasy: { color: '#8e3346', dark: '#571d2c', animal: 'dragon', name: '恶龙' },
     },
     // 吐酸者：停在远处往桥上喷酸液，逼玩家走位而不是站着对射
-    spitter: { size: 0.26, speedMul: 0.9, hpMul: 1.1, score: 24, body: 'fat', spit: true, color: '#8fbe3f', dark: '#42591d', ocean: { color: '#e8c24a', dark: '#7a5f16', animal: 'puffer' }, pvz: { color: '#8d7a5f', dark: '#453a2a', animal: 'catapult' } },
-    // 铁盾兵：正面带盾，前 3 发子弹伤害减半并会破盾
-    shielded: { size: 0.28, speedMul: 0.8, hpMul: 1.4, score: 26, body: 'normal', shield: 3, color: '#8d8f7a', dark: '#45473a', ocean: { color: '#7fae86', dark: '#37543c', animal: 'turtle' }, pvz: { color: '#8a8f7d', dark: '#40453a', animal: 'bucket' } },
-    // 分裂者：死后裂成两只小兵，越打越多，逼你换目标优先级
-    splitter: { size: 0.3, speedMul: 0.95, hpMul: 1.7, score: 18, body: 'fat', split: 2, color: '#9a6bb5', dark: '#4a2f5c', ocean: { color: '#c98bd8', dark: '#5d3a6b', animal: 'jelly' }, pvz: { color: '#a2ae97', dark: '#4d5647', animal: 'imp' } },
+    spitter: { size: 0.26, speedMul: 0.9, hpMul: 1.1, score: 24, body: 'fat', spit: true, color: '#8fbe3f', dark: '#42591d', ocean: { color: '#e8c24a', dark: '#7a5f16', animal: 'puffer' }, pvz: { color: '#8d7a5f', dark: '#453a2a', animal: 'catapult' }, fantasy: { color: '#c78ad6', dark: '#7f4a90', animal: 'harpy', name: '鹰身女妖' } },
+    // 铁盾兵：正面带盾，前 3 发子弹伤害减半并会破盾（异世界这面盾是本色的木盾）
+    shielded: { size: 0.28, speedMul: 0.8, hpMul: 1.4, score: 26, body: 'normal', shield: 3, color: '#8d8f7a', dark: '#45473a', ocean: { color: '#7fae86', dark: '#37543c', animal: 'turtle' }, pvz: { color: '#8a8f7d', dark: '#40453a', animal: 'bucket' }, fantasy: { color: '#6f9a44', dark: '#3d5a24', animal: 'goblin', name: '持盾哥布林' } },
+    // 分裂者：死后裂成两只小兵，越打越多，逼你换目标优先级（异世界是史莱姆）
+    splitter: { size: 0.3, speedMul: 0.95, hpMul: 1.7, score: 18, body: 'fat', split: 2, color: '#9a6bb5', dark: '#4a2f5c', ocean: { color: '#c98bd8', dark: '#5d3a6b', animal: 'jelly' }, pvz: { color: '#a2ae97', dark: '#4d5647', animal: 'imp' }, fantasy: { color: '#7fe0c0', dark: '#37907a', animal: 'slime', name: '史莱姆' } },
   },
 
   // BOSS 的技能节奏（用户 m01503 定版、m01023 加密）：**所有关卡**的 BOSS 都是
@@ -424,6 +431,66 @@ export const CFG = {
     },
   },
 
+  // 【用户 m04749】第四关「穿越异世界」的全套专属数据。
+  fantasy: {
+    // 大招：独角兽冲锋。
+    // 用户原话：点击会有一头独角兽向前冲，清空路上所有僵尸；为保持平衡，
+    // 充能必须变慢，1 局最多 2~3 次 —— 所以这里既给"每杀一只的能量打折"，
+    // 又给"一局上限"（CFG.level.strikeCap = 3），两头一起收。
+    unicorn: {
+      chargeMul: 0.5, // 击杀充能打折（3.2/只 → 1.6/只），攒满要清更多怪
+      runTime: 1.5, // 从雾里冲到桥头用多久
+      startGap: 7, // 起步点：英雄身前往雾里这么多单位
+      hitR: 0.5, // 冲撞判定的横向半宽（比车道宽，蹭到就清）
+      // 沿途非 BOSS 一律直接清空（用户 m04749：「清空路上所有僵尸」），
+      // BOSS 只吃 bossDamage —— 不然最后几波一撞一个白撞，看着像没生效。
+      damage: 9999, // 撞到的普通怪吃多少（一波小兵一撞就没）
+      bossDamage: 260, // 撞到 BOSS 的伤害（不至于一击秒，但很疼）
+      horn: '#ffd76a',
+      mane: '#ffb6e6',
+      coat: '#fdf8ff',
+      dust: 'rgba(255,214,246,',
+    },
+    // BOSS 第二形态：恶龙（用户 m04749）。
+    // 会喷火焰（fire）、挥动翅膀打出冲击波（wind）、并持续召唤哥布林（summon）。
+    boss2: {
+      name: '恶龙',
+      hpMul: 1.5, // 第二条血 = 第一条上限的 1.5 倍
+      speedMul: 1.1,
+      evolveTime: 1.7,
+      sizeMul: 1.18,
+      color: '#a83a4e',
+      dark: '#571d2c',
+      animal: 'dragon',
+      stopRatio: 0.52,
+      firstSkill: 1.6,
+      skillEvery: 2.6,
+      skills: ['fire', 'wind', 'summon'],
+      // 喷火：横铺的火墙，找缝站（比博士的火球少一颗、更慢，看得清）
+      fireCount: 4,
+      fireGap: 0.62,
+      fireSpeed: 7.5,
+      fireColor: '#ff8a3a',
+      // 挥翅冲击波：两道宽风压从恶龙那边推过来，站进缝里才躲得开
+      windCount: 2,
+      windGap: 1.35,
+      windSpeed: 6.2,
+      windColor: 'rgba(214,236,255,0.92)',
+      summonCount: 3, // 一次召几批哥布林（每批 kinds.boss.spawnCount 只）
+      addEvery: 2.6, // 被动召哥布林的间隔
+      missileCount: 3,
+      missileSpread: 0.72,
+      missileStagger: 0.28,
+    },
+    // 两个角色（用户 m04749）：默认勇者挥剑（冲击波），可换花仙子（魔法棒 + 魔法粒子）。
+    heroes: {
+      // 勇者：剑气是快速前推的月牙，命中判定和子弹一致，只是画法不同
+      knight: { wave: 1, color: '#dff3ff', edge: '#7fd4ff', spark: '#bfe9ff' },
+      // 花仙子：魔法棒甩出的粉色粒子，尾迹更长、光点更多（少女风）
+      fairy: { sparkle: 1, color: '#ffd0f0', core: '#fff6ff', glow: '#ff9ad8', trail: '#c78ad6' },
+    },
+  },
+
   // 从第几波开始出现特殊怪
   runnerFrom: 3,
   spitterFrom: 4,
@@ -559,9 +626,11 @@ export const CFG = {
     {
       // 用户 m02771：第三关做植物大战僵尸风格 —— 戴夫开场、警报 + 321 倒计时、
       // 主角是豌豆射手（弹道 +1 = 多一个头）、奖励墙独属寒冰/炎火。
+      // 【用户 m04749】关卡名改成「疯狂戴夫」——草坪与植物大战僵尸那一套皮没变，
+      // 只是名字跟着主角戴夫走（对外显示：关卡按钮、局内 hud、通关结算标题）。
       id: 3,
-      name: '疯狂草坪',
-      hud: '第 3 关 · 疯狂草坪',
+      name: '疯狂戴夫',
+      hud: '第 3 关 · 疯狂戴夫',
       waves: 15,
       coinRatio: 0.12,
       theme: 'lawn',
@@ -598,6 +667,42 @@ export const CFG = {
       bossSpeed: 1.45,
       // BOSS 有第二形态（第一条血清空后进化成僵尸博士）
       bossEvolve: true,
+    },
+    {
+      // 【用户 m04749】第四关「穿越异世界」。
+      // 用户原话：新增第四关，穿越异世界，开局对话大抵是哥布林袭击村庄，
+      // 勇者前去清剿；整体风格偏向异世界，奇幻古典。僵尸换成哥布林、史莱姆、
+      // 兽人、郊狼、鹰身女妖。空袭换成独角兽：点击会有一头独角兽向前冲，
+      // 清空路上所有僵尸；为保持平衡，充能必须变慢，1 局最多 2~3 次。
+      // BOSS 为恶龙，会喷火焰和挥动翅膀（冲击波），并持续召唤哥布林。
+      // 角色只在这一关生效（用户确认：前三关保留原主角）：
+      // 默认勇者挥剑（冲击波），「角色」里可换花仙子（魔法棒 + 魔法粒子）。
+      id: 4,
+      name: '穿越异世界',
+      hud: '第 4 关 · 穿越异世界',
+      waves: 15,
+      coinRatio: 0.14,
+      theme: 'fantasy', // 奇幻古典：荒野草甸 + 远处城堡 + 星空
+      skin: 'fantasy', // 敌人是哥布林/史莱姆/兽人/郊狼/鹰身女妖，BOSS 是恶龙
+      intro: 'fantasy', // 进场对话：哥布林袭击村庄 → 勇者前去清剿
+      // 荒野比桥面宽敞一点，但别像草坪那么散（异世界要"贴身砍"的压迫感）
+      roam: { zBack: 2.6, zFwd: 3.8 },
+      diff: 1.32,
+      countDiff: 1.12,
+      firstCount: 7,
+      countPerWave: 2.0,
+      countMaxPerWave: 0.25,
+      // 第四关专属大场面：哥布林潮（人海）+ 巨龙降临（全员兽人 + 恶龙提前试压）
+      specialWaves: {
+        8: { label: '哥布林潮', desc: '成群哥布林 · 前排顶住', kind: 'runner', countMul: 1.4, color: '#8fd36a' },
+        13: { label: '巨龙咆哮', desc: '兽人压阵 · 恶龙在天上', kind: 'brute', countMul: 0.85, color: '#ffb066' },
+      },
+      bossSpeed: 1.25,
+      // 恶龙也有第二形态：被砍到半血狂暴（喷吐更密、翅风更大）
+      bossEvolve: true,
+      strike: 'unicorn', // 大招：独角兽冲锋（清空一路），充能更慢、一局最多 2~3 次
+      strikeCap: 3, // 一局最多放 3 次（用户要求"1 局最多 2~3 次"）
+      hero: 'knight', // 默认角色：勇者（挥剑 + 冲击波）
     },
   ],
   levelIndex: 0,
@@ -672,6 +777,28 @@ export function isPvz() {
   return !!CFG.level && CFG.level.skin === 'pvz';
 }
 
+/**
+ * 【用户 m04749】当前关卡是不是第四关「穿越异世界」。
+ * 异世界有自己的一套：五种怪 + 恶龙 BOSS + 独角兽大招 + 勇者/花仙子两个角色。
+ */
+export function isFantasy() {
+  return !!CFG.level && CFG.level.skin === 'fantasy';
+}
+
+/**
+ * 【用户 m04749】第四关的角色（勇者 / 花仙子）。
+ * 别的地方只读 CFG.level.skin 决定主角长什么样，第四关要能在两个角色之间换，
+ * 所以角色是"存档里的一个字符串"，由 main.js 的「角色」面板写、渲染器读。
+ */
+export const HEROES = [
+  { id: 'knight', name: '勇者', desc: '挥剑 · 剑气冲击波', tag: '近战', free: true },
+  { id: 'fairy', name: '花仙子', desc: '魔法棒 · 魔法粒子', tag: '远程', free: true },
+];
+export const HERO_KEY = 'hold-the-bridge:hero';
+export function heroDef(id) {
+  return HEROES.find((h) => h.id === id) || HEROES[0];
+}
+
 // ---- 加成表 ----
 // v1 是"清完一波弹三张卡让你选"，用户反馈不要弹窗。
 // 现在每条加成会在桥上变成一块面板：op 是运算符号（+ / × / −），
@@ -726,6 +853,29 @@ export const UPGRADES = [
   // 阳光本来就会自己掉、还会自动吸附过来，再多掉一个只是白给；名额让给冰火。
   { id: 'sunValue', name: '阳光充沛', desc: '每个阳光的充能与攻击加成 ×1.6', tag: '特效', max: 3, op: '×', amt: '1.6', short: '阳光效果', apply: { sunMul: 1.6 }, l3: true },
   { id: 'cherryBig', name: '巨型樱桃', desc: '樱桃炸弹范围 ×1.35', tag: '特效', max: 3, op: '×', amt: '1.35', short: '樱桃范围', apply: { cherryR: 1.35 }, l3: true },
+
+  // ---- 第四关专属（l4: true，只在「穿越异世界」的奖励门里出现）----
+  // 用户 m04749：勇者挥剑（剑气冲击波）/ 花仙子挥魔法棒（魔法粒子），
+  // 所以这一关的构筑件围着"剑气、星尘、独角兽"三条线做：
+  // 剑气=穿透（一刀扫一排）、星尘=弹道数（粒子撒开）、独角兽=多用一次。
+  { id: 'bladeWave', name: '剑气纵横', desc: '穿透 +2，剑气一刀扫过一整排', tag: '弹道', max: 3, op: '+', amt: '2', short: '剑气穿透', apply: { pierce: 2 }, l4: true },
+  { id: 'starVolley', name: '星尘散射', desc: '弹道 +1，魔法粒子多撒一条', tag: '弹道', max: 3, op: '+', amt: '1', short: '弹道数', apply: { bullets: 1 }, l4: true },
+  { id: 'uniCharge', name: '独角兽加能', desc: '本局独角兽可多用 1 次', tag: '特效', max: 3, op: '+', amt: '1 次', short: '独角兽次数', apply: { uniUse: 1 }, l4: true },
+  { id: 'blessing', name: '精灵祝福', desc: '子弹伤害 ×1.15', tag: '伤害', max: 4, op: '×', amt: '1.15', short: '攻击力', apply: { atkMore: 1.15 }, l4: true },
+  { id: 'thornHide', name: '荆棘皮甲', desc: '每波开始时获得 2 层护盾', tag: '生存', max: 3, op: '+', amt: '2', short: '每波护盾', apply: { shieldPerWave: 2 }, l4: true },
+  { id: 'windBoots', name: '疾风皮靴', desc: '移动速度 ×1.2', tag: '机动', max: 4, op: '×', amt: '1.2', short: '移动速度', apply: { moveMul: 1.2 }, l4: true },
+];
+
+/**
+ * 【用户 m04749】第四关的"武器进化"称号：勇者一路从白刃升到龙牙圣剑，
+ * 花仙子则是花杖 → 银月法杖 → 星辰法杖 → 星辉圣杖（同一档位，两套名字）。
+ * at 的门槛与 WEAPON_TIERS 对齐，tierIdx 两边通用。
+ */
+export const WEAPON_TIERS_FANTASY = [
+  { at: 0, name: '白刃', fairy: '花杖' },
+  { at: 3, name: '精钢剑', fairy: '银月法杖' },
+  { at: 7, name: '符文剑', fairy: '星辰法杖' },
+  { at: 12, name: '龙牙圣剑', fairy: '星辉圣杖' },
 ];
 
 // ============================================================
@@ -843,6 +993,77 @@ CFG.themes = {
       sunCore: '#ffd23f',
       pea: '#69d13c',
       peaDark: '#2f7a1c',
+    },
+  },
+
+  // 第四关：穿越异世界（用户 m04749：整体风格偏异世界，奇幻古典）
+  // 这套是"魔法黄昏"：天顶深紫 → 地平线暖金，远处是村子的轮廓，
+  // 脚下是荒野土路，路两边是草甸和树，护栏换成本色木栅栏。
+  // 键名和 city/water/lawn 一一对应（渲染器不用改结构），
+  // 新东西（城堡剪影 / 独角兽 / 恶龙 / 五种异世界怪）都塞在下面的 fantasy 子表里。
+  fantasy: {
+    sky: ['#100c24', '#231a49', '#4b3168', '#b06a76'],
+    pollute: ['rgba(255,190,120,0.18)', 'rgba(168,120,255,0.12)'],
+    starRGB: '228,224,255',
+    skyDeco: 'stars',
+    moon: '#ffe9c8',
+    moonSpot: 'rgba(198,168,138,0.28)',
+    skyline: 'village', // 远景：被袭的村子 + 远处古堡 + 松林（render.js 的 _bakeCity 里有专门一支）
+    horizon: ['rgba(255,180,120,0)', 'rgba(255,172,110,0.22)', 'rgba(150,104,214,0)'],
+    sea: ['#3f7a44', '#2f5f38', '#1e4028'], // 路两边其实是草甸/树林
+    foam: ['rgba(255,255,255,0)', 'rgba(222,255,208,', 'rgba(255,255,255,0)'],
+    deck: ['#6a5438', '#7c6444', '#8e7450', '#a1885f'], // 荒野土路
+    seam: 'rgba(40,28,16,0.26)',
+    dash: 'rgba(255,236,190,0.28)',
+    edge: ['rgba(255,230,170,0.10)', 'rgba(255,226,160,0.32)', 'rgba(255,240,200,0.5)'],
+    railBar: 'rgba(150,116,72,0.9)',
+    railPost: 'rgba(124,94,58,0.95)',
+    railTop: 'rgba(210,178,120,0.6)',
+    haze: ['rgba(70,60,110,0.62)', 'rgba(76,64,116,0.28)', 'rgba(80,68,120,0)'],
+    fog: ['rgba(60,52,96,0.95)', 'rgba(70,60,110,0.78)', 'rgba(84,72,128,0.32)', 'rgba(96,84,140,0)'],
+    stain: ['#1e2a10', '#3a5a1c'], // 地上是黑绿色的怪血，不是人类的血
+    dust: '#e8dcff',
+    lamp: ['rgba(255,226,170,0.18)', 'rgba(255,226,170,0)'],
+    panel: 'rgba(26,20,44,0.72)',
+    // 异世界专属调色（渲染器画城堡/村舍/花/独角兽/恶龙/五种怪时读这里）
+    fantasy: {
+      castle: '#3b3468',
+      castleDark: '#241f45',
+      castleWin: '#ffd98a',
+      banner: '#c8443f',
+      bannerDark: '#8e2b2a',
+      house: '#e6d6b0',
+      roof: '#8b4a6b',
+      tree: '#2c6b46',
+      treeDark: '#1b4730',
+      grassA: '#4f8f4a',
+      grassB: '#3d7a3c',
+      stoneA: '#9a8a6c',
+      stoneB: '#7d6f54',
+      flower: ['#ffd76a', '#ff9ad0', '#b39cff', '#8fe0ff'],
+      mushroom: '#e0605f',
+      // 独角兽：白身 + 粉鬃 + 金角
+      unicorn: '#fdf8ff',
+      unicornMane: '#ffb6e6',
+      unicornHorn: '#ffd76a',
+      // 恶龙：暗红鳞 + 金腹 + 橙火
+      dragon: '#8e3346',
+      dragonDark: '#5c1f2e',
+      dragonBelly: '#e8c07a',
+      dragonWing: '#6d2436',
+      fire: '#ffb257',
+      fireCore: '#fff0b0',
+      // 五种怪的配色
+      goblin: '#7fae4a',
+      goblinDark: '#4f7a2c',
+      slime: '#7fe0c0',
+      slimeCore: '#bff6e6',
+      orc: '#8a9a5b',
+      orcDark: '#55603a',
+      coyote: '#b98a52',
+      coyoteDark: '#7d5a30',
+      harpy: '#c78ad6',
+      harpyDark: '#8f56a0',
     },
   },
 };

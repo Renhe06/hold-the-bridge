@@ -12,7 +12,7 @@
 //   3. 僵尸体型整体放大一档
 // ============================================================
 
-import { CFG, UPGRADES, WEAPON_TIERS, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, pvzPlant, heroZRange } from './config.js';
+import { CFG, UPGRADES, WEAPON_TIERS, WEAPON_TIERS_FANTASY, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, isFantasy, pvzPlant, heroDef, heroZRange } from './config.js';
 import { clamp, rand, pickWeighted } from './util.js';
 import { QUALITY } from './quality.js';
 
@@ -113,6 +113,18 @@ export class Game {
     this.sunAtk = 0; // 【m02004】阳光的攻击加成（0.06/个，上限 CFG.pvz.sun.atkMax）
     this.cherries = []; // 樱桃炸弹（第三关的大招，取代飞机轰炸）
     this.cherryMul = 1; // "巨型樱桃"：炸开范围倍率
+
+    // ---- 第四关（穿越异世界）专属状态 ----
+    // 独角兽冲锋（用户 m04749）：点一下，一头独角兽从雾里冲出来清这一路。
+    // 用户要求"为保持平衡，充能必须变慢，1 局最多 2~3 次" —— 上限取自
+    // CFG.level.strikeCap（第三关之前 = null 表示没有上限）。
+    this.unicorns = [];
+    this.strikeUses = 0;
+    this.strikeCapBonus = 0; // 第四关「独角兽加能」攒出来的额外次数
+    this.blessMul = 1; // 第四关「精灵祝福」的攻击倍率
+    // 角色（用户 m04749）：玩家在主界面「角色」里选过就用他的选择，
+    // 没选过（第一次进游戏、this.heroId 还没有）才用关卡自带的默认值。
+    this.heroId = this.heroId || (CFG.level && CFG.level.hero) || 'knight';
     this.alertT = 0; // 开场"警报 + 3 2 1"还剩多久
     this.alertStep = 0; // 当前喊到的数字（0 = 只有警报，还没开始倒数）
     this._alertSaid = 0; // 上一次响过的数字（换数字才响一声）
@@ -225,6 +237,11 @@ export class Game {
   }
 
   get tier() {
+    // 第四关按"剑 / 法杖"两条线报称号（用户 m04749），档位门槛与通用表一致
+    if (isFantasy()) {
+      const t = WEAPON_TIERS_FANTASY[Math.min(this.weapon.tierIdx, WEAPON_TIERS_FANTASY.length - 1)];
+      return { at: t.at, name: this.heroId === 'fairy' ? t.fairy : t.name };
+    }
     return WEAPON_TIERS[this.weapon.tierIdx];
   }
 
@@ -241,11 +258,11 @@ export class Game {
 
   /**
    * 【m02004】阳光带来的攻击倍率（1 = 没捡过阳光）。
-   * 子弹和 BOSS 血量校准（estimateDps）都走这里 —— 不然"阳光越捡越猛"
-   * 会让 BOSS 战变成几秒秒杀，20 秒的消耗战设计就废了。
+   * 【m04749】第四关的「精灵祝福」也加在这里，子弹和 BOSS 血量校准
+   * （estimateDps）都走这个函数，免得加了攻击之后 BOSS 被几秒秒掉。
    */
   atkMul() {
-    return 1 + (this.sunAtk || 0);
+    return (1 + (this.sunAtk || 0)) * (this.blessMul || 1);
   }
 
   // ---------------------------------------------------------
@@ -334,6 +351,7 @@ export class Game {
       this.updateStrikes(dt);
       this.updateSuns(dt); // 第三关：阳光往下掉 + 走过去捡
       this.updateCherries(dt); // 第三关：樱桃炸弹的引信
+      this.updateUnicorns(dt); // 第四关：独角兽冲锋
     }
     if (fighting) {
       this.updateEnemies(dt);
@@ -716,11 +734,20 @@ export class Game {
     return b;
   }
 
+  /**
+   * 当前关卡的第二形态 BOSS 配置（用户 m04749 之后不再只有"僵尸博士"）：
+   * 第三关 = 僵尸博士（CFG.pvz.boss2），第四关 = 恶龙（CFG.fantasy.boss2）。
+   * 两边字段同名（name/hpMul/sizeMul/skills/…），所以调用点只换这一处取值。
+   */
+  boss2Cfg() {
+    return isFantasy() ? CFG.fantasy.boss2 : CFG.pvz.boss2;
+  }
+
   spawnBossAdds(boss, count) {
     const K = CFG.kinds.boss;
     const H = CFG.bossHorde;
     // 被动放崽子：僵王 2.2 秒一批，博士 3.2 秒一批（它自己还另有 2.5 秒的技能循环）
-    boss.addT = boss.form === 2 ? CFG.pvz.boss2.addEvery : K.spawnEvery;
+    boss.addT = boss.form === 2 ? this.boss2Cfg().addEvery : K.spawnEvery;
     // 场上的非 BOSS 怪到 aliveCap 就先不放 —— 但不能"放着不放"：
     // 旧值 22 会被人海（24 只）+ 队列的怪顶死，BOSS 就此哑火（用户 m01023 的"没事做"）。
     const alive = this.enemies.reduce((n, e) => n + (!e.dead && e.kind !== 'boss' ? 1 : 0), 0);
@@ -799,7 +826,7 @@ export class Game {
       return 'frozen';
     }
     if (e.form === 2) {
-      const B = CFG.pvz.boss2;
+      const B = this.boss2Cfg();
       e.skillT -= dt;
       if (e.skillT <= 0) {
         e.skillT = B.skillEvery;
@@ -848,14 +875,18 @@ export class Game {
     return 'ok';
   }
 
-  /** 僵尸博士的技能循环：导弹阵 / 召崽子 / 火球齐射（用户 m01503 的"技能更多"） */
+  /**
+   * 第二形态 BOSS 的技能循环。
+   * 第三关（僵尸博士）：导弹阵 / 召崽子 / 火球齐射。
+   * 第四关（恶龙）：喷火焰 / 挥翅冲击波 / 召哥布林（用户 m04749）。
+   */
   bossSkill2(e) {
-    const B = CFG.pvz.boss2;
+    const B = this.boss2Cfg();
     // 【用户 m01220】危险技能（导弹阵 / 火球齐射）撞上冷却就让位：这次不算数、
     // 0.4 秒后再试，skillIdx 不往后走 —— 技能不会丢，只是排队。
     if (this.hazardCd > 0) {
       const next = B.skills[e.skillIdx % B.skills.length];
-      if (next === 'missile' || next === 'fireball') {
+      if (next === 'missile' || next === 'fireball' || next === 'fire' || next === 'wind') {
         e.skillT = 0.4;
         return;
       }
@@ -867,33 +898,96 @@ export class Game {
     } else if (kind === 'summon') {
       for (let i = 0; i < B.summonCount; i++) this.spawnBossAdds(e, CFG.kinds.boss.spawnCount);
       this.sfx.bossSummon();
-      this.addPopup(e.x, e.z - 0.6, '召唤尸潮', '#8bf58b', 1.2);
+      this.addPopup(e.x, e.z - 0.6, isFantasy() ? '召唤哥布林' : '召唤尸潮', '#8bf58b', 1.2);
     } else if (kind === 'fireball') {
       this.doctorFireballs(e);
+    } else if (kind === 'fire') {
+      this.dragonFire(e);
+    } else if (kind === 'wind') {
+      this.dragonGust(e);
     }
   }
 
   /** 火球齐射：横铺整条路的一大排火球（速度比酸液慢，看得清、走得开） */
   doctorFireballs(e) {
-    const B = CFG.pvz.boss2;
+    const B = this.boss2Cfg();
     if (this.hazardCd > 0) return false; // 【用户 m01220】别和导弹阵叠在一起
-    const n = B.fireballCount;
+    const n = B.fireballCount || B.fireCount;
     const half = (n - 1) / 2;
     for (let i = 0; i < n; i++) {
       this.spits.push({
-        x: (i - half) * B.fireballGap,
+        x: (i - half) * (B.fireballGap || B.fireGap),
         z: e.z - e.size * 0.25,
-        vz: -B.fireballSpeed,
+        vz: -(B.fireballSpeed || B.fireSpeed),
         phase: rand(0, Math.PI * 2),
-        color: B.fireballColor,
+        color: B.fireballColor || B.fireColor,
         hot: true,
         dead: false,
       });
     }
     this.hazardCd = CFG.bossMissile.cooldown;
     this.sfx.fireball();
-    this.spawnParticles(e.x, e.z - e.size * 0.4, 14, 'spark', B.fireballColor);
-    this.addPopup(e.x, e.z - 0.6, '火球齐射', B.fireballColor, 1.2);
+    this.spawnParticles(e.x, e.z - e.size * 0.4, 14, 'spark', B.fireballColor || B.fireColor);
+    this.addPopup(e.x, e.z - 0.6, '火球齐射', B.fireballColor || B.fireColor, 1.2);
+    return true;
+  }
+
+  /**
+   * 恶龙的喷火（用户 m04749）：和博士的火球齐射同一套逻辑 ——
+   * 一排火横铺过来，中间留缝，走对方向就躲得开。少一颗、慢一点，看得更清楚。
+   */
+  dragonFire(e) {
+    const B = CFG.fantasy.boss2;
+    if (this.hazardCd > 0) return false;
+    const n = B.fireCount;
+    const half = (n - 1) / 2;
+    for (let i = 0; i < n; i++) {
+      this.spits.push({
+        x: (i - half) * B.fireGap,
+        z: e.z - e.size * 0.25,
+        vz: -B.fireSpeed,
+        phase: rand(0, Math.PI * 2),
+        color: B.fireColor,
+        hot: true,
+        dragon: true,
+        dead: false,
+      });
+    }
+    this.hazardCd = CFG.bossMissile.cooldown;
+    this.sfx.fireball();
+    // 龙头位置喷出一串火星，让"从嘴里喷出来"看得出来
+    this.spawnParticles(e.x, e.z - e.size * 0.45, 18, 'spark', '#ffd08a');
+    this.addPopup(e.x, e.z - 0.6, '火焰吐息', B.fireColor, 1.2);
+    return true;
+  }
+
+  /**
+   * 恶龙挥翅（用户 m04749）：两道很宽的"风压"从它那边推过来。
+   * 和火球齐射的区别是：更少（两道）、更宽、更慢 —— 逼你横向大挪一步，
+   * 而不是像火球那样原地找缝。命中和火球共用 this.spits 这套判定。
+   */
+  dragonGust(e) {
+    const B = CFG.fantasy.boss2;
+    if (this.hazardCd > 0) return false;
+    const n = B.windCount;
+    const half = (n - 1) / 2;
+    for (let i = 0; i < n; i++) {
+      this.spits.push({
+        x: (i - half) * B.windGap,
+        z: e.z - e.size * 0.2,
+        vz: -B.windSpeed,
+        phase: rand(0, Math.PI * 2),
+        color: B.windColor,
+        hot: false,
+        wind: true,
+        dead: false,
+      });
+    }
+    this.hazardCd = CFG.bossMissile.cooldown;
+    this.sfx.whoosh();
+    this.shake = Math.max(this.shake, 8);
+    this.spawnParticles(e.x, e.z - e.size * 0.2, 12, 'spark', '#dff2ff');
+    this.addPopup(e.x, e.z - 0.6, '振翅冲击波', '#dff2ff', 1.2);
     return true;
   }
 
@@ -904,7 +998,7 @@ export class Game {
    * 威胁全部改成技能（导弹阵 / 召唤 / 火球）。第二条血按 boss2.hpMul 重算。
    */
   evolveBoss(e) {
-    const B = CFG.pvz.boss2;
+    const B = this.boss2Cfg();
     const K = CFG.kinds.boss;
     const pl = this.player;
     e.form = 2;
@@ -1028,8 +1122,14 @@ export class Game {
     // （鱼鳍、章鱼触手、蟹钳、鲨鱼背鳍与尖牙、河豚刺、龟壳、水母伞盖）。
     // 第三关（疯狂草坪）：同一套机制换成 PvZ 的僵尸（普通/撑杆/巨人/僵王/
     // 投石车/铁桶/小鬼），render 的 _pvzBits 按 animal 画领带、铁桶、小鬼之类。
+    // 第四关（穿越异世界，用户 m04749）：同一套 kind 换成异世界五种怪 ——
+    // 哥布林/郊狼/兽人/鹰身女妖/史莱姆，BOSS 换成恶龙；render 的 _fantasyBits
+    // 按 animal 画尖耳木棒、狼吻尾巴、獠牙肩甲、羽翼利爪、黏液和龙翼龙尾。
     const SK = CFG.level.skin;
-    const skin = SK === 'ocean' ? K.ocean || null : SK === 'pvz' ? K.pvz || null : null;
+    const skin = SK === 'ocean' ? K.ocean || null
+      : SK === 'pvz' ? K.pvz || null
+        : SK === 'fantasy' ? K.fantasy || null
+          : null;
 
     this.enemies.push({
       id: this.nextId++,
@@ -1044,6 +1144,8 @@ export class Game {
       color: skin ? skin.color : K.color,
       dark: skin ? skin.dark : K.dark,
       animal: skin ? skin.animal : null,
+      // 名字（血条上写什么）：只有恶龙这类有专属名字的才会用到
+      title: skin && skin.name ? skin.name : null,
       halfW: K.size * 0.32,
       // 能"咬到"你的宽度。默认跟体型走，但 BOSS 体型太大（1.2 → 0.38）
       // 会盖满整条桥，所以它单独给一个窄值：身体很大很好打，想咬你只有中间一小段
@@ -1169,6 +1271,8 @@ export class Game {
         if (lanesFull && (u.id === 'iceLane' || u.id === 'fireLane')) return false;
         return true;
       }
+      // 第四关专属（剑气 / 星尘 / 独角兽 / 精灵祝福…，用户 m04749）
+      if (u.l4) return sk === 'fantasy';
       return true;
     });
     const avail = pool.filter((u) => (this.stacks[u.id] || 0) < u.max);
@@ -1243,6 +1347,9 @@ export class Game {
     if (a.chargeMul) this.energyMul *= a.chargeMul;
     if (a.strikeMul) this.strikeMul *= a.strikeMul;
     if (a.mine) this.mineStacks += a.mine; // 第二关：每波布水雷
+    // 第四关（用户 m04749）：独角兽加能 / 精灵祝福（攻击倍率）
+    if (a.uniUse) this.strikeCapBonus = (this.strikeCapBonus || 0) + a.uniUse;
+    if (a.atkMore) this.blessMul = (this.blessMul || 1) * a.atkMore;
 
     // 第三关：寒冰/炎火只改【一条】弹道（见 _noteLane）；阳光与樱桃是资源线
     let laneIdx = -1;
@@ -1336,7 +1443,7 @@ export class Game {
     }
     if (idx !== this.weapon.tierIdx) {
       this.weapon.tierIdx = idx;
-      this.addPopup(this.player.x, this.player.z + 2.5, `武器进化 · ${WEAPON_TIERS[idx].name}`, '#ff7df2', 1.45);
+      this.addPopup(this.player.x, this.player.z + 2.5, `武器进化 · ${this.tier.name}`, '#ff7df2', 1.45);
       this.flash = 0.7;
       this.shake = Math.max(this.shake, 8);
       // 【用户 m02399】进化要有"拿到新枪"的排面：粉色冲击环 + 一圈碎星 + 脚下光环
@@ -1771,13 +1878,15 @@ export class Game {
 
   gainEnergy(n) {
     if (this.energy >= CFG.charge.max) return;
-    this.energy = Math.min(CFG.charge.max, this.energy + n * this.energyMul);
+    // 第四关（用户 m04749）：独角兽要"充能变慢"，所以击杀给的能量打折。
+    const mul = isFantasy() ? CFG.fantasy.unicorn.chargeMul : 1;
+    this.energy = Math.min(CFG.charge.max, this.energy + n * this.energyMul * mul);
     if (this.energy >= CFG.charge.max) {
       this.sfx.chargeReady();
       this.addPopup(
         this.player.x,
         this.player.z + 2.2,
-        isPvz() ? '樱桃炸弹就绪 · 点右下角' : '空袭就绪 · 点右下角',
+        isPvz() ? '樱桃炸弹就绪 · 点右下角' : isFantasy() ? '独角兽就绪 · 点右下角' : '空袭就绪 · 点右下角',
         '#8bf58b',
         1.4,
       );
@@ -1786,7 +1895,13 @@ export class Game {
   }
 
   canStrike() {
-    return this.energy >= CFG.charge.max && (this.state === STATE.FIGHT || this.state === STATE.PREP);
+    if (this.energy < CFG.charge.max) return false;
+    if (this.state !== STATE.FIGHT && this.state !== STATE.PREP) return false;
+    // 第四关：一局最多 CFG.level.strikeCap 次（用户 m04749 的"1 局最多 2~3 次"），
+    // 吃到「独角兽加能」还能往上加（strikeCapBonus）
+    const cap = CFG.level && CFG.level.strikeCap;
+    if (cap && this.strikeUses >= cap + (this.strikeCapBonus || 0)) return false;
+    return true;
   }
 
   /** 呼叫空袭：轰炸机横穿夜空，一串导弹从天上砸下来，从远处一路犁到桥头 */
@@ -1794,9 +1909,12 @@ export class Game {
     if (!this.canStrike()) return false;
     this.energy = 0;
     this.strikeSeq += 1;
+    this.strikeUses += 1;
 
     // 第三关：大招不是空袭，而是植物大战僵尸里那个樱桃炸弹
     if (isPvz()) return this.triggerCherry();
+    // 第四关：大招换成独角兽冲锋（用户 m04749）
+    if (isFantasy()) return this.triggerUnicorn();
 
     const S = CFG.strike;
     // 瞄准活着的敌人的平均横向位置：空袭要砸在"人堆"上才有快感
@@ -1907,6 +2025,67 @@ export class Game {
       if (e.kind !== 'boss') e.z += 0.2; // 炸得往后一掀（BOSS 太沉，掀不动）
       if (e.hp <= 0) this.killEnemy(e);
     }
+  }
+
+  /**
+   * 第四关的大招：独角兽冲锋（用户 m04749）。
+   * 点击右下角 → 一头独角兽从雾里冲出来，沿着英雄这一路**一路踩到桥头**，
+   * 撞到的普通怪直接清掉、BOSS 吃一大口。和空袭的区别是"只清一条线"，
+   * 所以它才需要充能更慢 + 一局限额（CFG.fantasy.unicorn / level.strikeCap）。
+   */
+  triggerUnicorn() {
+    const U = CFG.fantasy.unicorn;
+    const x = clamp(this.player.x, -this.cam.roadHalf + 0.2, this.cam.roadHalf - 0.2);
+    this.unicorns.push({
+      x,
+      z: this.player.z + 0.6,
+      z0: this.player.z + 0.6,
+      z1: CFG.zFar + 4,
+      t: 0,
+      dur: U.runTime,
+      seq: this.strikeSeq,
+      hit: [],
+      dead: false,
+    });
+    this.sfx.whoosh();
+    this.sfx.strike();
+    this.shake = Math.max(this.shake, 9);
+    this.flash = Math.max(this.flash, 0.3);
+    this.say('冲 ！', '#ffd0f0');
+    this.addPopup(this.player.x, this.player.z + 5, '独 角 兽', '#ffd0f0', 1.7);
+    for (let i = 0; i < 18; i++) {
+      this.spawnParticles(x + rand(-0.4, 0.4), this.player.z + rand(0.4, 2.2), 1, 'spark', U.mane);
+    }
+    return true;
+  }
+
+  /** 独角兽：从英雄身边一路冲到桥头，撞到的怪吃 U.damage（BOSS 吃 bossDamage） */
+  updateUnicorns(dt) {
+    const U = CFG.fantasy.unicorn;
+    for (const u of this.unicorns) {
+      if (u.dead) continue;
+      u.t += dt;
+      const p = clamp(u.t / u.dur, 0, 1);
+      u.z = u.z0 + (u.z1 - u.z0) * p;
+      // 冲过去时沿路清怪：判定按"横向半宽 + 怪的体型"来，贴着边也算撞到
+      for (const e of this.enemies) {
+        if (e.dead || u.hit.includes(e.id)) continue;
+        if (Math.abs(e.z - u.z) > 0.95 + e.size * 0.35) continue;
+        if (Math.abs(e.x - u.x) > U.hitR + e.size * 0.3) continue;
+        u.hit.push(e.id);
+        e.hp -= (e.kind === 'boss' ? U.bossDamage : U.damage) * this.strikeMul;
+        e.hurtT = 0.16;
+        if (e.kind !== 'boss') e.z += 0.35; // 撞得往后一掀（BOSS 太沉，掀不动）
+        this.spawnParticles(e.x, e.z, 10, 'spark', U.mane);
+        if (e.hp <= 0) this.killEnemy(e);
+      }
+      if (p >= 1) {
+        u.dead = true;
+        this.rings.push({ x: u.x, z: u.z, t: 0, life: 0.5, maxR: 1.6, color: U.horn });
+        this.spawnParticles(u.x, u.z, 22, 'spark', U.coat);
+      }
+    }
+    this.unicorns = this.unicorns.filter((u) => !u.dead);
   }
 
   updateStrikes(dt) {

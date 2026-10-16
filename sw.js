@@ -8,7 +8,7 @@
 //  断网时又还能打开，离线能力一点没少。
 // ============================================================
 
-const CACHE = 'hold-the-bridge-v1.0.27';
+const CACHE = 'hold-the-bridge-v1.0.28';
 
 const ASSETS = [
   './',
@@ -24,6 +24,10 @@ const ASSETS = [
   './img/portrait-uncle.png',
   './img/portrait-cmd.png',
   './img/portrait-dave.png',
+  // 第四关「穿越异世界」的说话人（用户 m04749）：勇者 / 花仙子 / 村长
+  './img/portrait-knight.png',
+  './img/portrait-fairy.png',
+  './img/portrait-elder.png',
   './js/main.js',
   './js/config.js',
   './js/util.js',
