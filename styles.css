@@ -1762,3 +1762,63 @@ html[data-lang="en"] .guide-body h3 { font-size: 13.2px; letter-spacing: 0.6px; 
 
 /* 更新说明条目：缩到 11.6px，让大部分条目回到一行 */
 html[data-lang="en"] .log-ul li { font-size: 11.6px; line-height: 1.55; }
+
+/* ============================================================
+   第四关「穿越异世界」：HUD 换皮
+   （用户 m06012「从这关开始 UI 等视觉效果必须全面提升」）
+
+   <body> 上的 skin-fantasy 由 js/main.js 的 syncState() 挂/摘；
+   画布那半边（血槽暖玻璃 + 波次金色饰线 + BOSS 血条金边）
+   在 js/render.js 的 _drawHudCanvas 里按 CFG.level.skin 分支。
+
+   放在文件末尾：body.skin-fantasy X 的特异性高于 X，
+   所以不用 !important。改的是"冷蓝玻璃"→"暖金玻璃"，
+   尺寸/字号/字距一律不动（英文布局的回归测试覆盖着那些）。
+   ============================================================ */
+body.skin-fantasy {
+  --hair: rgba(255, 223, 138, 0.34);
+  --dim: #cdbf9d;
+}
+
+/* 左上角的分数：金色 + 一层金辉 */
+body.skin-fantasy .hud-num {
+  color: #ffe6a8;
+  text-shadow:
+    0 0 14px rgba(255, 196, 110, 0.5),
+    0 2px 0 rgba(58, 32, 8, 0.92);
+}
+body.skin-fantasy .hud-cap { color: #d6c39a; }
+
+/* 波次 / 最高：冷蓝小药丸换暖金 */
+body.skin-fantasy .hud-pill {
+  background:
+    linear-gradient(180deg, rgba(255, 238, 196, 0.14), rgba(255, 238, 196, 0) 62%),
+    linear-gradient(180deg, rgba(32, 25, 20, 0.74), rgba(14, 11, 10, 0.68));
+  border-color: rgba(255, 223, 138, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 200, 0.14),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 3px 12px rgba(0, 0, 0, 0.45),
+    0 0 14px rgba(255, 196, 110, 0.1);
+}
+
+/* 返回 / 暂停 */
+body.skin-fantasy .ig-btn {
+  color: #f2e4bf;
+  border-color: rgba(255, 223, 138, 0.36);
+  background:
+    linear-gradient(180deg, rgba(255, 238, 196, 0.12), rgba(255, 238, 196, 0) 58%),
+    linear-gradient(180deg, rgba(32, 25, 20, 0.74), rgba(13, 10, 9, 0.7));
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 4px 14px rgba(0, 0, 0, 0.5),
+    0 0 12px rgba(255, 196, 110, 0.09);
+}
+
+/* 静音的小圆钮 */
+body.skin-fantasy .mute {
+  color: #f2e4bf;
+  border-color: rgba(255, 223, 138, 0.32);
+  background: linear-gradient(180deg, rgba(32, 25, 20, 0.78), rgba(13, 10, 9, 0.72));
+}
+

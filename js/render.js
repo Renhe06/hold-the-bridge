@@ -5328,10 +5328,14 @@ export class Renderer {
     const danger = pl.hp <= 1;
     const heartR = 7.4;
     const plateW = pl.maxHp * 20 - 6;
-    ctx.fillStyle = CFG.theme.panel || 'rgba(10,14,22,0.72)';
+    // 【第四关观感】通用 HUD 是冷蓝玻璃，到了异世界要和金/苔绿的面板统一：
+    // 血槽换成暖色玻璃 + 金边 + 一层很淡的金色辉光（不抢心形的红）。
+    const fskin = CFG.level.skin === 'fantasy';
+    if (fskin) this._drawGlow(10 + plateW / 2, baseY, plateW * 0.62, '#ffd98a', 0.1);
+    ctx.fillStyle = fskin ? 'rgba(30,19,30,0.74)' : (CFG.theme.panel || 'rgba(10,14,22,0.72)');
     roundRect(ctx, 10, baseY - 13, plateW, 26, 13);
     ctx.fill();
-    ctx.strokeStyle = danger ? 'rgba(255,90,74,0.55)' : 'rgba(160,200,240,0.16)';
+    ctx.strokeStyle = danger ? 'rgba(255,90,74,0.55)' : fskin ? 'rgba(255,223,138,0.34)' : 'rgba(160,200,240,0.16)';
     ctx.lineWidth = 1.2;
     roundRect(ctx, 10, baseY - 13, plateW, 26, 13);
     ctx.stroke();
@@ -5377,6 +5381,27 @@ export class Renderer {
       ctx.strokeText(txt, w / 2, yy);
       ctx.fillStyle = bossWave ? '#ff5a4a' : hordeWave ? '#8bf58b' : '#ffe9a8';
       ctx.fillText(txt, w / 2, yy);
+      // 【第四关观感】异世界的横幅加一条金色饰线 + 两枚菱角，和幻想皮肤的金绿描边呼应
+      if (fskin) {
+        const ry = yy + w * 0.046;
+        ctx.strokeStyle = 'rgba(255,223,138,0.5)';
+        ctx.lineWidth = 1.6;
+        ctx.fillStyle = 'rgba(255,223,138,0.72)';
+        for (const s of [-1, 1]) {
+          const x0 = w / 2 + s * w * 0.13;
+          const x1 = w / 2 + s * w * 0.4;
+          ctx.beginPath();
+          ctx.moveTo(x0, ry);
+          ctx.lineTo(x1, ry);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x1, ry - 4.5);
+          ctx.lineTo(x1 + s * 6.5, ry);
+          ctx.lineTo(x1, ry + 4.5);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
       let subY = yy + w * 0.08;
       // 副标题直接读 game.waveTag（在 startWave 里按"这一波是什么"算好的）：
       // BOSS / 专属大场面（带名字和说明）/ 人海 / 精英波 / 割草波。
@@ -5446,8 +5471,14 @@ export class Renderer {
       roundRect(ctx, bx + 2, by + 2, Math.max(2, (bw - 4) * frac), bh - 4, Math.max(1, (bh - 4) / 2));
       ctx.fill();
       ctx.globalAlpha = 1;
+      // 【第四关观感】血条顶部加一道高光 + 金边，跟第三关的塑料感拉开
+      if (fskin) {
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        roundRect(ctx, bx + 5, by + 3, Math.max(2, (bw - 10) * frac), Math.max(1, bh * 0.2), bh * 0.1);
+        ctx.fill();
+      }
       // 外框
-      ctx.strokeStyle = 'rgba(255,255,255,0.24)';
+      ctx.strokeStyle = fskin ? 'rgba(255,215,138,0.62)' : 'rgba(255,255,255,0.24)';
       ctx.lineWidth = 1.5;
       roundRect(ctx, bx, by, bw, bh, bh / 2);
       ctx.stroke();

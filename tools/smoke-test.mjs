@@ -2153,6 +2153,19 @@ try {
     ok(/function warmHeroArt\(/.test(main) && /CFG\.level\.skin === 'fantasy'\) warmHeroArt/.test(main),
       '第四关全身立绘改成"进对话时预热"（不占首开时间）');
     ok(!/hero-(knight|fairy)\.png/.test(sw), 'sw.js 的预缓存外壳里没有全身立绘');
+
+    // (i) 第四关 HUD 换皮（用户 m06012「UI 等视觉效果必须全面提升」）
+    //   换皮全靠一个 body.skin-fantasy 类 + 若干 CSS 覆盖 + 画布里两处皮肤分支。
+    //   这四条钉住"入口还在、分支还在"，以后整理 HUD 时不会悄悄退回冷蓝壳子。
+    const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+    const rend = fs.readFileSync(path.join(ROOT, 'js', 'render.js'), 'utf8');
+    ok(/classList\.toggle\('skin-fantasy', skin === 'fantasy'\)/.test(main),
+      "main.js 按皮肤给 <body> 挂 skin-fantasy（HUD 换皮的入口）");
+    ok(/body\.skin-fantasy \.hud-pill/.test(css) && /body\.skin-fantasy \.ig-btn/.test(css),
+      'styles.css 有第四关 HUD 覆盖（小药丸与返回/暂停钮换暖金玻璃）');
+    ok(/const fskin = CFG\.level\.skin === 'fantasy'/.test(rend) && /fskin \? 'rgba\(255,215,138,0\.62\)'/.test(rend),
+      '画布 HUD 也有皮肤分支（BOSS 血条金边）');
+    ok(/异世界的横幅加一条金色饰线/.test(rend), '波次横幅在第四关加金色饰线');
   }
 
   // 收尾：回到第一关的开局状态，别影响后面的段

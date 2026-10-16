@@ -950,11 +950,14 @@ function syncState() {
 
   // 【用户 m06012】「从这关开始 UI 等视觉效果必须全面提升」：
   // 第四关（skin=fantasy）的对话面板换成幻想绘卷皮肤 —— 立绘放大成半身胸像、金绿描边。
+  // 同时给 <body> 挂 skin-fantasy，让顶部 HUD / 返回暂停按钮 / 提示气泡也跟着换皮
+  // （画布那部分在 render.js 的 _drawHudCanvas 里按皮肤分支）。
   // 只在皮肤真的换了才碰 DOM（这个函数每帧都跑）。
   const skin = (CFG.level && CFG.level.skin) || 'city';
   if (skin !== lastSkin) {
     lastSkin = skin;
     el.talkOverlay.classList.toggle('fantasy', skin === 'fantasy');
+    document.body.classList.toggle('skin-fantasy', skin === 'fantasy');
   }
 
   if (st !== lastState) {
