@@ -1403,6 +1403,70 @@ html, body {
 
 .talk-actions.show { display: flex; }
 
+/* ------------------------------------------------------------
+   第四关「穿越异世界」的对话皮肤
+   【用户 m06012】「从这关开始，UI 等视觉效果必须全面提升」：
+   沿用第二/三关那套 HUD 面板会显得太"末世"，异世界这关换成幻想绘卷 ——
+   说话人立绘从 90px 方图放大成半身胸像（用户给的图就是竖构图，放大才看得清），
+   配色走金 + 苔绿，和关卡里的城堡/森林夜景一套。
+   ------------------------------------------------------------ */
+.overlay.talk.fantasy {
+  background:
+    var(--grid),
+    radial-gradient(120% 80% at 50% 30%, rgba(18, 44, 34, 0.9), rgba(3, 10, 9, 0.975));
+}
+
+.overlay.talk.fantasy .talk-panel {
+  max-width: 400px;
+  border-color: rgba(255, 223, 138, 0.32);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 26%),
+    linear-gradient(180deg, rgba(18, 38, 30, 0.96), rgba(6, 15, 12, 0.975));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 200, 0.14),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 22px 60px rgba(0, 0, 0, 0.62),
+    0 0 44px rgba(255, 214, 110, 0.13);
+}
+.overlay.talk.fantasy .talk-panel::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 223, 138, 0.85), transparent);
+}
+
+.overlay.talk.fantasy .talk-head { border-bottom-color: rgba(255, 223, 138, 0.18); }
+
+/* 半身胸像：用户给的立绘是竖构图（1024x1536），切到 118x134 才不糊 */
+.overlay.talk.fantasy .talk-portrait {
+  width: 118px;
+  height: 134px;
+  object-position: 50% 16%;
+  border-radius: 8px;
+  border-color: rgba(255, 223, 138, 0.5);
+  background: #10241d;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    0 6px 22px rgba(0, 0, 0, 0.55),
+    0 0 26px rgba(255, 214, 110, 0.2);
+  clip-path: polygon(13px 0, 100% 0, 100% calc(100% - 13px), calc(100% - 13px) 100%, 0 100%, 0 13px);
+}
+
+.overlay.talk.fantasy .talk-name {
+  color: #ffeaa9;
+  text-shadow:
+    0 2px 0 rgba(72, 46, 0, 0.9),
+    0 0 16px rgba(255, 214, 110, 0.5);
+}
+.overlay.talk.fantasy .talk-stamp {
+  border-color: rgba(255, 223, 138, 0.3);
+  background: rgba(255, 223, 138, 0.08);
+  color: #e6d3a0;
+}
+.overlay.talk.fantasy .talk-text { color: #fff7e8; }
+.overlay.talk.fantasy .talk-more {
+  color: #ffd98a;
+  text-shadow: 0 0 12px rgba(255, 214, 110, 0.45);
+}
+.overlay.talk.fantasy .talk-actions .btn { border-color: rgba(255, 223, 138, 0.34); }
+
 /* 第二关结算面板上的「下一关 →」按钮 */
 #clearNext { letter-spacing: 3px; }
 
@@ -1590,6 +1654,8 @@ html, body {
   .lv { padding: 10px 11px; }
   .lv b { font-size: 15px; }
   .talk-portrait { width: 78px; height: 78px; }
+  /* 矮屏上第四关的半身胸像也要收一号，否则对话面板会顶到屏幕外 */
+  .overlay.talk.fantasy .talk-portrait { width: 96px; height: 108px; }
   .talk-text { min-height: 66px; font-size: 14px; }
   .hud-num { font-size: 30px; }
 }
@@ -1605,6 +1671,8 @@ html, body {
   .menu-btn b { font-size: 13px; }
   .stat b { font-size: 20px; }
   .coin-big b { font-size: 34px; }
+  /* 横屏/分屏这种极矮屏，半身胸像退回到方图大小 */
+  .overlay.talk.fantasy .talk-portrait { width: 82px; height: 92px; }
 }
 
 /* 极矮屏（横屏 / 分屏）：说明面板直接顶到边上，把纵向空间全给正文 */
