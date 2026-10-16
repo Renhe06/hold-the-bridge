@@ -2267,6 +2267,14 @@ try {
 
   I18N.set('en');
   ok(I18N.isEn(), '切到英文');
+  ok(localStorage.getItem('hold-the-bridge:lang') === 'en', '语言选择写进 localStorage（下次打开还记得）');
+  {
+    // 带查询串再 import 一次 = 全新模块实例，等价于"关掉页面重新打开"：
+    // 它只会从 localStorage 读语言，能读回 en 才算持久化真的成立。
+    const { I18N: fresh } = await import(pathToFileURL(path.join(ROOT, 'js', 'i18n.js')).href + '?fresh=1');
+    ok(fresh.isEn(), '重新打开后仍然是英文（持久化生效）');
+    fresh.set('zh'); // 别把存档状态留给后面的用例
+  }
   ok(I18N.tr('开 始 挑 战') === 'START', `精确键：开 始 挑 战 → ${I18N.tr('开 始 挑 战')}`);
   ok(I18N.tr('第 7 / 15 波') === 'Wave 7 / 15', `正则表：第 7 / 15 波 → ${I18N.tr('第 7 / 15 波')}`);
   ok(
