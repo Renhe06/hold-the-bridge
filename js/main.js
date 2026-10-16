@@ -429,10 +429,13 @@ function runBootLoader() {
     if (frames > 0) requestAnimationFrame(tick);
     else finish();
   };
+  // 进度条走一条"渐近"曲线：0.65s 到 ~41%、2s 到 ~75%、5s 到 ~89%，永远在动但永远不装满分。
+  // （原来 0.65s 就冲到 90% 然后干等 —— 冷启动要 3 秒多，看着像卡死了。）
   const ramp = () => {
     if (ready) return;
-    const p = Math.min(90, Math.round(((performance.now() - t0) / 650) * 90));
-    if (bar) bar.style.width = `${p}%`;
+    const ms = performance.now() - t0;
+    const p = Math.min(90, 90 * (1 - Math.exp(-ms / 1100)));
+    if (bar) bar.style.width = `${p.toFixed(1)}%`;
     raf = requestAnimationFrame(ramp);
   };
   raf = requestAnimationFrame(ramp);

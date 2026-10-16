@@ -2136,6 +2136,25 @@ try {
     ok(html.includes('class="lv hero"'), '角色卡片复用了关卡卡片的样式');
   }
 
+  // (h) 启动加载页 + "不用执着离线，先保证体验"（用户 m06896）
+  //   这几条都是"最怕以后整理代码时被顺手删掉/改回去"的东西：
+  //   加载页在就有一层兜底，图片不进预缓存才有首开的快。
+  {
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const main = fs.readFileSync(path.join(ROOT, 'js', 'main.js'), 'utf8');
+    const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+    ok(/id="bootOverlay"/.test(html) && /id="bootBar"/.test(html), '首屏有加载页（守桥 + 进度条）');
+    // 加载页必须是"内联样式"：样式表还没到就得能画，否则先闪一下黑底白字
+    ok(/\n<div class="boot" id="bootOverlay"[^>]*style="/.test(html), '加载页的关键样式是内联的（样式表之前就要能画）');
+    ok(/function runBootLoader\(\)/.test(main) && /function closeBoot\(\)/.test(main), 'main.js 里有加载页的开关');
+    ok(/setTimeout\(closeBoot, BOOT_MAX_MS\)/.test(main) && /addEventListener\('pointerdown', closeBoot\)/.test(main),
+      '加载页有兜底：最多等 BOOT_MAX_MS、点一下立刻进（不会把玩家卡在加载页）');
+    ok(/Math\.exp\(-ms \/ 1100\)/.test(main), '进度条走渐近曲线（不会冲到 90% 然后干等）');
+    ok(/function warmHeroArt\(/.test(main) && /CFG\.level\.skin === 'fantasy'\) warmHeroArt/.test(main),
+      '第四关全身立绘改成"进对话时预热"（不占首开时间）');
+    ok(!/hero-(knight|fairy)\.png/.test(sw), 'sw.js 的预缓存外壳里没有全身立绘');
+  }
+
   // 收尾：回到第一关的开局状态，别影响后面的段
   setLv4(0);
   game.newRun(0);
