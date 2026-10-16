@@ -1264,8 +1264,9 @@ export class Game {
     this.upgradeSeq += 1;
     this.sfx.upgrade();
     if (atZ != null) {
+      // 【用户 m02807】这里原来会在英雄脚下炸一圈金色光圈（#ffe9a8）——
+      // 每吃一次奖励就冒一个"金圈"，用户说碍眼，已去掉，只留飘字 + 音效。
       this.addPopup(0, atZ, `${u.op}${u.amt} ${u.short}`, '#ffe9a8', 1.35);
-      this.rings.push({ x: this.player.x, z: atZ, t: 0, life: 0.45, maxR: 0.5, color: '#ffe9a8' });
     }
   }
 
@@ -1667,8 +1668,8 @@ export class Game {
         this.sfx.combo(this.combo);
         this.addPopup(e.x, e.z, `${this.combo} 连杀！`, '#ffd166', 1.5);
         this.shake = Math.max(this.shake, 6);
-        // 【用户 m02399】里程碑给一点视觉：脚下炸一圈金环 + 金色碎星
-        this.rings.push({ x: this.player.x, z: this.player.z, t: 0, life: 0.55, maxR: 1.6, color: '#ffd166' });
+        // 【用户 m02807】原来在脚下炸一圈金环，用户觉得"人物身上时不时冒个金圈"很碍眼 —— 已去掉，
+        // 连杀里程碑只留金色碎星 + 飘字 + 音效。
         this.spawnParticles(this.player.x, this.player.z + 0.4, 10, 'spark', '#ffe9a8');
         // 英雄喊一句（配置在 CFG.shouts，越往上越亢奋）
         const line = CFG.shouts.find((s) => s.combo === this.combo);
