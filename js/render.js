@@ -2888,6 +2888,31 @@ export class Renderer {
       ctx.lineWidth = 1;
       ctx.stroke();
 
+      // 四角取景框 —— 和 DOM 那边的面板同一套语言（贴着卡片的角，两条边朝里收）
+      const ax = pwPx * 0.22;
+      const ay = ph * 0.18;
+      ctx.strokeStyle = rgba(col, active ? 0.9 : 0.42);
+      ctx.lineWidth = Math.max(1.4, ph * 0.022);
+      ctx.lineCap = 'round';
+      for (const sx of [-1, 1]) {
+        for (const sy of [-1, 1]) {
+          const X = cx + sx * (pwPx - pad * 0.55);
+          const Y = sy < 0 ? top + ph * 0.05 : top + ph * 0.95;
+          ctx.beginPath();
+          ctx.moveTo(X - sx * ax, Y);
+          ctx.lineTo(X, Y);
+          ctx.lineTo(X, Y - sy * ay);
+          ctx.stroke();
+        }
+      }
+
+      // 你站的那一侧，面板底下压一条会呼吸的光条（"这一块归你"）
+      if (active) {
+        ctx.fillStyle = rgba(col, 0.5 + 0.34 * Math.sin(this.time * 6));
+        roundRect(ctx, cx - pwPx * 0.52, top + ph * 0.94, pwPx * 1.04, Math.max(2, ph * 0.032), ph * 0.02);
+        ctx.fill();
+      }
+
       // 字号跟着面板高度走，保证小屏也读得清
       const bigSize = Math.max(11, Math.round(ph * 0.40));
       const opSize = Math.max(10, Math.round(ph * 0.30));
@@ -2999,11 +3024,13 @@ export class Renderer {
       ctx.fill();
       ctx.restore();
 
-      // 一圈尖芒（慢慢转）
+      // 一圈尖芒（慢慢转）：花瓣也描一圈硬边，跟僵尸/主角统一
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(s.phase * 0.18);
       ctx.fillStyle = L.sun;
+      ctx.strokeStyle = mix(L.sun, '#7a4a00', 0.55);
+      ctx.lineWidth = Math.max(1, r * 0.12);
       for (let i = 0; i < 8; i++) {
         ctx.rotate(Math.PI / 4);
         ctx.beginPath();
@@ -3012,12 +3039,14 @@ export class Renderer {
         ctx.lineTo(-r * 0.34, -r * 1.5);
         ctx.closePath();
         ctx.fill();
+        ctx.stroke();
       }
       ctx.restore();
       ctx.fillStyle = L.sunCore;
       ctx.beginPath();
       ctx.arc(cx, cy, r * 0.7 * pulse, 0, TAU);
       ctx.fill();
+      ctx.stroke();
       ctx.fillStyle = '#fffbe0';
       ctx.beginPath();
       ctx.arc(cx - r * 0.2, cy - r * 0.22, r * 0.28, 0, TAU);
@@ -3067,17 +3096,27 @@ export class Renderer {
       const bodyCol = k > 0.7 ? mix('#c81f2a', '#fff2c4', blink * 0.8) : '#c81f2a';
       const cy = p.y - r * (1.1 + 0.35 * (1 - k));
       this._drawGlow(p.x, cy, r * 2.6, '#ff7a4a', 0.5 + 0.4 * k);
+      // 蒂：先描一圈深绿硬边再填
+      ctx.strokeStyle = '#123d0a';
+      ctx.lineWidth = Math.max(1.4, r * 0.19) + Math.max(0.8, r * 0.09);
+      ctx.beginPath();
+      ctx.moveTo(p.x, cy - r * 0.5);
+      ctx.quadraticCurveTo(p.x + r * 0.5, cy - r * 1.5, p.x + r * 0.15, cy - r * 1.9);
+      ctx.stroke();
       ctx.strokeStyle = '#2f7a1c';
       ctx.lineWidth = Math.max(1.4, r * 0.19);
       ctx.beginPath();
       ctx.moveTo(p.x, cy - r * 0.5);
       ctx.quadraticCurveTo(p.x + r * 0.5, cy - r * 1.5, p.x + r * 0.15, cy - r * 1.9);
       ctx.stroke();
+      ctx.strokeStyle = '#4a0d12';
+      ctx.lineWidth = Math.max(1.1, r * 0.15);
       for (const sx of [-1, 1]) {
         ctx.fillStyle = bodyCol;
         ctx.beginPath();
         ctx.arc(p.x + sx * r * 0.5, cy, r * 0.66, 0, TAU);
         ctx.fill();
+        ctx.stroke();
         ctx.fillStyle = 'rgba(255,255,255,0.5)';
         ctx.beginPath();
         ctx.arc(p.x + sx * r * 0.5 - r * 0.18, cy - r * 0.2, r * 0.2, 0, TAU);
@@ -3161,6 +3200,14 @@ export class Renderer {
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, rad, rad * flat, 0, 0, TAU);
       ctx.fill();
+      // 内圈随时间收缩 —— 一眼看出"还有多久砸下来"
+      ctx.globalAlpha = 0.28 + 0.45 * k;
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = Math.max(1.2, p.s * 0.004);
+      const ir = 0.35 + 0.65 * (1 - k);
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, rad * ir, rad * flat * ir, 0, 0, TAU);
+      ctx.stroke();
       ctx.globalAlpha = 0.4 + 0.5 * k;
       ctx.strokeStyle = '#ffd166';
       ctx.lineWidth = Math.max(1.2, p.s * 0.003);
