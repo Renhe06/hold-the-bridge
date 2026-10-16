@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<!-- build: 2026-10-16 14:10:15 -->
+<!-- build: 2026-10-16 14:27:19 -->
 <meta charset="UTF-8" />
 <title>守桥 · 丧尸围城</title>
 
@@ -89,7 +89,7 @@
       <p class="tiny free">本游戏完全免费<br /><span class="url">https://renhe06.github.io/hold-the-bridge/</span></p>
     </div>
     <!-- 右下角版本号：deploy.ps1 每次部署自动 +1（别手改，改了会被下次部署覆盖） -->
-    <div class="build" id="buildLabel">v1.0.20</div>
+    <div class="build" id="buildLabel">v1.0.21</div>
   </div>
 
   <!-- ============ 使用说明弹窗（第一次自动弹出，之后点首页「使用说明」才显示） ============ -->
@@ -191,26 +191,8 @@
   <div class="overlay talk" id="talkOverlay">
     <div class="panel talk-panel">
       <div class="talk-head">
-        <img class="talk-portrait" id="talkPortrait" src="./img/hero-uncle.jpg" alt="英雄" />
-        <!-- 第三关的戴夫：贴在头上的锅 + 大胡子，照着"疯狂戴夫"画的扁平头像 -->
-        <svg class="talk-portrait hidden" id="talkPortraitDave" viewBox="0 0 96 96" role="img" aria-label="疯狂戴夫">
-          <rect width="96" height="96" rx="14" fill="#bfe6ff" />
-          <ellipse cx="48" cy="88" rx="34" ry="22" fill="#f4f1e6" />
-          <path d="M30 84h36l-3 12H33z" fill="#7fa8c9" />
-          <ellipse cx="48" cy="52" rx="25" ry="27" fill="#e8b98f" />
-          <path d="M24 50c2-16 12-24 24-24s22 8 24 24c-6-8-14-11-24-11s-18 3-24 11z" fill="#d9a677" />
-          <ellipse cx="48" cy="76" rx="22" ry="12" fill="#8d6a53" />
-          <ellipse cx="48" cy="74" rx="15" ry="7" fill="#c98d6d" />
-          <ellipse cx="31" cy="34" rx="9" ry="4.5" fill="#f0f0f0" />
-          <ellipse cx="65" cy="34" rx="9" ry="4.5" fill="#f0f0f0" />
-          <circle cx="39" cy="50" r="3.4" fill="#2b2b2b" />
-          <circle cx="57" cy="50" r="3.4" fill="#2b2b2b" />
-          <path d="M40 64q8 6 16 0" stroke="#8a4a3a" stroke-width="2.6" fill="none" stroke-linecap="round" />
-          <path d="M20 40q-8-6-4-16 6 6 12 4z" fill="#e8b98f" />
-          <path d="M76 40q8-6 4-16-6 6-12 4z" fill="#e8b98f" />
-          <path d="M24 26q24-16 48 0l-4 6q-20-12-40 0z" fill="#b8b8b8" />
-          <path d="M28 24q20-12 40 0" stroke="#8f8f8f" stroke-width="2" fill="none" />
-        </svg>
+        <!-- 立绘：说话人是谁就换谁的图（hero / uncle / cmd / dave），文件在 img/portrait-*.png -->
+        <img class="talk-portrait" id="talkPortrait" src="./img/portrait-hero.png" alt="英雄" />
         <div class="talk-who">
           <div class="talk-name" id="talkName">英 雄</div>
           <div class="talk-stamp" id="talkStamp">01 / 03</div>

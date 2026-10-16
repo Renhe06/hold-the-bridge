@@ -56,7 +56,6 @@ const el = {
   clearTitle: $('clearTitle'),
   talkOverlay: $('talkOverlay'),
   talkPortrait: $('talkPortrait'),
-  talkPortraitDave: $('talkPortraitDave'),
   talkName: $('talkName'),
   talkText: $('talkText'),
   talkStamp: $('talkStamp'),
@@ -247,31 +246,42 @@ function startGame() {
 }
 onTap(el.startBtn, startGame);
 
-// ---- 第二 / 第三关进场对话 ----
+// ---- 三关的进场对话 ----
 // 用户 m01451：进第二关要有一段简短对话（英雄报告城市守住了 → 说明海洋还有僵尸威胁）。
 // 用户 m02771：第三关是植物大战僵尸，开场必须是戴夫那句「歪比巴布」。
-// 两段对话各三句，点一下翻一句，翻完才出按钮；按 CFG.level.intro 选。
+// 用户 m02399：① 每句都标"谁在说"，头像跟着说话人换（以前一整段只有一个头像，
+//   司令说话时却挂着英雄的照片，看着莫名其妙）；② 补上第一关的交代，
+//   让三关在剧情上接得上：守桥 → 城市保住了但海里爬上来 → 桥面长草、僵王来了；
+//   ③ 每段的最后一句都把"要干什么"讲清楚。
+// 头像文件在 hold-the-bridge/img/portrait-*.png（viz/portraits.mjs 生成）。
 const TALKS = {
+  city: {
+    start: '守 住 大 桥 ！',
+    lines: [
+      { p: 'cmd', who: '司 令', text: '这座桥是城里最后一条退路。桥断了，后面的人一个都走不掉。' },
+      { p: 'hero', who: '英 雄', text: '明白。给我弹药和路障，我站在桥头。' },
+      { p: 'cmd', who: '司 令', text: '它们会一波接一波地来，最后那只是大家伙。守满 15 波 —— 一秒都别退。' },
+    ],
+  },
   ocean: {
-    portrait: 'uncle',
     start: '疯 狂 水 世 界 · 启 动 ！',
     lines: [
-      { who: '英 雄', text: '司令 —— 城市守住了！桥还在我们手里，清理工作已经收尾。' },
-      { who: '司 令', text: '干得好。可海面上不太平：声呐里全是心跳，它们从海里爬上来了。' },
-      { who: '英 雄', text: '……那就下水。把我的鱼叉枪修好，我这就去码头。' },
+      { p: 'uncle', who: '大 叔', text: '报告司令 —— 城市守住了，桥还在我们手里，清理已经收尾。' },
+      { p: 'cmd', who: '司 令', text: '干得好。可海面不太平：声呐里全是心跳，它们从水里爬上来了。' },
+      { p: 'uncle', who: '大 叔', text: '……那就下水。把我的鱼叉枪修好，码头上一样守 15 波。' },
     ],
   },
   dave: {
-    portrait: 'dave',
     start: '好 了 · 开 打 ！',
     lines: [
-      { who: '戴 夫', text: '歪比巴布！！……咳，我是说：歪、比、巴、布。' },
-      { who: '戴 夫', text: '看见没？桥面现在是草坪了。草坪 + 僵尸 = 热闹，你懂我意思吧。' },
-      { who: '戴 夫', text: '甭慌 —— 你有豌豆。天上掉的阳光记得捡，攒满了扔樱桃。' },
+      { p: 'dave', who: '戴 夫', text: '歪比巴布！！……咳，我是说：歪、比、巴、布。' },
+      { p: 'dave', who: '戴 夫', text: '看见没？桥面已经全是草坪了。草坪 + 僵尸 = 热闹，你懂我意思吧。' },
+      { p: 'dave', who: '戴 夫', text: '甭慌 —— 你有豌豆，天上掉的阳光记得捡，攒满了扔樱桃。' },
+      { p: 'dave', who: '戴 夫', text: '最后出来那个是僵王，皮厚还会放导弹。别让它过桥，撑满 15 波。' },
     ],
   },
 };
-let talkSet = TALKS.ocean;
+let talkSet = TALKS.city;
 let talkIdx = 0;
 
 function renderTalk() {
@@ -281,6 +291,12 @@ function renderTalk() {
   setText(el.talkText, 'tkT', line.text);
   setText(el.talkStamp, 'tkS', `${String(Math.min(talkIdx + 1, lines.length)).padStart(2, '0')} / 0${lines.length}`);
   setText(el.talkStart, 'tkStart', talkSet.start);
+  // 【用户 m02399】头像跟着说话人换（每个说话人一张立绘）
+  if (el.talkPortrait) {
+    const p = line.p || 'hero';
+    el.talkPortrait.src = `./img/portrait-${p}.png`;
+    el.talkPortrait.alt = line.who;
+  }
   const done = talkIdx >= lines.length;
   el.talkMore.classList.toggle('hidden', done);
   el.talkActions.classList.toggle('show', done);
@@ -611,12 +627,8 @@ function syncState() {
     if (st === STATE.OVER) showGameOver();
     if (st === STATE.CLEAR) showClear();
     if (st === STATE.TALK) {
-      // 按这一关的 intro 选对话（ocean = 大叔 / dave = 戴夫）
-      talkSet = TALKS[CFG.level.intro] || TALKS.ocean;
-      if (el.talkPortraitDave) {
-        el.talkPortrait.classList.toggle('hidden', talkSet.portrait === 'dave');
-        el.talkPortraitDave.classList.toggle('hidden', talkSet.portrait !== 'dave');
-      }
+      // 按这一关的 intro 选对话（city = 第一关守桥 / ocean = 大叔下水 / dave = 戴夫）
+      talkSet = TALKS[CFG.level.intro] || TALKS.city;
       talkIdx = 0;
       renderTalk();
     }

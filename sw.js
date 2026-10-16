@@ -8,7 +8,7 @@
 //  断网时又还能打开，离线能力一点没少。
 // ============================================================
 
-const CACHE = 'hold-the-bridge-v1.0.20';
+const CACHE = 'hold-the-bridge-v1.0.21';
 
 const ASSETS = [
   './',
@@ -17,6 +17,11 @@ const ASSETS = [
   './fonts/smiley-sans.woff2',
   './manifest.webmanifest',
   './img/hero-uncle.jpg',
+  // 对话立绘（用户 m02399 头像重构）：说话人是谁就换谁的图
+  './img/portrait-hero.png',
+  './img/portrait-uncle.png',
+  './img/portrait-cmd.png',
+  './img/portrait-dave.png',
   './js/main.js',
   './js/config.js',
   './js/util.js',

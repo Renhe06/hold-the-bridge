@@ -1337,6 +1337,12 @@ export class Game {
       this.addPopup(this.player.x, this.player.z + 2.5, `武器进化 · ${WEAPON_TIERS[idx].name}`, '#ff7df2', 1.45);
       this.flash = 0.7;
       this.shake = Math.max(this.shake, 8);
+      // 【用户 m02399】进化要有"拿到新枪"的排面：粉色冲击环 + 一圈碎星 + 脚下光环
+      const pl = this.player;
+      this.rings.push({ x: pl.x, z: pl.z + 0.6, t: 0, life: 0.7, maxR: 2.4, color: '#ff7df2' });
+      this.rings.push({ x: pl.x, z: pl.z + 1.4, t: 0, life: 0.5, maxR: 1.5, color: '#ffffff' });
+      this.spawnParticles(pl.x, pl.z + 0.8, 22, 'spark', '#ff9df2');
+      this.sfx.bomb();
     }
   }
 
@@ -1661,6 +1667,9 @@ export class Game {
         this.sfx.combo(this.combo);
         this.addPopup(e.x, e.z, `${this.combo} 连杀！`, '#ffd166', 1.5);
         this.shake = Math.max(this.shake, 6);
+        // 【用户 m02399】里程碑给一点视觉：脚下炸一圈金环 + 金色碎星
+        this.rings.push({ x: this.player.x, z: this.player.z, t: 0, life: 0.55, maxR: 1.6, color: '#ffd166' });
+        this.spawnParticles(this.player.x, this.player.z + 0.4, 10, 'spark', '#ffe9a8');
         // 英雄喊一句（配置在 CFG.shouts，越往上越亢奋）
         const line = CFG.shouts.find((s) => s.combo === this.combo);
         if (line) {
@@ -1688,6 +1697,20 @@ export class Game {
     if (this.stains.length > 30) this.stains.shift();
 
     this.spawnParticles(e.x, e.z, e.kind === 'boss' ? 34 : big ? 20 : 13, 'blood', '#7d1a1a');
+    // 【用户 m02399】击杀更炫：再补一层"骨头/眼睛颜色"的星光 + 一圈扩散环。
+    // 只在近处加环（远处点杀不给），既不糊屏也不浪费帧。
+    const popCol = e.kind === 'brute' || e.kind === 'boss' ? '#ff9a6a' : '#ffe08a';
+    this.spawnParticles(e.x, e.z - e.size * 0.35, e.kind === 'boss' ? 26 : big ? 12 : 6, 'spark', popCol);
+    if (e.z - this.player.z < 34) {
+      this.rings.push({
+        x: e.x,
+        z: e.z,
+        t: 0,
+        life: e.kind === 'boss' ? 0.6 : big ? 0.38 : 0.26,
+        maxR: e.kind === 'boss' ? 3.4 : big ? 1.05 : 0.62,
+        color: popCol,
+      });
+    }
     this.addPopup(e.x, e.z, `+${gain}${this.combo >= 5 ? ` ×${this.combo}` : ''}`, '#ffd166', big ? 1.2 : 1);
     this.sfx.zombieDie(big);
     this.shake = Math.max(this.shake, e.kind === 'boss' ? 26 : big ? 8 : 4.5);
@@ -2038,6 +2061,8 @@ export class Game {
         this.addPopup(e.x, e.z, '破盾', '#ffe9a8', 1.25);
         this.spawnParticles(e.x, e.z, 12, 'spark', '#e8eecb');
         this.shake = Math.max(this.shake, 5);
+        // 【用户 m02399】破盾补一圈白环，打击感更明确
+        this.rings.push({ x: e.x, z: e.z, t: 0, life: 0.32, maxR: 0.7, color: '#ffe9a8' });
       }
     }
 
@@ -2049,6 +2074,11 @@ export class Game {
     // 博士（frozenStop）被打退也不会再走回来，这个问题在它身上最明显。
     if (e.kind !== 'boss') e.z += 0.045;
     this.spawnParticles(b ? b.x : e.x, e.z, isCrit ? 6 : 3, 'blood', '#7d1a1a');
+    // 【用户 m02399】暴击补一圈短促的白环 + 几点星火，爆头的感觉更足
+    if (isCrit) {
+      this.spawnParticles(b ? b.x : e.x, e.z - e.size * 0.5, 5, 'spark', '#fff3c4');
+      this.rings.push({ x: b ? b.x : e.x, z: e.z, t: 0, life: 0.22, maxR: 0.45, color: '#ffe9a8' });
+    }
 
     if (b) {
       if (b.ice > 0) {

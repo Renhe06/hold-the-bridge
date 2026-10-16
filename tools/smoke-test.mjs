@@ -180,7 +180,16 @@ try {
 
   tap('startBtn');
   step();
-  ok(game.state === STATE.PREP, `点「开 始 挑 战」后才进入备战（当前 ${game.state}）`);
+  // 【用户 m02399】第一关现在也有开场交代（STATE.TALK）：司令先说三句才进备战
+  ok(game.state === STATE.TALK, `点「开 始 挑 战」先进第一关的开场对话（当前 ${game.state}）`);
+  ok(String(ELS.get('talkName').textContent).includes('司'), '第一关开场说话的是司令');
+  ok(String(ELS.get('talkPortrait').src).includes('portrait-cmd'), '司令说话时立绘是司令那张');
+  tap('talkOverlay');
+  for (let k = 0; k < 25; k++) step();
+  ok(String(ELS.get('talkPortrait').src).includes('portrait-hero'), '翻到英雄那句，立绘跟着换成英雄');
+  game.releaseTalk();
+  step();
+  ok(game.state === STATE.PREP, `点「守 住 大 桥 ！」后进入备战（当前 ${game.state}）`);
 } catch (err) {
   failures++;
   notes.push(`  ✗ 开始流程抛异常: ${err && err.message}`);
@@ -849,11 +858,13 @@ try {
     game.warns.length === warnN && boss.casts === castsAfterFirst,
     `冷却期内不许再放（预警圈仍是 ${game.warns.length} 个，技能记账停在 ${boss.casts}）`
   );
-  const gapSteps = Math.ceil((C.bossMissile.cooldown + 0.2) / 0.05);
+  // 冷却结束后技能不是"立刻"回来：被吞掉的那次会排到 0.4s 之后重试（m01220 的排队逻辑），
+  // 所以多等 0.7s 再断言，别卡在"差一帧"上。
+  const gapSteps = Math.ceil((C.bossMissile.cooldown + 0.7) / 0.05);
   for (let i = 0; i < gapSteps; i++) step(50);
   ok(
     boss.casts > castsAfterFirst,
-    `等满冷却（${C.bossMissile.cooldown}s）之后接着放（技能记账 ${castsAfterFirst} → ${boss.casts}）`
+    `等满冷却（${C.bossMissile.cooldown}s）之后接着放（技能记账 ${castsAfterFirst} → ${boss.casts}｜冷却 ${game.hazardCd.toFixed(2)}｜skillT ${boss.skillT.toFixed(2)}｜state ${game.state}｜hp ${boss.hp}）`
   );
   // 火球齐射要留出真能站人的缝：命中半宽 = hero.halfWidth + 0.06
   const fireHit = C.hero.halfWidth + 0.06;
@@ -952,7 +963,7 @@ try {
   ok(game.state === STATE.TALK, `第 2 关进来先停在对话（state=${game.state}）`);
   ok(ELS.get('talkOverlay').classList.contains('show'), '对话弹窗弹出来了');
   ok(!ELS.get('levelOverlay').classList.contains('show'), '选关面板自己收起来了');
-  // 第 1 关点了直接开打（没有对话，直接进备战）。
+  // 第 1 关现在也有开场交代（用户 m02399 给第一关补了 city 那段）。
   // 注意 onTap 是"每个元素各自 300ms 去重"（main.js:197 的闭包 last），
   // 所以同一个按钮隔得太近点第二下会被吞掉 —— 推一会儿时钟再开面板。
   for (let i = 0; i < 20; i++) step(20);
@@ -960,7 +971,10 @@ try {
   step(2);
   tap('lv1');
   step(2);
-  ok(C.level.id === 1 && game.state === STATE.PREP, `选第 1 关直接进备战（state=${game.state}）`);
+  ok(C.level.id === 1 && game.state === STATE.TALK, `选第 1 关先停在开场对话（state=${game.state}）`);
+  game.releaseTalk();
+  step(2);
+  ok(game.state === STATE.PREP, '点掉开场对话之后进备战');
   game.backToMenu();
   step(2);
 
@@ -1179,8 +1193,7 @@ try {
   game.beginLevel(2);
   step();
   ok(game.state === STATE.TALK, '第三关进来先停在对话（state=talk），不直接开打');
-  ok(ELS.get('talkPortrait').classList.contains('hidden'), '第三关把大叔立绘收起来');
-  ok(!ELS.get('talkPortraitDave').classList.contains('hidden'), '换成戴夫的立绘');
+  ok(String(ELS.get('talkPortrait').src).includes('portrait-dave'), '第三关的立绘换成戴夫那张');
   const dave1 = String(ELS.get('talkText').textContent);
   ok(dave1.includes('歪比巴布'), `第一句就是「歪比巴布」：${dave1}`);
   ok(String(ELS.get('talkName').textContent).includes('戴'), '说话人写着戴夫');
@@ -2083,6 +2096,9 @@ try {
   for (let i = 0; i < 60; i++) step(20); // 1.2s
   const n = tap('againBtn');
   ok(n > 0, '「再来一局」按钮已绑定');
+  step();
+  // 【用户 m02399】第一关现在有开场交代，重开也会先停在对话
+  if (game.state === STATE.TALK) game.releaseTalk();
   step();
   ok(game.state === STATE.PREP, `点"再来一局"回到备战（当前 ${game.state}）`);
   ok(game.score === 0 && game.kills === 0, '重开后分数/击杀归零');

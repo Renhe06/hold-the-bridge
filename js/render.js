@@ -1674,12 +1674,13 @@ export class Renderer {
     const shY = -0.70 * H;
     const broad = kind === 'brute' || kind === 'boss';
 
-    // 硬朗描边风：先用"比暗面更黑"的颜色把所有形状放大一圈描一遍，再填颜色。
-    // 一屏几十只挤在一起时，靠的就是这圈描边把它们分开。
-    const outline = mix(dark, '#07070a', 0.62);
-    const light = mix(col, '#ffffff', 0.3);
-    const shade = mix(dark, '#000000', 0.22);
-    const o = Math.max(0.65, H * 0.024);
+    // 【用户 m02399】上一版是"硬朗黑描边"，整屏几十只叠在一起时会糊成一片黑。
+    // 现在改柔：描边色用身体暗面的加深版（不是近黑），线也细一档，
+    // 再补一层顶部受光 —— 靠"明暗 + 一点点轮廓"分开，而不是靠黑色包围线。
+    const outline = mix(dark, col, 0.24); // 暗面再往身体色靠一点，别往黑里走
+    const light = mix(col, '#ffffff', 0.34);
+    const shade = mix(dark, '#000000', 0.18);
+    const o = Math.max(0.5, H * 0.015);
     // 细节开关：屏幕高不到 30px 的丧尸（远处那一大堆）不画牙/头发/手指/血迹，
     // 反正看不清 —— 省下来的时间留给近处那几只。中低端手机上这一条最关键。
     const detail = H > 30;
@@ -2057,9 +2058,10 @@ export class Renderer {
     const COAT = '#35618f';
     const COAT_D = '#1e3a56';
     const RIM = '#a8d8ff';
-    // 和丧尸同一套语言：全身上下都裹一圈近黑的硬描边，站在血色雾气里也不糊
-    const OL = '#080d14';
-    const o = Math.max(0.7, H * 0.02);
+    // 【用户 m02399】原来是近黑的硬描边（'#080d14'），整屏看着发闷。
+    // 现在描边色用"深一档的军服蓝"、线也细一档，靠 RIM 冷高光把轮廓托出来。
+    const OL = '#1d2c40';
+    const o = Math.max(0.5, H * 0.0125);
 
     // 腿 + 靴子（先描边后填色）
     const legW = H * 0.1;
@@ -2241,6 +2243,8 @@ export class Renderer {
       this._drawGlow(mx, gunY, mr * 1.6, '#ff8a3c', pl.muzzle * 0.8);
       this._drawGlow(mx, gunY, mr, '#ffc86a', pl.muzzle);
       this._drawGlow(mx, gunY, mr * 0.42, '#fff6e2', pl.muzzle);
+      // 【用户 m02399】再往脚下铺一摊枪火反光：开火时地面被照亮，画面更"燃"
+      this._drawGlow(mx * 0.7, 0, mr * 3.2, '#ff9a4a', pl.muzzle * 0.3);
       ctx.strokeStyle = `rgba(255,236,180,${0.75 * pl.muzzle})`;
       ctx.lineWidth = Math.max(0.8, H * 0.012);
       for (let i = 0; i < 3; i++) {
@@ -2269,8 +2273,9 @@ export class Renderer {
     const t = this.time * 2.2;
 
     // 茎 + 两片叶子（站在草坪上的植物）
-    const OL = mix(plant.dark, '#0b1a08', 0.55);
-    const o = Math.max(0.7, H * 0.02);
+    // 【用户 m02399】描边不再往黑里压，改成"深一档的叶绿"，线细一档。
+    const OL = mix(plant.dark, plant.color, 0.22);
+    const o = Math.max(0.5, H * 0.013);
     ctx.lineCap = 'round';
     ctx.strokeStyle = OL;
     ctx.lineWidth = Math.max(1.6, H * 0.08) + o * 1.6;
@@ -2642,8 +2647,9 @@ export class Renderer {
     const SHORTS = '#3d2c4a';
     const HAIR = '#8d6a53';
 
-    const OL = '#1a1013';
-    const o = Math.max(0.7, H * 0.02);
+    // 【用户 m02399】描边从近黑 '#1a1013' 换成暖褐（和肤色/背心同一族），线细一档。
+    const OL = '#4a3a33';
+    const o = Math.max(0.5, H * 0.013);
     ctx.lineCap = 'round';
 
     // 腿（光腿）：两遍走 —— 先描硬边，再填肉色
@@ -2769,6 +2775,8 @@ export class Renderer {
       const mr = H * (0.1 + pl.muzzle * 0.16);
       this._drawGlow(mx, gy, mr, '#ffc86a', pl.muzzle);
       this._drawGlow(mx, gy, mr * 0.45, '#fff3d0', pl.muzzle);
+      // 【用户 m02399】脚下枪火反光（同第一关主角）
+      this._drawGlow(mx * 0.7, 0, mr * 3.2, '#ff9a4a', pl.muzzle * 0.3);
       ctx.strokeStyle = `rgba(255,236,190,${0.75 * pl.muzzle})`;
       ctx.lineWidth = Math.max(1, H * 0.012);
       for (let i = 0; i < 3; i++) {

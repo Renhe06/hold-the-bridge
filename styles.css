@@ -137,22 +137,20 @@ html, body {
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
 }
 
-/* 分数是"奖杯"：金色渐变 + 三层描边发光（text-shadow，不用 filter） */
+/* 分数是"奖杯"：实心金黄 + 三层柔光。
+   【用户 m02399】原来用 background-clip: text + color: transparent 做渐变，
+   在 iOS Safari 上只渲染阴影层、数字看着发黑 → 改成实心金色，任何引擎都稳。 */
 .hud-num {
   font-family: var(--font-display);
   font-size: 33px;
   font-weight: 900;
   letter-spacing: 1px;
   color: var(--gold);
-  background: linear-gradient(180deg, #fffaea 0%, #ffd166 46%, #ff9f3f 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
   text-shadow:
-    0 1px 0 rgba(0, 0, 0, 0.9),
-    0 0 14px rgba(255, 200, 90, 0.85),
-    0 0 32px rgba(255, 170, 60, 0.5),
-    0 3px 14px rgba(0, 0, 0, 0.95);
+    0 1px 0 rgba(122, 70, 0, 0.8),
+    0 0 10px rgba(255, 208, 110, 0.9),
+    0 0 26px rgba(255, 172, 62, 0.55),
+    0 3px 12px rgba(0, 0, 0, 0.9);
 }
 
 .hud-cap {
@@ -1035,18 +1033,17 @@ html, body {
   letter-spacing: 2px;
 }
 
+/* 【用户 m02399】同 .hud-num：金色渐变在 iOS 上会变黑，改实心金 + 柔光 */
 .coin-big b {
   font-family: var(--font-display);
   font-size: 50px;
   line-height: 1;
   font-weight: 900;
-  background: linear-gradient(180deg, #fff8e2 0%, #ffd166 52%, #f09a1e 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: #ffd166;
   text-shadow:
-    0 2px 0 rgba(120, 66, 0, 0.55),
-    0 0 22px rgba(255, 200, 80, 0.6);
+    0 1px 0 rgba(122, 68, 0, 0.75),
+    0 0 18px rgba(255, 208, 96, 0.85),
+    0 0 38px rgba(255, 172, 60, 0.5);
 }
 
 .coin-big span {
