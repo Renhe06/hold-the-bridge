@@ -953,4 +953,7 @@ window.__HBT = {
   pauseGame,
   resumeGame,
   isPaused: () => paused,
+  // 画布文字是运行时翻译的（见 js/i18n.js 的 installCanvas），
+  // 版面对齐体检要拿到"真正画出去的那串"来量宽度，所以把翻译器也挂出来
+  i18n: I18N,
 };

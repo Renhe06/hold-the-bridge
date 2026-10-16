@@ -1504,3 +1504,52 @@ html, body {
   .overlay.show { animation: overlayIn 0.16s ease both; }
   .panel { animation: panelIn 0.18s ease both; }
 }
+
+/* ============================================================
+   英文版版面校准（用户 m04619：英文的视觉效果要和中文一样）
+   ------------------------------------------------------------
+   问题不是"英文难看"，而是英文长得多：同一个盒子会多折 1~2 行、
+   面板被撑高（主菜单 +95px、更新说明 +64px、玩法说明 +719px），
+   个别按钮的文字顶出边界。用户允许"缩小英文字号或字距"，
+   所以这里只做两件事：
+     ① 收字号 / 收字距，让每块文字占的高度跟中文一致；
+     ② 该折行的（主标题）保持折行，但把两行压到中文一行的量级。
+   全部挂在 html[data-lang="en"] 下面 —— 中文一个字都不动。
+   改完必须跑 `node viz/fit-en.mjs` 复核（见该工具头部说明）。
+   ============================================================ */
+
+/* 主标题：中文「守 桥」一行 58px（≈61px 高）；英文排两行、每行 31px（≈66px 高） */
+html[data-lang="en"] .title {
+  font-size: 31px;
+  letter-spacing: 5px;
+  text-indent: 5px;
+  max-width: 250px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* 次级标题（玩法说明 / 更新说明 / 选择关卡 / 已暂停 / 通关）：收窄保证一行 */
+html[data-lang="en"] .title.sm {
+  font-size: 26px;
+  letter-spacing: 4px;
+  text-indent: 4px;
+}
+
+/* 副标题：中文一行；英文缩到 10.5px 且两侧血线缩短，同样落成一行 */
+html[data-lang="en"] .subtitle { font-size: 10.5px; letter-spacing: 0; }
+html[data-lang="en"] .subtitle::before,
+html[data-lang="en"] .subtitle::after { width: 14px; margin: 0 6px 3px; }
+
+/* 底部小字（Safari 提示 / 免费声明）：再收一点，最多两行 */
+html[data-lang="en"] .tiny { font-size: 10.5px; }
+
+/* 按钮：英文单词更长，收字号和字距，防止文字顶出按钮框 */
+html[data-lang="en"] .btn { font-size: 17px; letter-spacing: 1.5px; text-indent: 1.5px; }
+html[data-lang="en"] .btn.ghost { font-size: 15px; letter-spacing: 1.2px; text-indent: 1.2px; }
+
+/* 玩法说明正文：英文长，字号收 ~8%、行距与段间距一起收紧，整块高度贴近中文 */
+html[data-lang="en"] .howto { font-size: 12px; line-height: 1.5; gap: 7px; }
+html[data-lang="en"] .guide-body h3 { font-size: 13.2px; letter-spacing: 0.6px; margin-top: 16px; }
+
+/* 更新说明条目：缩到 11.6px，让大部分条目回到一行 */
+html[data-lang="en"] .log-ul li { font-size: 11.6px; line-height: 1.55; }

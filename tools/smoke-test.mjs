@@ -2409,6 +2409,22 @@ try {
   notes.push(`  ✗ 更新说明测试抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : err}`);
 }
 
+// (a12) 英文版版面校准（用户 m04619：英文的视觉效果要和中文一样）
+//   这里只做"防误删"：真正的量测在浏览器里（node viz/fit-en.mjs 逐元素比盒子、
+//   node viz/canvas-fit.mjs 量画布文字占屏宽），无浏览器测不了。
+//   但最怕以后整理样式时把这一整块删掉，所以钉住几个关键选择器。
+try {
+  const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+  const need = ['.title', '.title.sm', '.subtitle', '.tiny', '.btn', '.howto', '.log-ul li'];
+  const missing = need.filter((sel) => !css.includes(`html[data-lang="en"] ${sel}`));
+  ok(missing.length === 0, `英文版面校准块在（${need.length} 条规则${missing.length ? `，缺：${missing.join(' / ')}` : ''}）`);
+  // 中文那套字号不能被英文块顶掉（英文块都带 html[data-lang="en"] 前缀，天然不会）
+  ok(/^\.title\s*\{[^}]*font-size:\s*58px/m.test(css), '中文主标题字号仍是 58px（英文块没污染中文）');
+} catch (err) {
+  failures++;
+  notes.push(`  ✗ 英文版面校准测试抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : err}`);
+}
+
 // ---------------------------------------------------------
 
 console.log(notes.join('\n'));
