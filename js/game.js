@@ -1678,6 +1678,7 @@ export class Game {
       color: e.color,
       dark: e.dark,
       kind: e.kind,
+      id: e.id,
       t: 0,
       dir: Math.random() < 0.5 ? -1 : 1,
       phase: e.phase,

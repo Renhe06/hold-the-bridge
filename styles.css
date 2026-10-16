@@ -1,24 +1,58 @@
 /* ============================================================
-   《守桥》样式
-   iOS 关键点：
+   《守桥》样式 —— 全面视觉升级版
+   美术方向：末世霓虹 + 硬朗描边
+     · 面板：深色半透明底 + 顶部细高光 + 1px 内描边 + 外层暗描边 + 柔和投影
+     · 按钮：渐变填充 + 底部"厚度" + 按下下沉 2px + 主按钮缓慢扫光
+     · 标题：得意黑（只有一个字重）+ 多层 text-shadow 描边/发光（不用 filter，iOS 上贵）
+     · 动效：overlay 以 opacity 0 + scale .96 + translateY 8px 入场，纯 CSS
+
+   iOS 关键点（这一层不动）：
     - body 固定定位 + overscroll-behavior:none，避免橡皮筋和下拉刷新
     - 高度用 100dvh（100vh 在 Safari 地址栏伸缩时会跳）
     - 用 env(safe-area-inset-*) 躲开刘海和底部指示条
     - canvas 用 touch-action:none 接管手势
    ============================================================ */
 
+/* 标题字：得意黑 Smiley Sans（OFL-1.1）。
+   原始 TTF 是 2.5 MB，这里用 pyftsubset 裁到"游戏里真正会用到的 1484 个字符"，
+   变成 183 KB 的 woff2 —— 随包离线缓存，代价可以接受。
+   注意：这个字体只有一个字重（本身就是斜体粗黑），声明一个 400~900 的区间，
+   让浏览器别再去合成假粗体。 */
+@font-face {
+  font-family: 'Smiley Sans';
+  src: url('./fonts/smiley-sans.woff2') format('woff2');
+  font-weight: 400 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
+  /* ---- 原有主色板（沿用，别改值：canvas 那边同一套） ---- */
   --bg: #05070c;
   --ink: #e8edf5;
   --dim: #8b93a3;
-  --accent: #ff5a4a;
-  --gold: #ffd166;
-  --cyan: #7df9ff;
+  --accent: #ff5a4a;   /* 血红 */
+  --gold: #ffd166;     /* 琥珀 */
+  --cyan: #7df9ff;     /* 霓虹青 */
+
+  /* ---- 本次新增：末世霓虹的补充色 ---- */
+  --toxic: #8bf58b;    /* 毒绿：成功 / 数据正向 */
+  --violet: #c86bff;   /* 紫：关卡 / 特殊场景 */
+  --panel: #0b1119;    /* 面板底色 */
+  --line: rgba(160, 200, 240, 0.16);
+  --hair: rgba(255, 255, 255, 0.10);
+
+  /* ---- 复用纹理：霓虹网格（overlay 上 faint 的末世网格） ---- */
+  --grid: repeating-linear-gradient(0deg, rgba(125, 249, 255, 0.055) 0 1px, transparent 1px 44px),
+          repeating-linear-gradient(90deg, rgba(125, 249, 255, 0.055) 0 1px, transparent 1px 44px);
+
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-l: env(safe-area-inset-left, 0px);
   --safe-r: env(safe-area-inset-right, 0px);
   --font: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  /* 标题/按钮/HUD 数字用的显示字 */
+  --font-display: 'Smiley Sans', "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -45,7 +79,12 @@ html, body {
   height: 100vh; /* 老 Safari 不认 dvh 时的兜底；其实 inset:0 已经撑满了 */
   height: 100dvh;
   overflow: hidden;
-  background: var(--bg);
+  /* 极深的底 + 两团远处霓虹 + 四周压暗的暗角：
+     画布还没画第一帧时，这层就已经是"末世夜晚"而不是一片纯黑 */
+  background:
+    radial-gradient(60% 40% at 82% 8%, rgba(125, 249, 255, 0.09), transparent 70%),
+    radial-gradient(70% 45% at 12% 96%, rgba(255, 90, 74, 0.10), transparent 72%),
+    linear-gradient(180deg, #070b13 0%, #04060a 55%, #020306 100%);
 }
 
 #game {
@@ -57,7 +96,26 @@ html, body {
   touch-action: none;
 }
 
-/* ---------------- 顶部 HUD ---------------- */
+/* 全局暗角：压住画布四角，中间的战场视觉上更聚焦。
+   pointer-events:none，绝不挡触摸。 */
+#app::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  background: radial-gradient(115% 78% at 50% 45%, transparent 52%, rgba(0, 0, 0, 0.42) 100%);
+}
+
+/* 数字统一用等宽数字，跳动时不会左右抖 */
+.hud-num, .hud-pill b, .best-line b, .stat b, .coin-big b,
+.talk-stamp, .build, .ig-btn, .btn { font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   顶部 HUD
+   ⚠ measureTopHud() 会量 .hud-top 的高度，把画布上的心形排在它下面。
+     这里加的是横向视觉（描边/光晕），竖直方向别明显变高。
+   ============================================================ */
 
 .hud-top {
   position: absolute;
@@ -69,41 +127,64 @@ html, body {
   align-items: flex-start;
   justify-content: space-between;
   pointer-events: none;
+  z-index: 4;
 }
 
 .hud-score {
   display: flex;
   align-items: baseline;
-  gap: 3px;
+  gap: 4px;
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
 }
 
+/* 分数是"奖杯"：金色渐变 + 三层描边发光（text-shadow，不用 filter） */
 .hud-num {
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
+  font-family: var(--font-display);
+  font-size: 33px;
+  font-weight: 900;
+  letter-spacing: 1px;
   color: var(--gold);
-  font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, #fffaea 0%, #ffd166 46%, #ff9f3f 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.9),
+    0 0 14px rgba(255, 200, 90, 0.85),
+    0 0 32px rgba(255, 170, 60, 0.5),
+    0 3px 14px rgba(0, 0, 0, 0.95);
 }
 
-.hud-cap { font-size: 13px; color: var(--dim); font-weight: 600; }
+.hud-cap {
+  font-size: 12px;
+  color: var(--dim);
+  font-weight: 700;
+  letter-spacing: 1px;
+}
 
 .hud-right { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
 
+/* 小药丸：顶部一道细高光 + 内描边，读作"仪表盘灯" */
 .hud-pill {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 9px;
+  padding: 3px 10px;
   border-radius: 999px;
-  background: rgba(12, 16, 24, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 62%),
+    linear-gradient(180deg, rgba(14, 19, 28, 0.72), rgba(7, 10, 16, 0.66));
+  border: 1px solid var(--hair);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 3px 10px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
 
-.hud-pill i { font-style: normal; font-size: 11px; color: var(--dim); }
-.hud-pill b { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hud-pill i { font-style: normal; font-size: 10.5px; color: var(--dim); letter-spacing: 0.5px; }
+.hud-pill b { font-size: 14px; font-weight: 800; line-height: 1.25; }
 
 /* ---------------- 中部状态 ---------------- */
 
@@ -117,38 +198,65 @@ html, body {
   align-items: center;
   gap: 6px;
   pointer-events: none;
+  z-index: 4;
 }
 
 /* 子弹称号：挂在顶部 HUD 右侧那一列（波次 / 最高 下面）。
    以前站在 .hud-mid，被画布上的"N 连杀"压住（用户 m03096 反馈），
    而顶部 HUD 下面就只剩一条连杀数字的带子，没有空行给它，所以干脆并进这一列。
-   颜色仍按武器档位变化（t2/t3/t4），一眼能看出武器进化到哪一档。 */
-.tier {
+   颜色仍按武器档位变化（t2/t3/t4），一眼能看出武器进化到哪一档。
+
+   ⚠ main.js 会整体重写 className（'tier' / 'tier t2'…），
+     所以这里的装饰只能挂在 #tierLabel 或 .tier 上，不能塞新 class。 */
+.tier,
+#tierLabel {
   align-self: flex-end;
+  font-family: var(--font-display);
   font-size: 11.5px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  padding: 2px 9px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  padding: 2.5px 10px;
   border-radius: 999px;
-  color: #0a0d12;
-  background: linear-gradient(180deg, #ffe6a8, #ffc44d);
-  box-shadow: 0 2px 14px rgba(255, 190, 70, 0.35);
-  transition: background 0.25s, box-shadow 0.25s;
+  color: #120a02;
+  background: linear-gradient(180deg, #fff0c4, #ffc44d 62%, #f39b23);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  box-shadow:
+    0 2px 0 rgba(120, 60, 0, 0.55),
+    0 4px 16px rgba(255, 190, 70, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transition: background 0.25s, box-shadow 0.25s, color 0.25s;
 }
 
-.tier.t2 { background: linear-gradient(180deg, #ffd0a0, #ff8a2b); box-shadow: 0 2px 16px rgba(255, 130, 40, 0.45); }
-.tier.t3 { background: linear-gradient(180deg, #c9fbff, #35d8ff); box-shadow: 0 2px 18px rgba(60, 210, 255, 0.5); }
-.tier.t4 { background: linear-gradient(180deg, #ffd6fb, #ff42e0); box-shadow: 0 2px 22px rgba(255, 60, 220, 0.55); }
+.tier.t2 {
+  background: linear-gradient(180deg, #ffe0c0, #ff8a2b 62%, #e2650f);
+  box-shadow: 0 2px 0 rgba(140, 58, 0, 0.55), 0 4px 18px rgba(255, 130, 40, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.tier.t3 {
+  color: #04222b;
+  background: linear-gradient(180deg, #e7feff, #35d8ff 62%, #12a8dd);
+  box-shadow: 0 2px 0 rgba(6, 70, 96, 0.6), 0 4px 20px rgba(60, 210, 255, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+.tier.t4 {
+  color: #24042b;
+  background: linear-gradient(180deg, #ffe2fc, #ff42e0 62%, #c413b4);
+  box-shadow: 0 2px 0 rgba(105, 4, 92, 0.6), 0 4px 24px rgba(255, 60, 220, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
 
 .prep {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  text-indent: 3px;
+  color: #fff6e4;
   opacity: 0;
   transition: opacity 0.2s;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+  text-shadow:
+    0 0 3px rgba(0, 0, 0, 0.9),
+    0 0 16px rgba(255, 209, 102, 0.7),
+    0 3px 12px rgba(0, 0, 0, 0.95);
 }
-.prep.on { opacity: 0.95; }
+.prep.on { opacity: 0.98; }
 
 /* ---------------- 静音 ----------------
    放在左上角：右下角是「空袭」按钮，两个挤在一起会点错（用户实测反馈） */
@@ -160,8 +268,10 @@ html, body {
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(12, 16, 24, 0.55);
+  border: 1px solid var(--hair);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 60%),
+    linear-gradient(180deg, rgba(16, 21, 31, 0.74), rgba(7, 10, 16, 0.68));
   color: var(--ink);
   font-size: 16px;
   line-height: 1;
@@ -169,19 +279,30 @@ html, body {
   place-items: center;
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 4px 14px rgba(0, 0, 0, 0.5);
   cursor: pointer;
-  z-index: 5;
+  z-index: 6;
 }
 .mute:active { transform: scale(0.92); }
 /* 静音时不能只是"暗一点"：玩家会以为游戏坏了。
    换成琥珀色边 + 底色，扫一眼就知道是自己把声音关了。 */
 .mute.off {
-  border-color: rgba(255, 196, 107, 0.75);
-  box-shadow: 0 0 0 1px rgba(255, 196, 107, 0.25), 0 0 12px rgba(255, 170, 60, 0.35);
-  background: rgba(60, 38, 8, 0.72);
+  border-color: rgba(255, 196, 107, 0.8);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 196, 107, 0.28),
+    0 0 0 1px rgba(255, 196, 107, 0.22),
+    0 0 18px rgba(255, 170, 60, 0.45),
+    0 4px 14px rgba(0, 0, 0, 0.5);
+  background:
+    linear-gradient(180deg, rgba(255, 200, 120, 0.18), rgba(255, 200, 120, 0) 60%),
+    linear-gradient(180deg, rgba(62, 40, 9, 0.85), rgba(40, 24, 4, 0.8));
 }
 
-/* ---------------- 遮罩与面板 ---------------- */
+/* ============================================================
+   遮罩与面板
+   ============================================================ */
 
 .overlay {
   position: absolute;
@@ -193,49 +314,612 @@ html, body {
   align-items: flex-start;
   justify-content: center;
   padding: calc(var(--safe-t) + 20px) 18px calc(var(--safe-b) + 20px);
-  background: radial-gradient(120% 80% at 50% 40%, rgba(8, 11, 18, 0.78), rgba(3, 4, 8, 0.95));
-  backdrop-filter: blur(10px) saturate(0.85);
-  -webkit-backdrop-filter: blur(10px) saturate(0.85);
+  background:
+    var(--grid),
+    /* 上淡下浓的竖渐变：上面那截留给画布上的场景（开始界面背后有一小队丧尸在走），
+       下面压在按钮区，保证文字始终读得清。别整块压黑 —— 会把桥和尸群全糊掉。 */
+    linear-gradient(
+      180deg,
+      rgba(3, 4, 8, 0.16) 0%,
+      rgba(4, 6, 11, 0.30) 30%,
+      rgba(3, 4, 8, 0.88) 68%,
+      rgba(2, 3, 6, 0.96) 100%
+    );
+  backdrop-filter: blur(5px) saturate(1);
+  -webkit-backdrop-filter: blur(5px) saturate(1);
   z-index: 10;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
 
-.overlay.show { display: flex; animation: fade 0.22s ease both; }
+/* 局内 HUD 的显隐（main.js 按 STATE 切 .hide）。
+   用 opacity 不用 display：.hud-top 的布局高度还要留着给 measureTopHud() 量。 */
+.hud-top.hide,
+.hud-mid.hide {
+  opacity: 0;
+  pointer-events: none;
+}
+.hud-top,
+.hud-mid {
+  transition: opacity 0.2s ease;
+}
 
-@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+/* .overlay.show 是现有的显示开关（main.js 用 classList 控制），语义不能动：
+   这里只是把"淡入"升级成"淡入 + 从 0.96 放大 + 上移 8px" */
+.overlay.show {
+  display: flex;
+  animation: overlayIn 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+@keyframes overlayIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 细滚动条：说明面板很长，默认宽条很难看（Firefox 用 scrollbar-*） */
+.overlay { scrollbar-width: thin; scrollbar-color: rgba(160, 200, 240, 0.28) transparent; }
+.overlay::-webkit-scrollbar { width: 6px; }
+.overlay::-webkit-scrollbar-track { background: transparent; }
+.overlay::-webkit-scrollbar-thumb { background: rgba(160, 200, 240, 0.22); border-radius: 999px; }
 
 .panel {
+  position: relative;
   width: 100%;
   max-width: 360px;
   text-align: center;
   margin: auto; /* 配合 .overlay 的 align-items:flex-start 做"能居中也能滚" */
-  animation: rise 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  animation: panelIn 0.34s cubic-bezier(0.2, 0.9, 0.3, 1) both;
 }
 .panel.wide { max-width: 420px; }
 
-@keyframes rise { from { transform: translateY(14px) scale(0.98); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes panelIn {
+  from { transform: translateY(16px) scale(0.965); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+
+/* 说明 / 对话 / 暂停 / 结算四种"卡片式"面板共用同一套质感。
+   开始界面不套（保持海报式开放构图）。
+
+   质感配方 = 深色半透明底 + 顶部一道细高光 + 1px 内描边 + 外层暗描边 + 柔和投影 */
+.overlay.guide .panel,
+.overlay.talk .panel,
+.overlay.pause .panel,
+#overOverlay .panel,
+#clearOverlay .panel,
+#levelOverlay .panel {
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0) 26%),
+    linear-gradient(180deg, rgba(12, 18, 27, 0.95), rgba(6, 9, 15, 0.96));
+  border: 1px solid var(--line);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 22px 60px rgba(0, 0, 0, 0.62);
+  padding: 22px 18px 18px;
+  overflow: hidden; /* 兜住顶部的装饰光带 */
+}
+
+/* 卡片顶部那道细高光（1px 渐变，越往中间越亮） */
+.overlay.guide .panel::after,
+.overlay.talk .panel::after,
+.overlay.pause .panel::after,
+#overOverlay .panel::after,
+#clearOverlay .panel::after,
+#levelOverlay .panel::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 8%;
+  right: 8%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  pointer-events: none;
+}
+
+/* 四角硬朗描边（末世 HUD 的取景框感）。用 #id 提specificity，
+   压过上面那组共用规则。 */
+#overOverlay .panel::before,
+#clearOverlay .panel::before,
+#levelOverlay .panel::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 13px;
+  pointer-events: none;
+}
+
+/* 失守结算：整体染红；通关结算：整体染金。两边一眼分得开。 */
+#overOverlay .panel {
+  border-color: rgba(255, 90, 74, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 22px 60px rgba(0, 0, 0, 0.66),
+    0 0 46px rgba(255, 60, 40, 0.14);
+}
+#overOverlay .panel::after { background: linear-gradient(90deg, transparent, rgba(255, 110, 90, 0.8), transparent); }
+
+#clearOverlay .panel {
+  border-color: rgba(255, 209, 102, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 22px 60px rgba(0, 0, 0, 0.66),
+    0 0 46px rgba(255, 190, 70, 0.16);
+}
+#clearOverlay .panel::after { background: linear-gradient(90deg, transparent, rgba(255, 209, 102, 0.85), transparent); }
+
+/* ============================================================
+   标题
+   得意黑只有一个字重，所以"更重"要靠字号 + 字距 + 多层 text-shadow 描边。
+   不用 filter: drop-shadow（iOS 上每帧都要重新栅格化，很贵）。
+   ============================================================ */
 
 .title {
-  font-size: 52px;
+  font-family: var(--font-display);
+  font-size: 58px;
   font-weight: 900;
-  letter-spacing: 10px;
-  text-indent: 10px;
-  background: linear-gradient(180deg, #fff, #ffcd7a 55%, #ff5a4a);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 4px 18px rgba(255, 90, 74, 0.35));
+  line-height: 1.06;
+  letter-spacing: 14px;
+  text-indent: 14px;
+  color: #fff3de;
+  text-shadow:
+    0 2px 0 #7d2415,
+    0 -1px 0 #ffd9a8,
+    0 0 16px rgba(255, 120, 70, 0.55),
+    0 0 42px rgba(255, 90, 74, 0.38),
+    0 8px 26px rgba(0, 0, 0, 0.9);
 }
 
 .subtitle {
-  margin-top: 8px;
+  margin-top: 12px;
   font-size: 13px;
+  color: #9aa4b4;
+  letter-spacing: 1.5px;
+}
+/* 副标题两侧各一条血线：把标题和下面的内容隔开 */
+.subtitle::before,
+.subtitle::after {
+  content: '';
+  display: inline-block;
+  vertical-align: middle;
+  width: 26px;
+  height: 1px;
+  margin: 0 9px 3px;
+  background: linear-gradient(90deg, transparent, rgba(255, 90, 74, 0.75));
+}
+.subtitle::after { background: linear-gradient(90deg, rgba(255, 90, 74, 0.75), transparent); }
+
+/* ---- 次级标题（选关 / 使用说明 / 已暂停）---- */
+.title.sm {
+  font-size: 30px;
+  letter-spacing: 8px;
+  text-indent: 8px;
+  color: #fff3de;
+  text-shadow:
+    0 2px 0 #6d3520,
+    0 0 14px rgba(255, 190, 110, 0.45),
+    0 0 34px rgba(255, 140, 70, 0.28),
+    0 6px 20px rgba(0, 0, 0, 0.9);
+}
+/* 次级标题下面一条渐隐的金线，读到"这一屏的主题" */
+.title.sm::after {
+  content: '';
+  display: block;
+  width: 62%;
+  height: 1px;
+  margin: 14px auto 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 209, 102, 0.62), transparent);
+}
+
+/* ---- 结算大标题 ----
+   标题是 JS 填进去的（clearTitle = "第 一 关 · 通 关"），长度会变，
+   所以字号用 clamp 跟着屏宽走 + nowrap，保证永远是整齐的一行。 */
+.over-title {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 7.6vw, 38px);
+  font-weight: 900;
+  letter-spacing: clamp(3px, 1.8vw, 10px);
+  text-indent: clamp(3px, 1.8vw, 10px);
+  white-space: nowrap;
+  color: #ff8f7d;
+  text-shadow:
+    0 2px 0 #5e130b,
+    0 0 18px rgba(255, 60, 40, 0.55),
+    0 0 46px rgba(255, 60, 40, 0.3),
+    0 7px 22px rgba(0, 0, 0, 0.92);
+}
+
+/* 通关结算：红色换成金色，跟"失守"一眼分得开 */
+.over-title.win {
+  color: #ffe3a3;
+  text-shadow:
+    0 2px 0 #7a4a06,
+    0 0 18px rgba(255, 200, 80, 0.6),
+    0 0 48px rgba(255, 190, 60, 0.34),
+    0 7px 22px rgba(0, 0, 0, 0.92);
+}
+
+/* ============================================================
+   主界面：历史最高 / 金币
+   ============================================================ */
+
+.best-line {
+  margin: 22px 0 16px;
+  font-size: 12.5px;
   color: var(--dim);
   letter-spacing: 0.5px;
 }
+.best-line b {
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 22px;
+  font-weight: 900;
+  margin: 0 3px;
+  text-shadow: 0 0 14px rgba(255, 190, 70, 0.5), 0 2px 8px rgba(0, 0, 0, 0.9);
+}
 
+/* ============================================================
+   主界面：四个功能入口
+   ============================================================ */
+
+/* 现在只预留按钮（点了提示"即将开放"），以后分别接：角色切换 / 武器切换 /
+   商店购买 / 关卡选择。所以文案写成"以后是干什么的"，而不是"敬请期待"，
+   真机上一眼就知道这块以后会长成什么样。 */
+.menu-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 18px 0 16px;
+}
+
+.menu-btn {
+  position: relative;
+  font-family: var(--font-display);
+  text-align: left;
+  padding: 12px 13px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, #202a3a 0%, #131a26 58%, #0c1119 100%);
+  color: #e4ecf7;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.42),
+    0 3px 0 rgba(0, 0, 0, 0.5),
+    0 8px 20px rgba(0, 0, 0, 0.42);
+  transition: transform 0.08s, box-shadow 0.12s, border-color 0.15s;
+}
+
+/* 内圈细描边：硬朗的"军牌"感 */
+.menu-btn::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 1px solid rgba(125, 249, 255, 0.10);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.menu-btn:active {
+  transform: translateY(2px);
+  border-color: rgba(125, 249, 255, 0.34);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, #2a3748 0%, #172031 58%, #0e141d 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.42),
+    0 1px 0 rgba(0, 0, 0, 0.5),
+    0 0 22px rgba(125, 249, 255, 0.18);
+}
+
+/* b 是"角色 / 武器 / 商店 / 关卡"，i 是下面那行小字 */
+.menu-btn b {
+  display: block;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-indent: 4px;
+  color: #f2f7ff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.8), 0 0 12px rgba(125, 249, 255, 0.22);
+}
+.menu-btn i {
+  display: block;
+  margin-top: 4px;
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  color: #7f8896;
+}
+/* 主界面四个入口的"未实装"提示：默认不占视觉，点过才显示 */
+.menu-hint {
+  margin: 10px 0 0;
+  min-height: 18px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-align: center;
+  color: var(--gold);
+  opacity: 0;
+  text-shadow: 0 0 14px rgba(255, 190, 70, 0.55);
+  transition: opacity 0.16s ease;
+}
+.menu-hint.show { opacity: 1; animation: pop 0.3s ease both; }
+
+/* ============================================================
+   按钮
+   配方：渐变填充 + 底部一层更深的"厚度"（第二层 box-shadow）+
+         按下时下沉 2px（厚度收掉）+ 主按钮一道缓慢扫过的高光
+   ============================================================ */
+
+.btn {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 16px 18px;
+  border: 0;
+  border-radius: 15px;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-indent: 4px;
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.08s, box-shadow 0.1s, filter 0.12s;
+}
+
+.btn:active { transform: translateY(2px); }
+
+/* 主按钮：金 → 橙 → 血红，配"厚度"和内描边 */
+.btn.primary {
+  color: #2a0d06;
+  background: linear-gradient(180deg, #ffe08a 0%, #ff9a42 48%, #f2562f 100%);
+  border: 1px solid rgba(255, 224, 160, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 0 0 1px rgba(120, 40, 0, 0.3),
+    0 4px 0 #8e3312,
+    0 10px 28px rgba(255, 110, 60, 0.42);
+}
+.btn.primary:active {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 0 0 1px rgba(120, 40, 0, 0.3),
+    0 1px 0 #8e3312,
+    0 4px 14px rgba(255, 110, 60, 0.34);
+}
+
+/* 缓慢扫过的高光：7s 一圈，扫 1.1 秒就停，剩下的行程是留白。
+   只在主按钮上，别让整屏都在闪。 */
+.btn.primary::after {
+  content: '';
+  position: absolute;
+  top: -30%;
+  bottom: -30%;
+  left: -55%;
+  width: 38%;
+  background: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.72) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: skewX(-18deg);
+  pointer-events: none;
+  animation: sweep 7s linear 1.4s infinite;
+}
+
+@keyframes sweep {
+  0%       { left: -55%; }
+  16%, 100% { left: 128%; }
+}
+
+/* 次级按钮：玻璃底 + 内描边，读作"另一条路"而不是"确定" */
+.btn.ghost {
+  margin-top: 11px;
+  padding: 13px 16px;
+  font-size: 16px;
+  letter-spacing: 3px;
+  text-indent: 3px;
+  color: #bcd4ea;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.015) 55%),
+    rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(160, 200, 240, 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 3px 0 rgba(0, 0, 0, 0.4),
+    0 6px 18px rgba(0, 0, 0, 0.3);
+}
+.btn.ghost:active {
+  color: #e6f2ff;
+  border-color: rgba(125, 249, 255, 0.55);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.03) 55%),
+    rgba(125, 249, 255, 0.07);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 1px 0 rgba(0, 0, 0, 0.4),
+    0 0 20px rgba(125, 249, 255, 0.22);
+}
+
+.hidden { display: none !important; }
+
+/* ---- 主界面底部的小字 ---- */
+.tiny { margin-top: 16px; font-size: 11px; color: #6d7684; line-height: 1.55; }
+
+/* 免费声明 + 可转发的网址：网址只当文字写出来，不做成链接（点了不跳转） */
+.tiny.free { margin-top: 10px; color: #7b8698; }
+.tiny .url {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  letter-spacing: 0.5px;
+  color: #9fc4e8;
+  word-break: break-all;
+  text-shadow: 0 0 10px rgba(125, 249, 255, 0.18);
+}
+
+/* 右下角版本号：主界面专用（放在 #startOverlay 里，遮罩一藏它就跟着没了）。
+   位置靠遮罩自身的 padding 让出安全区，所以这里只再加一点点余量，
+   免得贴在 iPhone 的圆角上被切掉。 */
+.build {
+  position: absolute;
+  right: 8px;
+  bottom: 5px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  color: rgba(190, 210, 230, 0.38);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ============================================================
+   局内左下角：返回 / 暂停
+   底部右侧是画布上画的「空袭」，顶部左侧是静音，所以这两个放左下角；
+   底部同样让出 safe-area，避免 iPhone 的圆角/横条切到按钮
+   ============================================================ */
+
+.ingame {
+  position: absolute;
+  left: calc(var(--safe-l) + 12px);
+  bottom: calc(var(--safe-b) + 14px);
+  display: none;
+  gap: 8px;
+  z-index: 12;
+}
+.ingame.show { display: flex; }
+
+.ig-btn {
+  min-width: 58px;
+  padding: 10px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--hair);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0) 58%),
+    linear-gradient(180deg, rgba(15, 20, 30, 0.72), rgba(7, 10, 16, 0.68));
+  color: #cfe0f0;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-indent: 1.5px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 4px 14px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+.ig-btn:active { transform: scale(0.94); }
+/* 「返回」第二次点才真的走，第一次先变成这样提醒玩家 */
+.ig-btn.warn {
+  color: #ffd0c0;
+  border-color: rgba(255, 130, 90, 0.6);
+  background:
+    linear-gradient(180deg, rgba(255, 150, 110, 0.18), rgba(255, 150, 110, 0) 58%),
+    linear-gradient(180deg, rgba(72, 26, 18, 0.85), rgba(44, 14, 10, 0.82));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 120, 80, 0.22),
+    0 0 20px rgba(255, 90, 74, 0.38),
+    0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+/* ============================================================
+   暂停面板
+   ============================================================ */
+.overlay.pause { z-index: 16; }
+
+.pause-tip {
+  margin: 6px 0 20px;
+  font-size: 13px;
+  color: #8fa3b8;
+  letter-spacing: 0.5px;
+}
+
+/* 暂停面板上的音效自检那一行：正常时不起眼，不正常时变琥珀色 */
+.pause-tip.audio {
+  margin: -12px 0 18px;
+  font-size: 12px;
+  color: #6f8399;
+}
+.pause-tip.audio.warn {
+  color: #ffc46b;
+  text-shadow: 0 0 14px rgba(255, 190, 70, 0.5);
+}
+
+/* ============================================================
+   使用说明弹窗
+   ★ 长文案（.guide-body）必须是 var(--font)：得意黑只有一个字重，
+     整段长文用它会糊，玩家读不下去。行高放宽到 1.6。
+   ============================================================ */
+
+/* 说明要盖在开始界面之上：第一次自动弹出时底下就是开始界面 */
+.overlay.guide {
+  z-index: 20;
+  /* 顶部多留一截：躲开刘海/状态栏，标题不再贴着屏幕边（用户反馈） */
+  padding-top: calc(var(--safe-t) + 36px);
+  background:
+    var(--grid),
+    radial-gradient(120% 80% at 50% 40%, rgba(6, 9, 15, 0.9), rgba(2, 3, 6, 0.975));
+}
+
+/* 说明面板比其他卡片更深一点：文字不再直接压在游戏画面上。
+   原来面板是透明的，亮月/爆炸经过时字就看不清了（用户反馈"模糊看不清文字"）。 */
+.overlay.guide .panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 22%),
+    linear-gradient(180deg, rgba(12, 18, 27, 0.97), rgba(6, 9, 15, 0.98));
+  padding: 24px 18px 18px;
+}
+
+.guide-body { text-align: left; }
+
+.guide-body h3 {
+  position: relative;
+  margin: 22px 0 0;
+  padding-left: 13px;
+  font-size: 14.5px;
+  font-weight: 800;
+  color: var(--gold);
+  letter-spacing: 1.5px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-shadow: 0 0 14px rgba(255, 190, 70, 0.35);
+}
+/* 小节标题左侧一小段金色刻度（霓虹标签感） */
+.guide-body h3::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 15px;
+  margin-top: -7.5px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #ffe6a8, #f2a23a);
+  box-shadow: 0 0 10px rgba(255, 190, 70, 0.7);
+}
+
+.guide-body h3::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 209, 102, 0.42), rgba(255, 209, 102, 0));
+}
+
+/* 说明里的列表比首页紧凑：这里条目多，得塞得下。
+   字体仍是 var(--font) + 舒适行高，长文可读性优先。 */
 .howto {
   margin: 22px auto 4px;
   text-align: left;
@@ -244,13 +928,13 @@ html, body {
   flex-direction: column;
   gap: 10px;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.6;
   color: #c3cad6;
 }
 
 .howto li {
   position: relative;
-  padding-left: 18px;
+  padding-left: 19px;
 }
 
 .howto li::before {
@@ -267,214 +951,11 @@ html, body {
 
 .howto b { color: #fff; font-weight: 700; }
 
-.best-line { margin: 20px 0 14px; font-size: 13px; color: var(--dim); }
-.best-line b { color: var(--gold); font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
-
-.btn {
-  display: block;
-  width: 100%;
-  padding: 15px 18px;
-  border: 0;
-  border-radius: 14px;
-  font-family: var(--font);
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: 3px;
-  text-indent: 3px;
-  cursor: pointer;
-  transition: transform 0.08s;
-}
-
-.btn:active { transform: scale(0.97); }
-
-.btn.primary {
-  color: #2a0d06;
-  background: linear-gradient(180deg, #ffd06a, #ff8a3d 60%, #f2562f);
-  box-shadow: 0 8px 26px rgba(255, 110, 60, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-.tiny { margin-top: 14px; font-size: 11px; color: #6d7684; line-height: 1.5; }
-
-/* 免费声明 + 可转发的网址：网址只当文字写出来，不做成链接（点了不跳转） */
-.tiny.free { margin-top: 10px; color: #7b8698; }
-.tiny .url {
-  display: inline-block;
-  margin-top: 3px;
-  font-size: 11.5px;
-  letter-spacing: 0.4px;
-  color: #9fc4e8;
-  word-break: break-all;
-}
-
-/* 右下角版本号：主界面专用（放在 #startOverlay 里，遮罩一藏它就跟着没了）。
-   位置靠遮罩自身的 padding 让出安全区，所以这里只再加一点点余量，
-   免得贴在 iPhone 的圆角上被切掉。 */
-.build {
-  position: absolute;
-  right: 6px;
-  bottom: 4px;
-  font-size: 11px;
-  letter-spacing: 1px;
-  color: rgba(190, 210, 230, 0.4);
-  pointer-events: none;
-  user-select: none;
-}
-
-/* ---------------- 局内左下角：返回 / 暂停 ----------------
-   底部右侧是画布上画的「空袭」，顶部左侧是静音，所以这两个放左下角；
-   底部同样让出 safe-area，避免 iPhone 的圆角/横条切到按钮 */
-.ingame {
-  position: absolute;
-  left: calc(var(--safe-l) + 12px);
-  bottom: calc(var(--safe-b) + 14px);
-  display: none;
-  gap: 8px;
-  z-index: 12;
-}
-.ingame.show { display: flex; }
-
-.ig-btn {
-  min-width: 56px;
-  padding: 9px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(12, 16, 24, 0.5);
-  color: #cfe0f0;
-  font: inherit;
-  font-size: 13px;
-  letter-spacing: 1px;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  cursor: pointer;
-}
-.ig-btn:active { transform: scale(0.94); }
-/* 「返回」第二次点才真的走，第一次先变成这样提醒玩家 */
-.ig-btn.warn {
-  color: #ffd0c0;
-  border-color: rgba(255, 130, 90, 0.55);
-  background: rgba(60, 22, 16, 0.6);
-}
-
-/* ---------------- 暂停面板 ---------------- */
-.overlay.pause { z-index: 16; }
-
-.pause-tip {
-  margin: 4px 0 18px;
-  font-size: 13px;
-  color: #8fa3b8;
-}
-
-/* 暂停面板上的音效自检那一行：正常时不起眼，不正常时变琥珀色 */
-.pause-tip.audio {
-  margin: -10px 0 16px;
-  font-size: 12px;
-  color: #6f8399;
-}
-.pause-tip.audio.warn {
-  color: #ffc46b;
-}
-
-/* ---------------- 次级按钮 ---------------- */
-
-.btn.ghost {
-  margin-top: 10px;
-  color: #bcd4ea;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(160, 200, 240, 0.22);
-  font-size: 15px;
-  letter-spacing: 2px;
-  text-indent: 2px;
-  padding: 12px 16px;
-}
-.btn.ghost:active { background: rgba(255, 255, 255, 0.12); }
-
-/* ---------------- 主界面：四个功能入口 ---------------- */
-
-/* 现在只预留按钮（点了提示"即将开放"），以后分别接：角色切换 / 武器切换 /
-   商店购买 / 关卡选择。所以文案写成"以后是干什么的"，而不是"敬请期待"，
-   真机上一眼就知道这块以后会长成什么样。 */
-.menu-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 9px;
-  margin: 16px 0 14px;
-}
-
-.menu-btn {
-  font-family: var(--font);
-  text-align: left;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(160, 200, 240, 0.18);
-  background: linear-gradient(180deg, rgba(30, 38, 52, 0.74), rgba(13, 18, 27, 0.74));
-  color: #dce6f2;
-  cursor: pointer;
-  transition: transform 0.08s, background 0.15s;
-}
-
-.menu-btn:active { transform: scale(0.97); background: rgba(255, 255, 255, 0.09); }
-.menu-btn b { display: block; font-size: 15px; font-weight: 800; letter-spacing: 3px; text-indent: 3px; }
-.menu-btn i { display: block; margin-top: 3px; font-style: normal; font-size: 11px; color: #7f8896; }
-/* 主界面四个入口的"未实装"提示：默认不占视觉，点过才显示 */
-.menu-hint { margin: 10px 0 0; min-height: 17px; font-size: 12.5px; font-weight: 700; text-align: center; color: #ffd166; opacity: 0; transition: opacity 0.16s ease; }
-.menu-hint.show { opacity: 1; }
-
-/* ---------------- 使用说明弹窗 ---------------- */
-
-/* 说明要盖在开始界面之上：第一次自动弹出时底下就是开始界面 */
-.overlay.guide {
-  z-index: 20;
-  /* 顶部多留一截：躲开刘海/状态栏，标题不再贴着屏幕边（用户反馈） */
-  padding-top: calc(var(--safe-t) + 40px);
-  background: radial-gradient(120% 80% at 50% 40%, rgba(6, 9, 15, 0.88), rgba(2, 3, 6, 0.97));
-}
-
-/* 说明面板给自己一块不透明的深色底：文字不再直接压在游戏画面上。
-   原来面板是透明的，亮月/爆炸经过时字就看不清了（用户反馈"模糊看不清文字"）。 */
-.overlay.guide .panel {
-  background: rgba(9, 13, 21, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 18px;
-  padding: 20px 16px 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
-}
-
-.title.sm {
-  font-size: 26px;
-  letter-spacing: 4px;
-  text-indent: 4px;
-  background: linear-gradient(180deg, #fff, #ffcd7a);
-  -webkit-background-clip: text;
-  background-clip: text;
-  filter: none;
-}
-
-.guide-body { text-align: left; }
-
-.guide-body h3 {
-  margin: 18px 0 0;
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--gold);
-  letter-spacing: 1px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.guide-body h3::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(255, 209, 102, 0.4), rgba(255, 209, 102, 0));
-}
-
-/* 说明里的列表比首页紧凑：这里条目多，得塞得下 */
 .guide-body .howto {
-  margin: 8px auto 0;
-  gap: 7px;
+  margin: 9px auto 0;
+  gap: 8px;
   font-size: 12.5px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .guide-body .howto li::before {
@@ -483,23 +964,30 @@ html, body {
   height: 5px;
 }
 
-/* ---------------- 吃到奖励的提示条 ---------------- */
+/* ============================================================
+   吃到奖励的提示条
+   ============================================================ */
 
 /* v1 这里是三选一卡片弹窗。用户反馈不要弹窗（参考视频里是撞上桥边的
    物件直接吃加成），改成桥面左右两块奖励门之后，这里只留一条飘过的
    提示，告诉玩家刚才吃到了什么。 */
-
 .gain {
   margin-top: 10px;
-  padding: 6px 15px;
+  padding: 7px 16px;
   border-radius: 999px;
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 1px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
   color: #fff6e4;
-  background: linear-gradient(180deg, rgba(28,34,46,0.92), rgba(12,16,24,0.92));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 55%),
+    linear-gradient(180deg, rgba(28, 34, 46, 0.94), rgba(10, 14, 21, 0.94));
   border: 1px solid color-mix(in srgb, var(--c, #ffd166) 62%, transparent);
-  box-shadow: 0 6px 20px rgba(0,0,0,0.45), 0 0 22px color-mix(in srgb, var(--c, #ffd166) 30%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 6px 22px rgba(0, 0, 0, 0.5),
+    0 0 26px color-mix(in srgb, var(--c, #ffd166) 34%, transparent);
   opacity: 0;
   transform: translateY(-6px) scale(0.94);
   transition: opacity 0.16s, transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
@@ -508,44 +996,39 @@ html, body {
 
 .gain.show { opacity: 1; transform: none; }
 
-/* ---------------- 结束界面 ---------------- */
+/* ============================================================
+   结算面板
+   ============================================================ */
 
-.over-title {
-  font-size: 34px;
-  font-weight: 900;
-  letter-spacing: 8px;
-  text-indent: 8px;
-  color: #ff6b5b;
-  filter: drop-shadow(0 3px 14px rgba(255, 60, 40, 0.4));
-}
-
+/* 「新纪录」徽章：金色 + 轻微倾斜，甩出来 */
 .newbest {
   display: none;
-  margin: 12px auto 0;
+  margin: 14px auto 0;
   width: fit-content;
-  padding: 4px 14px;
+  padding: 5px 16px;
   border-radius: 999px;
+  font-family: var(--font-display);
   font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 3px;
-  text-indent: 3px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-indent: 4px;
   color: #2a0d06;
-  background: linear-gradient(180deg, #ffe6a8, #ffc44d);
-  animation: pop 0.5s ease both;
+  background: linear-gradient(180deg, #fff0c4, #ffc44d 62%, #f39b23);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 3px 0 rgba(130, 70, 0, 0.5),
+    0 0 24px rgba(255, 190, 70, 0.55);
+  transform: rotate(-2.2deg);
 }
-.newbest.show { display: block; }
+.newbest.show { display: block; animation: pop 0.5s ease both; }
 
-/* 通关结算：红色换成金色，跟"失守"一眼分得开 */
-.over-title.win {
-  color: var(--gold);
-  filter: drop-shadow(0 3px 14px rgba(255, 200, 80, 0.45));
-}
-
+/* 通关结算的金币数字：最大的那个"奖杯" */
 .coin-big {
   display: flex;
   align-items: baseline;
   justify-content: center;
-  gap: 6px;
+  gap: 7px;
   margin: 16px 0 2px;
   color: var(--gold);
   font-weight: 900;
@@ -553,87 +1036,163 @@ html, body {
 }
 
 .coin-big b {
-  font-size: 40px;
-  font-variant-numeric: tabular-nums;
-  filter: drop-shadow(0 3px 14px rgba(255, 200, 80, 0.45));
+  font-family: var(--font-display);
+  font-size: 50px;
+  line-height: 1;
+  font-weight: 900;
+  background: linear-gradient(180deg, #fff8e2 0%, #ffd166 52%, #f09a1e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow:
+    0 2px 0 rgba(120, 66, 0, 0.55),
+    0 0 22px rgba(255, 200, 80, 0.6);
 }
 
-.coin-big span { font-size: 14px; color: #ffe6a8; }
+.coin-big span {
+  font-size: 14px;
+  color: #ffe6a8;
+  letter-spacing: 2px;
+  text-shadow: 0 0 12px rgba(255, 190, 70, 0.35);
+}
 
-@keyframes pop { 0% { transform: scale(0.7); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
+/* 通关面板：标题 + 金币 + 数据格 + 按钮，块比较碎，
+   竖向收一点，整张卡更紧凑 */
+#clearOverlay .coin-big { margin: 12px 0 2px; }
+#clearOverlay .stats { margin: 16px 0 16px; }
 
+/* 结算数据格：深底 + 内描边 + 左侧一道彩色刻度，像仪表盘读数 */
 .stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 9px;
-  margin: 20px 0 18px;
+  gap: 10px;
+  margin: 20px 0 20px;
 }
 
 .stat {
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.075);
+  position: relative;
+  padding: 11px 13px 11px 16px;
+  border-radius: 13px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.012) 62%),
+    rgba(6, 9, 15, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055), 0 4px 14px rgba(0, 0, 0, 0.35);
   text-align: left;
 }
+.stat::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 11px;
+  bottom: 11px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, var(--gold), rgba(255, 140, 60, 0.25));
+  box-shadow: 0 0 12px rgba(255, 190, 70, 0.5);
+}
 
-.stat i { display: block; font-style: normal; font-size: 11px; color: var(--dim); margin-bottom: 3px; }
-.stat b { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.stat i {
+  display: block;
+  font-style: normal;
+  font-size: 10.5px;
+  letter-spacing: 1px;
+  color: var(--dim);
+  margin-bottom: 3px;
+}
+.stat b {
+  font-family: var(--font-display);
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 900;
+  color: #fff3de;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
 .stat.wide-stat { grid-column: 1 / -1; }
-.stat.wide-stat b { font-size: 16px; }
+.stat.wide-stat b { font-size: 18px; letter-spacing: 1px; }
+/* 宽站位（最终武器）用青色刻度，跟上面四个金色读数分开 */
+.stat.wide-stat::before { background: linear-gradient(180deg, var(--cyan), rgba(125, 249, 255, 0.2)); box-shadow: 0 0 12px rgba(125, 249, 255, 0.45); }
 
-/* ---------------- 第二关进场对话 ---------------- */
+@keyframes pop { 0% { transform: scale(0.7); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
+
+/* ============================================================
+   第二关进场对话
+   ============================================================ */
 /* 底下一层偏海洋的深蓝，别用纯黑：一进对话就要让人感觉"换场景了" */
 .overlay.talk {
   z-index: 15;
-  background: radial-gradient(120% 80% at 50% 30%, rgba(9, 40, 62, 0.86), rgba(2, 10, 18, 0.97));
+  background:
+    var(--grid),
+    radial-gradient(120% 80% at 50% 30%, rgba(9, 40, 62, 0.88), rgba(2, 10, 18, 0.975));
 }
 
 .talk-panel {
   max-width: 380px;
   text-align: left;
-  background: rgba(7, 20, 32, 0.94);
-  border: 1px solid rgba(125, 249, 255, 0.22);
-  border-radius: 18px;
-  padding: 16px 16px 14px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  border-color: rgba(125, 249, 255, 0.28);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0) 26%),
+    linear-gradient(180deg, rgba(9, 26, 40, 0.96), rgba(4, 12, 20, 0.97));
+  padding: 17px 17px 15px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 22px 60px rgba(0, 0, 0, 0.62),
+    0 0 44px rgba(125, 249, 255, 0.12);
 }
+.talk-panel::after { background: linear-gradient(90deg, transparent, rgba(125, 249, 255, 0.85), transparent); }
 
 .talk-head {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 13px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(125, 249, 255, 0.16);
 }
 
-/* 人物立绘：用户给的"疯狂水世界"摊位立牌照片（抠图没抠干净，对话里直接用照片本身） */
+/* 人物立绘：用户给的"疯狂水世界"摊位立牌照片（抠图没抠干净，对话里直接用照片本身）
+   切角是"通讯窗口"的硬朗读法，比圆角更贴末世 HUD 那套语言 */
 .talk-portrait {
-  width: 92px;
-  height: 92px;
+  width: 90px;
+  height: 90px;
   object-fit: cover;
   object-position: 50% 12%;
-  border-radius: 14px;
-  border: 1px solid rgba(125, 249, 255, 0.35);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  border-radius: 6px;
+  border: 1px solid rgba(125, 249, 255, 0.42);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    0 6px 22px rgba(0, 0, 0, 0.55),
+    0 0 26px rgba(125, 249, 255, 0.16);
   background: #0a2a38;
+  clip-path: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
 }
 
-.talk-who { flex: 1; }
+.talk-who { flex: 1; min-width: 0; }
 
 .talk-name {
-  font-size: 17px;
+  font-family: var(--font-display);
+  font-size: 20px;
   font-weight: 900;
-  letter-spacing: 3px;
-  color: #9be8ff;
-  text-shadow: 0 0 14px rgba(125, 249, 255, 0.35);
+  letter-spacing: 4px;
+  text-indent: 4px;
+  color: #bff2ff;
+  text-shadow:
+    0 2px 0 rgba(0, 60, 80, 0.9),
+    0 0 16px rgba(125, 249, 255, 0.55);
 }
 
+/* 页码像一枚小印章，压在名字下面 */
 .talk-stamp {
-  margin-top: 4px;
-  font-size: 11px;
+  display: inline-block;
+  margin-top: 7px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 249, 255, 0.28);
+  background: rgba(125, 249, 255, 0.07);
+  font-size: 10.5px;
   letter-spacing: 2px;
-  color: var(--dim);
-  font-variant-numeric: tabular-nums;
+  color: #9fd8ea;
 }
 
 /* 台词区：固定一个最小高度，翻页时按钮不会跳来跳去 */
@@ -641,16 +1200,18 @@ html, body {
   min-height: 76px;
   margin: 0;
   font-size: 15px;
-  line-height: 1.66;
+  line-height: 1.7;
   color: #e9f6ff;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
 }
 
 .talk-more {
-  margin-top: 6px;
+  margin-top: 8px;
   font-size: 11.5px;
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
   color: #6fd6ee;
   text-align: right;
+  text-shadow: 0 0 12px rgba(125, 249, 255, 0.45);
   animation: blink 1.2s ease-in-out infinite;
 }
 
@@ -666,19 +1227,23 @@ html, body {
 .talk-actions.show { display: flex; }
 
 /* 第二关结算面板上的「下一关 →」按钮 */
-#clearNext { letter-spacing: 2px; }
+#clearNext { letter-spacing: 3px; }
 
-/* ---------------- 选关面板（首页「关卡」入口） ---------------- */
+/* ============================================================
+   选关面板（首页「关卡」入口）
+   ============================================================ */
 .overlay.level {
   z-index: 18;
-  background: radial-gradient(120% 80% at 50% 25%, rgba(20, 26, 52, 0.9), rgba(3, 6, 14, 0.97));
+  background:
+    var(--grid),
+    radial-gradient(120% 80% at 50% 25%, rgba(30, 22, 58, 0.9), rgba(4, 5, 14, 0.975));
 }
 
 .level-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin: 12px 0 10px;
+  gap: 9px;
+  margin: 14px 0 12px;
 }
 
 /* 关卡格子：两行字（第 N 关 / 关卡名） */
@@ -687,69 +1252,140 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(125, 249, 255, 0.28);
-  background: linear-gradient(180deg, rgba(41, 116, 168, 0.5), rgba(14, 46, 74, 0.6));
+  gap: 3px;
+  padding: 12px 13px;
+  border-radius: 13px;
+  border: 1px solid rgba(125, 249, 255, 0.30);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(46, 128, 182, 0.60) 0%, rgba(17, 56, 88, 0.72) 58%, rgba(9, 32, 52, 0.78) 100%);
   color: #eaf6ff;
-  font: inherit;
+  font-family: var(--font);
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.38),
+    0 3px 0 rgba(0, 0, 0, 0.45),
+    0 8px 20px rgba(0, 0, 0, 0.4);
+  transition: transform 0.08s, box-shadow 0.12s;
 }
 
-.lv b { font-size: 15px; letter-spacing: 1px; }
-.lv span { font-size: 11px; color: #a8d8ea; }
-.lv:active { transform: scale(0.98); }
+.lv b {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7), 0 0 12px rgba(125, 249, 255, 0.3);
+}
+.lv span { font-size: 11px; letter-spacing: 0.5px; color: #a8d8ea; }
+.lv:active {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.38),
+    0 1px 0 rgba(0, 0, 0, 0.45),
+    0 0 22px rgba(125, 249, 255, 0.24);
+}
 
 /* 通关过的关卡：右上角一个小勾，别的照旧 */
 .lv.done::after {
   content: '✓';
   position: absolute;
   top: 6px;
-  right: 8px;
-  font-size: 12px;
+  right: 9px;
+  font-size: 13px;
+  font-weight: 900;
   color: #7cf7a0;
+  text-shadow: 0 0 12px rgba(124, 247, 160, 0.7);
 }
 
 /* 第 3 关往后还没做：整块变灰，但仍然能点（点了要提示"该关卡未实装"） */
 .lv.locked {
-  border-color: rgba(160, 175, 190, 0.18);
-  background: linear-gradient(180deg, rgba(70, 78, 92, 0.35), rgba(28, 32, 40, 0.5));
+  border-color: rgba(160, 175, 190, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(74, 82, 96, 0.40) 0%, rgba(30, 34, 42, 0.56) 100%);
   color: #8d99a8;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 3px 0 rgba(0, 0, 0, 0.45);
 }
-
-.lv.locked b { font-weight: 600; }
+.lv.locked b { font-weight: 600; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6); }
 .lv.locked span { color: #6b7784; }
-.lv.locked:active { transform: none; }
+.lv.locked:active { transform: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 3px 0 rgba(0, 0, 0, 0.45); }
 
 .level-hint {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.65;
   color: #9fd8ff;
   text-align: center;
   min-height: 19px;
+  text-shadow: 0 0 14px rgba(125, 249, 255, 0.22);
 }
 
-.hidden { display: none !important; }
-
-/* 矮屏兜底：iPhone SE 这类 667 高的机器，说明文字排到第 7 条就把按钮挤出屏幕了 */
+/* ============================================================
+   矮屏兜底（iPhone SE 这类 667 高、620 高的机器）
+   这里只收字号/间距，绝不收掉安全区那套。
+   ============================================================ */
 @media (max-height: 720px) {
-  .title { font-size: 40px; }
-  .howto { margin-top: 14px; gap: 7px; font-size: 12px; }
-  .best-line { margin: 12px 0 10px; }
-  .btn { padding: 12px 16px; font-size: 16px; }
-  .stats { margin: 12px 0 12px; }
-  /* 主界面多了四宫格，矮屏上一起收一收，别把「开始挑战」挤出屏幕 */
-  .menu-grid { margin: 12px 0 10px; gap: 7px; }
-  .menu-btn { padding: 8px 10px; }
-  .menu-btn b { font-size: 13px; }
+  .title { font-size: 44px; letter-spacing: 10px; text-indent: 10px; }
+  .title.sm { font-size: 26px; letter-spacing: 6px; text-indent: 6px; }
+  .over-title { font-size: clamp(20px, 6.6vw, 32px); }
+  .overlay { padding-top: calc(var(--safe-t) + 14px); padding-bottom: calc(var(--safe-b) + 14px); }
+  .overlay.guide { padding-top: calc(var(--safe-t) + 24px); }
+  .overlay.guide .panel,
+  .overlay.talk .panel,
+  .overlay.pause .panel,
+  #overOverlay .panel,
+  #clearOverlay .panel,
+  #levelOverlay .panel { padding: 17px 14px 14px; border-radius: 17px; }
+  .howto { margin-top: 15px; gap: 8px; font-size: 12px; }
+  .guide-body .howto { font-size: 12px; gap: 6px; }
+  .guide-body h3 { margin-top: 16px; font-size: 13.5px; }
+  .best-line { margin: 14px 0 12px; }
+  .best-line b { font-size: 19px; }
+  .menu-grid { margin: 14px 0 12px; gap: 8px; }
+  .menu-btn { padding: 9px 11px; }
+  .menu-btn b { font-size: 14px; letter-spacing: 3px; }
   .menu-btn i { font-size: 10px; }
-  .coin-big b { font-size: 32px; }
+  .btn { padding: 13px 16px; font-size: 17px; }
+  .btn.ghost { padding: 11px 15px; font-size: 15px; }
+  .stats { margin: 15px 0 15px; gap: 8px; }
+  .stat { padding: 9px 11px 9px 14px; }
+  .stat b { font-size: 22px; }
+  .coin-big { margin: 12px 0 2px; }
+  .coin-big b { font-size: 40px; }
+  .level-grid { margin: 11px 0 10px; gap: 8px; }
+  .lv { padding: 10px 11px; }
+  .lv b { font-size: 15px; }
+  .talk-portrait { width: 78px; height: 78px; }
+  .talk-text { min-height: 66px; font-size: 14px; }
+  .hud-num { font-size: 30px; }
 }
+
 @media (max-height: 620px) {
-  .title { font-size: 34px; }
-  .howto { gap: 5px; font-size: 11px; }
-  .best-line { margin: 8px 0 6px; }
+  .title { font-size: 36px; letter-spacing: 8px; text-indent: 8px; }
+  .title.sm { font-size: 23px; }
+  .over-title { font-size: clamp(18px, 6vw, 27px); }
+  .howto { gap: 6px; font-size: 11.5px; }
+  .best-line { margin: 10px 0 8px; }
+  .subtitle { margin-top: 8px; font-size: 12px; }
+  .subtitle::before, .subtitle::after { width: 16px; margin: 0 6px 3px; }
+  .menu-btn b { font-size: 13px; }
+  .stat b { font-size: 20px; }
+  .coin-big b { font-size: 34px; }
+}
+
+/* 极矮屏（横屏 / 分屏）：说明面板直接顶到边上，把纵向空间全给正文 */
+@media (max-height: 520px) {
+  .overlay.guide { padding-top: calc(var(--safe-t) + 10px); }
+  .overlay.guide .panel { border-radius: 14px; }
+}
+
+/* 动效降级：用户开了"减少动态效果"就把扫光和弹跳关掉，只留淡入 */
+@media (prefers-reduced-motion: reduce) {
+  .btn.primary::after { animation: none; opacity: 0; }
+  .menu-hint.show, .newbest.show { animation: none; }
+  .talk-more { animation: none; opacity: 0.75; }
+  .overlay.show { animation: overlayIn 0.16s ease both; }
+  .panel { animation: panelIn 0.18s ease both; }
 }

@@ -9,10 +9,15 @@
 // ============================================================
 
 import { CFG, WEAPON_TIERS, isHordeWave, isBossWave, pvzPlant } from './config.js';
+import { STATE } from './game.js';
 import { clamp, mulberry32, mix, rgba } from './util.js';
 
 const TAU = Math.PI * 2;
-const FONT = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, system-ui, sans-serif';
+// 画布里的字全用得意黑（子集化的 woff2 在 styles.css 里 @font-face 声明）。
+// "Smiley Sans" 已经在 main.js 里等加载完成才开第一帧，不会出现系统字闪一下。
+const FONT = '"Smiley Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, system-ui, sans-serif';
+// 正文（说明弹窗那种长段落）仍然交给系统字：得意黑只有一个字重，长文会糊成一团
+const FONT_BODY = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, system-ui, sans-serif';
 
 /** 加成标签 → 颜色（奖励门和 HUD 提示共用） */
 export const TAG_COLOR = {
@@ -449,6 +454,7 @@ export class Renderer {
     this._drawGround(ctx, game);
     this._drawSuns(ctx, game);
     this._drawHaze(ctx, w);
+    if (game.state === STATE.START) this._drawAttract(ctx, game);
     this._drawEntities(ctx, game);
     this._drawCherries(ctx, game);
     this._drawMissiles(ctx, game);
@@ -457,11 +463,62 @@ export class Renderer {
     this._drawWarns(ctx, game);
     this._drawHero(ctx, game);
     this._drawShout(ctx, game);
+    this._drawAmbient(ctx, game);
     this._drawScreenFx(ctx, game, w, h);
     this._drawAlert(ctx, game, w, h);
     ctx.translate(-ox, -oy);
     this._drawPopups(ctx, game);
-    this._drawHudCanvas(ctx, game, w, h);
+    // 开始界面背后只留场景（桥 + 吸引模式里的尸群），不画局内 HUD：
+    // 菜单面板是半透明的，底下的分数 / 心形 / 空袭按钮透出来会像"两套 UI 叠在一起"。
+    if (game.state !== STATE.START) this._drawHudCanvas(ctx, game, w, h);
+  }
+
+  /**
+   * 开始界面的"吸引模式"：桥上一小队丧尸慢慢朝镜头走，走到底就从头再来。
+   * 假数据、不进 game.enemies、不参与任何玩法 —— 只为让第一屏是活的。
+   * 颜色跟着当前关卡的皮肤走，所以选第二/三关时背景里的也是鱼人 / PvZ 僵尸。
+   */
+  _drawAttract(ctx, game) {
+    if (!this._attract) {
+      const r = mulberry32(0x1a2b3c4d);
+      const list = [];
+      for (let i = 0; i < 16; i++) {
+        list.push({
+          x: (r() * 2 - 1) * 0.62,
+          z0: 56 + r() * 48,
+          spd: 0.32 + r() * 0.6,
+          ph: r() * 6.28,
+          giant: r() < 0.16,
+          fast: r() < 0.3,
+        });
+      }
+      this._attract = list;
+    }
+    const ocean = CFG.level.skin === 'ocean';
+    const pvz = CFG.level.skin === 'pvz';
+    const span = 62;
+    for (const a of this._attract) {
+      // 慢慢走近；越过镜头就从远端重新进场。
+      // 距离刻意压在 z 56~118 这一段：开始界面的大面板会盖住屏幕中下部，
+      // 只有地平线附近那条窄带是露出来的，丧尸必须待在那儿才看得见。
+      const z = (((a.z0 + 6 - this.time * a.spd) % span) + span) % span + 56;
+      const kind = a.giant ? 'brute' : a.fast ? 'runner' : 'walker';
+      const K = CFG.kinds[kind];
+      const skin = ocean ? K.ocean : pvz ? K.pvz : null;
+      const col = (skin && skin.color) || K.color;
+      const dark = (skin && skin.dark) || K.dark;
+      const p = this.cam.project(a.x, z);
+      const H = K.size * p.s;
+      if (H < 9) continue;
+      ctx.fillStyle = 'rgba(0,0,0,0.42)';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y + 1, H * 0.19, H * 0.055, 0, 0, TAU);
+      ctx.fill();
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      this._zombieBody(ctx, H, col, dark, this.time * 2.1 + a.ph, kind, false, a.ph * 1000);
+      ctx.restore();
+    }
   }
 
   _drawBackdrop(ctx, w, h) {
@@ -621,8 +678,50 @@ export class Renderer {
       ctx.fill();
     }
 
+    // ---- 桥面细节（视觉升级）：裂缝 / 补丁 / 血渍 ----
+    // 位置一次性按定种生成、缓存在 _deckMarksCache 里，每帧只做投影 + 变换，
+    // 既不花随机数也不会"抖"；远到看不清（半径不到 1.2px）直接跳过。
+    const marks = this._deckMarksCache || (this._deckMarksCache = this._makeDeckMarks());
+    for (const m of marks) {
+      if (m.z < zN - 1 || m.z > zF + 8) continue;
+      const p = cam.project(m.x, m.z);
+      const rad = m.r * p.s;
+      if (rad < 1.2) continue;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.scale(1, 0.42); // 透视：桥面上的斑块在画面里是压扁的
+      ctx.rotate(m.rot);
+      if (m.kind === 'crack') {
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ctx.lineWidth = Math.max(0.6, rad * 0.16);
+        ctx.beginPath();
+        ctx.moveTo(-rad, 0);
+        ctx.lineTo(-rad * 0.3, rad * 0.3);
+        ctx.lineTo(rad * 0.2, -rad * 0.22);
+        ctx.lineTo(rad, rad * 0.14);
+        ctx.stroke();
+      } else if (m.kind === 'patch') {
+        ctx.fillStyle = 'rgba(255,255,255,0.035)';
+        roundRect(ctx, -rad, -rad * 0.7, rad * 2, rad * 1.4, rad * 0.3);
+        ctx.fill();
+      } else {
+        ctx.globalAlpha = m.a;
+        ctx.fillStyle = m.dark ? T.stain[0] : T.stain[1];
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rad, rad * 0.72, 0, 0, TAU);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        // 拖尾（血被踩出来的方向）
+        ctx.beginPath();
+        ctx.ellipse(rad * 0.9, rad * 0.1, rad * 0.7, rad * 0.26, 0, 0, TAU);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     // 护栏：立柱 + 顶部横栏（强透视线，是"桥"的关键视觉）
     const railH = 0.085;
+    const lampCol = CFG.level.theme === 'water' ? '#7df9ff' : CFG.level.theme === 'lawn' ? '#ffe066' : '#ff9a4a';
     ctx.lineCap = 'round';
     for (const s of [-1, 1]) {
       const xs = s * RH;
@@ -644,7 +743,8 @@ export class Renderer {
       ctx.stroke();
 
       // 立柱（世界等距，远处自然压缩）
-      for (let z = zN; z < 78; z += 2.2) {
+      let pk = 0;
+      for (let z = zN; z < 78; z += 2.2, pk++) {
         const p = cam.project(xs, z);
         const top = p.y - railH * p.s;
         const wdt = Math.max(0.7, 0.014 * p.s);
@@ -654,8 +754,46 @@ export class Renderer {
         // 立柱顶上的反光（第一关是锈迹，水世界是救生圈黄圈）
         ctx.fillStyle = T.railTop;
         ctx.fillRect(p.x - wdt / 2, top, wdt, Math.max(0.6, (p.y - top) * 0.22));
+        // 每三根柱子上挂一盏灯（视觉升级）：给护栏一排节奏光点，桥的纵深一下就出来了
+        if (pk % 3 === 0 && p.s > 6) {
+          const wr = Math.max(1.6, p.s * 0.045);
+          this._drawGlow(p.x, top - wr * 0.2, wr * 1.8, lampCol, 0.5);
+          ctx.fillStyle = '#fff4d8';
+          ctx.beginPath();
+          ctx.arc(p.x, top - wr * 0.2, wr * 0.36, 0, TAU);
+          ctx.fill();
+        }
       }
     }
+  }
+
+  /**
+   * 桥面上的"痕迹"：裂缝 / 沥青补丁 / 血渍。
+   * 一次性按固定种子生成并缓存 —— 每局都一样、每帧都一样，所以不会闪；
+   * 位置全在路面内（|x| < 0.85 * roadHalf），z 铺满 2~96 的视野。
+   */
+  _makeDeckMarks() {
+    const RH = CFG.roadHalf || 0.9;
+    let s = 0x2f6e2b1;
+    const r = () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 4294967296;
+    };
+    const out = [];
+    for (let i = 0; i < 46; i++) {
+      const roll = r();
+      const kind = roll < 0.28 ? 'crack' : roll < 0.55 ? 'patch' : 'stain';
+      out.push({
+        kind,
+        x: (r() * 2 - 1) * RH * 0.85,
+        z: 2 + r() * 94,
+        r: kind === 'crack' ? 0.05 + r() * 0.07 : 0.05 + r() * 0.1,
+        rot: (r() * 2 - 1) * 0.8,
+        dark: r() < 0.5,
+        a: 0.16 + r() * 0.22,
+      });
+    }
+    return out;
   }
 
   /** 淡淡的空气感，压在地平线附近 */
@@ -749,7 +887,7 @@ export class Renderer {
       // 倒地：绕脚底旋转到接近水平，同时高度压扁
       ctx.rotate(c.dir * fall * 1.35);
       ctx.scale(1 + fall * 0.15, 1 - fall * 0.55);
-      this._zombieBody(ctx, H, mix(c.color, '#2a1a1a', 0.35 + fall * 0.3), c.dark, c.phase, c.kind, false);
+      this._zombieBody(ctx, H, mix(c.color, '#2a1a1a', 0.35 + fall * 0.3), c.dark, c.phase, c.kind, false, c.id || 0);
       ctx.restore();
       ctx.globalAlpha = 1;
     }
@@ -1264,7 +1402,7 @@ export class Renderer {
       ctx.scale(1 + 0.3 * ek, 1 + 0.3 * ek);
     }
 
-    this._zombieBody(ctx, H, col, dark, e.phase, e.kind, isWind);
+    this._zombieBody(ctx, H, col, dark, e.phase, e.kind, isWind, e.id || 0);
 
     // 第二关：挂上海洋动物的部件（鱼鳍 / 触手 / 蟹钳 / 背鳍 / 河豚刺 / 龟壳 / 水母伞）
     // 第三关：换成植物大战僵尸那几种僵尸的招牌部件（桶 / 电线杆 / 撑杆 / 投石机…）
@@ -1529,92 +1667,298 @@ export class Renderer {
   }
 
   /** 在"脚底为原点、头在 -H"的局部坐标里画人形剪影 */
-  _zombieBody(ctx, H, col, dark, phase, kind, isWind) {
+  _zombieBody(ctx, H, col, dark, phase, kind, isWind, seed = 0) {
     const swing = Math.sin(phase);
+    const bob = Math.abs(Math.cos(phase)) * 0.016 * H; // 迈步时上下颠一点
     const hipY = -0.42 * H;
     const shY = -0.70 * H;
+    const broad = kind === 'brute' || kind === 'boss';
+
+    // 硬朗描边风：先用"比暗面更黑"的颜色把所有形状放大一圈描一遍，再填颜色。
+    // 一屏几十只挤在一起时，靠的就是这圈描边把它们分开。
+    const outline = mix(dark, '#07070a', 0.62);
+    const light = mix(col, '#ffffff', 0.3);
+    const shade = mix(dark, '#000000', 0.22);
+    const o = Math.max(0.65, H * 0.024);
+    // 细节开关：屏幕高不到 30px 的丧尸（远处那一大堆）不画牙/头发/手指/血迹，
+    // 反正看不清 —— 省下来的时间留给近处那几只。中低端手机上这一条最关键。
+    const detail = H > 30;
+    // 稳定的伪随机：同一只僵尸每帧的"破洞位置/有没有头发"都一样，不会抖
+    const rnd = (n) => {
+      const x = Math.sin(seed * 12.9898 + n * 78.233) * 43758.5453;
+      return x - Math.floor(x);
+    };
 
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    ctx.save();
+    ctx.translate(0, -bob);
 
-    // 腿
-    ctx.strokeStyle = dark;
-    ctx.lineWidth = 0.115 * H;
+    // 腿：屈膝 + 两遍走（先描边后填色），落地那条腿踩实、抬起那条腿向前甩
+    const legs = [];
     for (const s of [-1, 1]) {
-      const footX = s * 0.085 * H - s * swing * 0.13 * H;
-      ctx.beginPath();
-      ctx.moveTo(0, hipY);
-      ctx.lineTo(footX, -0.03 * H);
-      ctx.stroke();
+      const lift = s * swing;
+      const footX = s * 0.085 * H - lift * 0.14 * H;
+      const footY = -0.028 * H - Math.max(0, lift) * 0.05 * H;
+      legs.push({ s, footX, footY, kneeX: footX * 0.5, kneeY: hipY * 0.54 });
     }
-
-    // 手臂
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 0.082 * H;
-    for (const s of [-1, 1]) {
-      const handX = s * 0.20 * H + s * swing * 0.15 * H;
-      const handY = -0.34 * H + Math.abs(swing) * 0.03 * H;
-      ctx.beginPath();
-      ctx.moveTo(s * 0.14 * H, shY + 0.02 * H);
-      ctx.lineTo(handX, handY);
-      ctx.stroke();
-    }
-    // BOSS 多两条小手臂
-    if (kind === 'boss') {
-      ctx.lineWidth = 0.07 * H;
-      for (const s of [-1, 1]) {
+    const legW = (broad ? 0.132 : 0.108) * H;
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.strokeStyle = pass ? dark : outline;
+      ctx.lineWidth = legW + (pass ? 0 : o * 2);
+      for (const L of legs) {
         ctx.beginPath();
-        ctx.moveTo(s * 0.12 * H, -0.52 * H);
-        ctx.lineTo(s * 0.30 * H, -0.44 * H + swing * 0.04 * H);
+        ctx.moveTo(L.s * 0.03 * H, hipY);
+        ctx.quadraticCurveTo(L.kneeX, L.kneeY, L.footX, L.footY);
         ctx.stroke();
       }
     }
+    // 鞋
+    for (const L of legs) {
+      ctx.fillStyle = outline;
+      ctx.beginPath();
+      ctx.ellipse(L.footX, L.footY + 0.012 * H, 0.06 * H + o, 0.03 * H + o * 0.6, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = shade;
+      ctx.beginPath();
+      ctx.ellipse(L.footX, L.footY + 0.012 * H, 0.06 * H, 0.03 * H, 0, 0, TAU);
+      ctx.fill();
+    }
 
-    // 躯干
+    // 肩甲（壮汉/僵王肩更宽，加一块暗色垫肩把体型压出来）
+    if (broad) {
+      ctx.fillStyle = outline;
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.ellipse(s * 0.155 * H, shY + 0.015 * H, 0.085 * H, 0.062 * H, s * 0.3, 0, TAU);
+        ctx.fill();
+      }
+      ctx.fillStyle = shade;
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.ellipse(s * 0.15 * H, shY + 0.008 * H, 0.07 * H, 0.05 * H, s * 0.3, 0, TAU);
+        ctx.fill();
+      }
+    }
+
+    // 手臂：肘部弯一点、手往前伸（僵尸经典姿态），依然是"先描边后填色"
+    const armW = (broad ? 0.096 : 0.078) * H;
+    const arms = [];
+    for (const s of [-1, 1]) {
+      const raise = isWind ? 0.13 * H : 0;
+      const handX = s * (0.205 + 0.045 * rnd(s > 0 ? 4.5 : 2.5)) * H + s * swing * 0.14 * H;
+      const handY = -0.335 * H + Math.abs(swing) * 0.03 * H - raise;
+      arms.push({
+        s,
+        shx: s * 0.135 * H,
+        shy: shY + 0.025 * H,
+        elbowX: s * 0.215 * H,
+        elbowY: (shY + handY) * 0.5 + 0.01 * H,
+        handX,
+        handY,
+      });
+    }
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.strokeStyle = pass ? col : outline;
+      ctx.lineWidth = armW + (pass ? 0 : o * 2);
+      for (const A of arms) {
+        ctx.beginPath();
+        ctx.moveTo(A.shx, A.shy);
+        ctx.quadraticCurveTo(A.elbowX, A.elbowY, A.handX, A.handY);
+        ctx.stroke();
+      }
+    }
+    // 手 + 几根手指
+    for (const A of arms) {
+      const hr = 0.037 * H;
+      ctx.fillStyle = outline;
+      ctx.beginPath();
+      ctx.arc(A.handX, A.handY, hr + o * 0.8, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = mix(col, '#ffffff', 0.14);
+      ctx.beginPath();
+      ctx.arc(A.handX, A.handY, hr, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = Math.max(0.6, H * 0.013);
+      if (detail) for (let f = -1; f <= 1; f++) {
+        ctx.beginPath();
+        ctx.moveTo(A.handX + f * hr * 0.42, A.handY + hr * 0.4);
+        ctx.lineTo(A.handX + f * hr * 0.6, A.handY + hr * 1.35);
+        ctx.stroke();
+      }
+    }
+    // BOSS 多两条小手臂
+    if (kind === 'boss') {
+      for (let pass = 0; pass < 2; pass++) {
+        ctx.strokeStyle = pass ? col : outline;
+        ctx.lineWidth = 0.07 * H + (pass ? 0 : o * 2);
+        for (const s of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(s * 0.12 * H, -0.52 * H);
+          ctx.quadraticCurveTo(s * 0.26 * H, -0.5 * H, s * 0.3 * H, -0.44 * H + swing * 0.04 * H);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // 躯干：先描边、再填色，然后在 clip 里铺受光面 / 暗面 / 破洞
+    const shoulder = (broad ? 0.205 : 0.172) * H;
+    const waist = 0.142 * H;
+    const torsoPath = () => {
+      ctx.beginPath();
+      ctx.moveTo(-waist * 0.94, hipY);
+      ctx.quadraticCurveTo(-shoulder * 1.03, shY + 0.02 * H, -shoulder, shY);
+      ctx.quadraticCurveTo(0, shY - 0.05 * H, shoulder, shY);
+      ctx.quadraticCurveTo(shoulder * 1.03, shY + 0.02 * H, waist * 0.94, hipY);
+      ctx.quadraticCurveTo(0, hipY + 0.035 * H, -waist * 0.94, hipY);
+      ctx.closePath();
+    };
+    torsoPath();
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = o * 2;
+    ctx.stroke();
     ctx.fillStyle = col;
+    ctx.fill();
+    ctx.save();
+    torsoPath();
+    ctx.clip();
+    // 受光面（左上到中间）
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = light;
     ctx.beginPath();
-    ctx.moveTo(-0.145 * H, hipY);
-    ctx.lineTo(-0.17 * H, shY);
-    ctx.lineTo(0.17 * H, shY);
-    ctx.lineTo(0.145 * H, hipY);
+    ctx.moveTo(-shoulder * 1.1, shY - 0.06 * H);
+    ctx.lineTo(shoulder * 0.05, shY - 0.06 * H);
+    ctx.lineTo(-shoulder * 0.12, hipY);
+    ctx.lineTo(-shoulder * 1.1, hipY);
     ctx.closePath();
     ctx.fill();
-    // 破衣服的下摆
-    ctx.fillStyle = dark;
+    // 暗面（右侧）
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = shade;
     ctx.beginPath();
-    ctx.moveTo(-0.145 * H, hipY - 0.04 * H);
-    ctx.lineTo(0.145 * H, hipY - 0.04 * H);
-    ctx.lineTo(0.12 * H, hipY + 0.03 * H);
-    ctx.lineTo(-0.11 * H, hipY + 0.02 * H);
+    ctx.moveTo(shoulder * 0.36, shY - 0.06 * H);
+    ctx.lineTo(shoulder * 1.1, shY - 0.06 * H);
+    ctx.lineTo(shoulder * 1.1, hipY);
+    ctx.lineTo(shoulder * 0.2, hipY);
+    ctx.closePath();
+    ctx.fill();
+    // 撕开的口子 + 衣服上的褶皱
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = outline;
+    for (let i = 0; i < 3; i++) {
+      const x = (-0.55 + rnd(3 + i) * 1.1) * waist;
+      const y = hipY - 0.03 * H - rnd(8 + i) * 0.18 * H;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 0.013 * H * (0.7 + rnd(12 + i)), 0.028 * H, 0, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = Math.max(0.6, H * 0.011);
+    ctx.beginPath();
+    ctx.moveTo(-shoulder * 0.5, shY + 0.06 * H);
+    ctx.quadraticCurveTo(-waist * 0.35, hipY - 0.12 * H, -waist * 0.1, hipY - 0.02 * H);
+    ctx.stroke();
+    ctx.restore();
+    // 破衣服的下摆
+    ctx.fillStyle = outline;
+    ctx.beginPath();
+    ctx.moveTo(-waist * 0.96, hipY - 0.045 * H);
+    ctx.lineTo(waist * 0.96, hipY - 0.045 * H);
+    ctx.lineTo(waist * 0.7, hipY + 0.035 * H);
+    ctx.lineTo(0.02 * H, hipY + 0.005 * H);
+    ctx.lineTo(-waist * 0.62, hipY + 0.04 * H);
     ctx.closePath();
     ctx.fill();
 
-    // 头
+    // 头：脖子 → 描边 → 头骨 → 受光/暗面 → 嘴和牙 → 眼窝 → 头发 → 血迹
     const headY = -0.815 * H;
     const headR = 0.11 * H;
+    // 脖子（免得头看着是飘在肩膀上的）
+    ctx.fillStyle = outline;
+    ctx.fillRect(-headR * 0.46, headY + headR * 0.2, headR * 0.92, H * 0.1);
+    ctx.fillStyle = shade;
+    ctx.fillRect(-headR * 0.36, headY + headR * 0.26, headR * 0.72, H * 0.09);
+    // 头的描边层
+    ctx.fillStyle = outline;
+    ctx.beginPath();
+    ctx.arc(0, headY, headR + o, 0, TAU);
+    ctx.fill();
+    // 头
     ctx.fillStyle = col;
     ctx.beginPath();
     ctx.arc(0, headY, headR, 0, TAU);
     ctx.fill();
-    // 下巴/口部暗面
-    ctx.fillStyle = dark;
+    // 头顶受光
+    ctx.fillStyle = light;
     ctx.beginPath();
-    ctx.arc(0.012 * H, headY + headR * 0.34, headR * 0.62, 0, TAU);
+    ctx.ellipse(-headR * 0.24, headY - headR * 0.34, headR * 0.58, headR * 0.4, -0.5, 0, TAU);
     ctx.fill();
+    // 下颌 / 口部暗面
+    ctx.fillStyle = shade;
+    ctx.beginPath();
+    ctx.arc(0.012 * H, headY + headR * 0.36, headR * 0.6, 0, TAU);
+    ctx.fill();
+    // 嘴：张着，露几颗牙（蓄力时张更大）
+    const mopen = isWind ? 0.62 : 0.4;
+    ctx.fillStyle = outline;
+    ctx.beginPath();
+    ctx.ellipse(0, headY + headR * (0.24 + mopen * 0.2), headR * 0.46, headR * (0.12 + mopen * 0.24), 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#efe6d0';
+    if (detail) for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * headR * 0.24 - headR * 0.075, headY + headR * (0.16 + mopen * 0.1));
+      ctx.lineTo(i * headR * 0.24 + headR * 0.075, headY + headR * (0.16 + mopen * 0.1));
+      ctx.lineTo(i * headR * 0.24, headY + headR * (0.3 + mopen * 0.3));
+      ctx.closePath();
+      ctx.fill();
+    }
+    // 眼窝：先挖两个暗坑，眼睛才像陷在骨头里
+    ctx.fillStyle = outline;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(s * headR * 0.42, headY - headR * 0.06, headR * 0.33, headR * 0.29, 0, 0, TAU);
+      ctx.fill();
+    }
 
+    // 僵王的角（外黑内亮，看上去是硬的）
     if (kind === 'boss') {
-      ctx.strokeStyle = dark;
-      ctx.lineWidth = 0.05 * H;
-      for (const s of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(s * headR * 0.7, headY - headR * 0.5);
-        ctx.lineTo(s * headR * 1.9, headY - headR * 1.7);
-        ctx.stroke();
+      for (let pass = 0; pass < 2; pass++) {
+        ctx.strokeStyle = pass ? mix(dark, '#ffffff', 0.25) : outline;
+        ctx.lineWidth = 0.05 * H + (pass ? 0 : o * 1.4);
+        for (const s of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(s * headR * 0.68, headY - headR * 0.5);
+          ctx.quadraticCurveTo(s * headR * 1.5, headY - headR * 1.1, s * headR * 1.75, headY - headR * 1.85);
+          ctx.stroke();
+        }
       }
     }
 
+    // 头发（有没有、朝哪边塌，靠 seed 决定 —— 同一只僵尸每帧都一样）
+    if (detail && kind !== 'boss' && rnd(11) > 0.5) {
+      const lean2 = rnd(3) > 0.5 ? 1 : -1;
+      ctx.fillStyle = outline;
+      ctx.beginPath();
+      ctx.ellipse(0, headY - headR * 0.55, headR * 0.95, headR * 0.5, 0, Math.PI, TAU);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(
+        lean2 * headR * 0.5,
+        headY - headR * 0.78,
+        headR * 0.42,
+        headR * 0.3,
+        lean2 * 0.5,
+        0,
+        TAU
+      );
+      ctx.fill();
+    }
+
     // 眼睛（唯一的高饱和亮点，小屏上辨识度靠它）
-    const eyeR = Math.max(0.6, headR * (kind === 'boss' ? 0.30 : 0.22));
+    const eyeR = Math.max(0.6, headR * (kind === 'boss' ? 0.3 : 0.22));
     const eyeCol = kind === 'brute' || kind === 'boss' ? '#ff3a1f' : isWind ? '#fff36b' : '#ff6a3d';
     for (const s of [-1, 1]) {
       this._drawGlow(s * headR * 0.42, headY - headR * 0.06, eyeR * 3.6, eyeCol, 0.7);
@@ -1625,6 +1969,27 @@ export class Renderer {
       ctx.arc(s * headR * 0.42, headY - headR * 0.06, eyeR, 0, TAU);
       ctx.fill();
     }
+    // 瞳孔：一个小暗点让眼神有方向
+    if (detail) {
+      ctx.fillStyle = 'rgba(20,0,0,0.55)';
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(s * headR * 0.42, headY - headR * 0.06 + eyeR * 0.15, eyeR * 0.34, 0, TAU);
+        ctx.fill();
+      }
+    }
+
+    // 血迹：几滴甩在衣服/脸上
+    ctx.fillStyle = mix('#7a1520', dark, 0.25);
+    if (detail) for (let i = 0; i < 3; i++) {
+      const bx = (rnd(21 + i) - 0.5) * waist * 1.5;
+      const by = shY + 0.04 * H + rnd(31 + i) * 0.28 * H;
+      ctx.beginPath();
+      ctx.ellipse(bx, by, 0.012 * H * (0.8 + rnd(41 + i)), 0.02 * H, 0, 0, TAU);
+      ctx.fill();
+    }
+
+    ctx.restore();
   }
 
   // ---------------------------------------------------------
@@ -1665,8 +2030,10 @@ export class Renderer {
     ctx.fill();
 
     const rec = pl.recoil * H * 0.02;
+    // 走一步颠一下，站住不动就不颠（背影视角下这一点点起伏就够"活"）
+    const walkBob = pl.moving ? -Math.abs(Math.sin(pl.anim)) * H * 0.022 : 0;
     ctx.save();
-    ctx.translate(p.x, feet - rec);
+    ctx.translate(p.x, feet - rec + walkBob);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
@@ -1690,38 +2057,89 @@ export class Renderer {
     const COAT = '#35618f';
     const COAT_D = '#1e3a56';
     const RIM = '#a8d8ff';
+    // 和丧尸同一套语言：全身上下都裹一圈近黑的硬描边，站在血色雾气里也不糊
+    const OL = '#080d14';
+    const o = Math.max(0.7, H * 0.02);
 
-    // 腿
-    ctx.strokeStyle = '#243a52';
-    ctx.lineWidth = H * 0.105;
+    // 腿 + 靴子（先描边后填色）
+    const legW = H * 0.1;
+    const legs = [];
     for (const s of [-1, 1]) {
       const fx = s * H * 0.065 + s * sw * H * 0.10;
+      legs.push({ s, fx, fy: -H * 0.03 - Math.max(0, s * sw) * H * 0.035 });
+    }
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.strokeStyle = pass ? '#1d3149' : OL;
+      ctx.lineWidth = legW + (pass ? 0 : o * 2);
+      for (const L of legs) {
+        ctx.beginPath();
+        ctx.moveTo(L.s * H * 0.05, -H * 0.44);
+        ctx.quadraticCurveTo(L.fx * 0.7, -H * 0.22, L.fx, L.fy);
+        ctx.stroke();
+      }
+    }
+    for (const L of legs) {
+      ctx.fillStyle = OL;
       ctx.beginPath();
-      ctx.moveTo(s * H * 0.05, -H * 0.44);
-      ctx.lineTo(fx, -H * 0.02);
-      ctx.stroke();
+      ctx.ellipse(L.fx, L.fy + H * 0.012, H * 0.055 + o, H * 0.028 + o, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#16222f';
+      ctx.beginPath();
+      ctx.ellipse(L.fx, L.fy + H * 0.012, H * 0.055, H * 0.028, 0, 0, TAU);
+      ctx.fill();
     }
 
-    // 背包（背影视角最认得出来的部件）
+    // 背包（背影视角最认得出来的部件）+ 两个推进器喷口
     roundRect(ctx, -H * 0.105, -H * 0.72, H * 0.21, H * 0.26, H * 0.05);
+    ctx.strokeStyle = OL;
+    ctx.lineWidth = o * 2;
+    ctx.stroke();
     ctx.fillStyle = '#22384e';
     ctx.fill();
     ctx.strokeStyle = 'rgba(140,180,220,0.35)';
     ctx.lineWidth = Math.max(0.8, H * 0.012);
     ctx.stroke();
+    // 喷口（呼吸式微亮，给背影一点"装备感"）
+    const vent = 0.35 + 0.25 * Math.sin(this.time * 3.1);
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = '#0d1620';
+      roundRect(ctx, s * H * 0.055 - H * 0.022, -H * 0.50, H * 0.044, H * 0.05, H * 0.014);
+      ctx.fill();
+      this._drawGlow(s * H * 0.055, -H * 0.475, H * 0.05, '#5fd0ff', vent * 0.5);
+    }
 
     // 躯干
-    ctx.beginPath();
-    ctx.moveTo(-H * 0.115, -H * 0.44);
-    ctx.lineTo(-H * 0.13, -H * 0.74);
-    ctx.lineTo(H * 0.13, -H * 0.74);
-    ctx.lineTo(H * 0.115, -H * 0.44);
-    ctx.closePath();
+    const torso = () => {
+      ctx.beginPath();
+      ctx.moveTo(-H * 0.115, -H * 0.44);
+      ctx.lineTo(-H * 0.13, -H * 0.74);
+      ctx.lineTo(H * 0.13, -H * 0.74);
+      ctx.lineTo(H * 0.115, -H * 0.44);
+      ctx.closePath();
+    };
+    torso();
+    ctx.strokeStyle = OL;
+    ctx.lineWidth = o * 2;
+    ctx.stroke();
     const cg = ctx.createLinearGradient(0, -H * 0.74, 0, -H * 0.42);
     cg.addColorStop(0, COAT);
     cg.addColorStop(1, COAT_D);
     ctx.fillStyle = cg;
     ctx.fill();
+    // 右后侧的暗面（体积）
+    ctx.save();
+    torso();
+    ctx.clip();
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = '#0e2233';
+    ctx.beginPath();
+    ctx.moveTo(H * 0.03, -H * 0.76);
+    ctx.lineTo(H * 0.16, -H * 0.76);
+    ctx.lineTo(H * 0.16, -H * 0.42);
+    ctx.lineTo(H * 0.02, -H * 0.42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
     // 肩线高光
     ctx.strokeStyle = RIM;
     ctx.lineWidth = Math.max(1, H * 0.016);
@@ -1730,55 +2148,108 @@ export class Renderer {
     ctx.lineTo(H * 0.105, -H * 0.735);
     ctx.stroke();
 
-    // 双臂：左手垂着，右手端枪
-    ctx.strokeStyle = COAT_D;
-    ctx.lineWidth = H * 0.062;
-    ctx.beginPath();
-    ctx.moveTo(-H * 0.115, -H * 0.70);
-    ctx.lineTo(-H * 0.175, -H * 0.44 + sw * H * 0.03);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(H * 0.115, -H * 0.70);
-    ctx.lineTo(H * 0.135, -H * 0.52);
-    ctx.stroke();
+    // 双臂：左手垂着，右手端枪（描边 + 肩甲圆点）
+    const armW = H * 0.058;
+    const armEnds = [
+      { x1: -H * 0.115, y1: -H * 0.70, x2: -H * 0.175, y2: -H * 0.44 + sw * H * 0.03 },
+      { x1: H * 0.115, y1: -H * 0.70, x2: H * 0.135, y2: -H * 0.52 },
+    ];
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.strokeStyle = pass ? COAT_D : OL;
+      ctx.lineWidth = armW + (pass ? 0 : o * 2);
+      for (const A of armEnds) {
+        ctx.beginPath();
+        ctx.moveTo(A.x1, A.y1);
+        ctx.quadraticCurveTo((A.x1 + A.x2) / 2 - H * 0.02, (A.y1 + A.y2) / 2, A.x2, A.y2);
+        ctx.stroke();
+      }
+    }
 
-    // 枪（朝前的短枪管）
+    // 枪：更长的枪身 + 瞄具 + 弹匣（朝前那截最亮，是"火力来源"）
     const gunY = -H * 0.52;
+    ctx.fillStyle = OL;
+    roundRect(ctx, H * 0.02, gunY - H * 0.028, H * 0.235 + o, H * 0.056 + o * 0.6, H * 0.02);
+    ctx.fill();
     ctx.fillStyle = DARK;
-    roundRect(ctx, H * 0.03, gunY - H * 0.022, H * 0.20, H * 0.045, H * 0.02);
+    roundRect(ctx, H * 0.03, gunY - H * 0.020, H * 0.205, H * 0.040, H * 0.016);
     ctx.fill();
     ctx.fillStyle = 'rgba(150,180,200,0.4)';
-    ctx.fillRect(H * 0.03, gunY - H * 0.022, H * 0.20, H * 0.012);
+    ctx.fillRect(H * 0.03, gunY - H * 0.020, H * 0.205, H * 0.011);
+    // 瞄具
+    ctx.fillStyle = '#0d131c';
+    roundRect(ctx, H * 0.085, gunY - H * 0.048, H * 0.075, H * 0.024, H * 0.01);
+    ctx.fill();
+    // 弹匣
+    ctx.fillStyle = '#101a26';
+    roundRect(ctx, H * 0.055, gunY + H * 0.016, H * 0.035, H * 0.05, H * 0.012);
+    ctx.fill();
 
     // 头 + 头盔
     const headY = -H * 0.845;
     const headR = H * 0.098;
+    // 描边层
+    ctx.fillStyle = OL;
+    ctx.beginPath();
+    ctx.arc(0, headY, headR + o, 0, TAU);
+    ctx.fill();
     ctx.fillStyle = '#c9d6e2';
     ctx.beginPath();
     ctx.arc(0, headY, headR, 0, TAU);
     ctx.fill();
-    // 头盔（盖住上半 + 后颈）
-    ctx.fillStyle = '#26405a';
+    // 后颈的阴影
+    ctx.fillStyle = 'rgba(20,35,50,0.45)';
     ctx.beginPath();
-    ctx.arc(0, headY - headR * 0.08, headR * 1.12, Math.PI * 1.02, Math.PI * 1.98);
-    ctx.lineTo(headR * 0.9, headY + headR * 0.25);
-    ctx.lineTo(-headR * 0.9, headY + headR * 0.25);
-    ctx.closePath();
+    ctx.ellipse(0, headY + headR * 0.55, headR * 0.7, headR * 0.35, 0, 0, TAU);
     ctx.fill();
+    // 头盔（盖住上半 + 后颈），先描边再填
+    const helmet = () => {
+      ctx.beginPath();
+      ctx.arc(0, headY - headR * 0.08, headR * 1.12, Math.PI * 1.02, Math.PI * 1.98);
+      ctx.lineTo(headR * 0.9, headY + headR * 0.25);
+      ctx.lineTo(-headR * 0.9, headY + headR * 0.25);
+      ctx.closePath();
+    };
+    helmet();
+    ctx.strokeStyle = OL;
+    ctx.lineWidth = o * 2;
+    ctx.stroke();
+    ctx.fillStyle = '#26405a';
+    ctx.fill();
+    // 头盔顶上的高光弧
     ctx.strokeStyle = 'rgba(168,216,255,0.55)';
     ctx.lineWidth = Math.max(0.7, H * 0.011);
     ctx.beginPath();
     ctx.arc(0, headY - headR * 0.08, headR * 1.12, Math.PI * 1.05, Math.PI * 1.95);
     ctx.stroke();
-    // 头盔后灯
+    // 头盔侧面的护目镜带
+    ctx.fillStyle = '#0f1c2a';
+    ctx.fillRect(-headR * 1.05, headY - headR * 0.22, headR * 2.1, headR * 0.3);
+    // 头盔后灯 + 天线
     this._drawGlow(0, headY + headR * 0.05, headR * 0.5, '#7df9ff', 0.5);
+    ctx.strokeStyle = OL;
+    ctx.lineWidth = Math.max(0.7, H * 0.012);
+    ctx.beginPath();
+    ctx.moveTo(headR * 0.8, headY - headR * 0.78);
+    ctx.lineTo(headR * 1.05, headY - headR * 1.2);
+    ctx.stroke();
+    this._drawGlow(headR * 1.05, headY - headR * 1.2, headR * 0.2, '#ff5a4a', 0.7 + 0.3 * Math.sin(this.time * 6));
 
-    // 枪口火光
+    // 枪口火光：中心白热 + 星芒，后坐力越大越猛
     if (pl.muzzle > 0) {
-      const mx = H * 0.23;
-      const mr = H * (0.10 + pl.muzzle * 0.16);
+      const mx = H * 0.255;
+      const mr = H * (0.10 + pl.muzzle * 0.18);
+      this._drawGlow(mx, gunY, mr * 1.6, '#ff8a3c', pl.muzzle * 0.8);
       this._drawGlow(mx, gunY, mr, '#ffc86a', pl.muzzle);
-      this._drawGlow(mx, gunY, mr * 0.45, '#fff3d0', pl.muzzle);
+      this._drawGlow(mx, gunY, mr * 0.42, '#fff6e2', pl.muzzle);
+      ctx.strokeStyle = `rgba(255,236,180,${0.75 * pl.muzzle})`;
+      ctx.lineWidth = Math.max(0.8, H * 0.012);
+      for (let i = 0; i < 3; i++) {
+        const a = i * (Math.PI * 2 / 3) + Math.PI * 0.35;
+        ctx.beginPath();
+        ctx.moveTo(mx + Math.cos(a) * mr * 0.45, gunY + Math.sin(a) * mr * 0.45);
+        ctx.lineTo(mx + Math.cos(a) * mr * 1.3, gunY + Math.sin(a) * mr * 1.3);
+        ctx.stroke();
+      }
     }
 
     ctx.restore();
@@ -1798,9 +2269,17 @@ export class Renderer {
     const t = this.time * 2.2;
 
     // 茎 + 两片叶子（站在草坪上的植物）
+    const OL = mix(plant.dark, '#0b1a08', 0.55);
+    const o = Math.max(0.7, H * 0.02);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = OL;
+    ctx.lineWidth = Math.max(1.6, H * 0.08) + o * 1.6;
+    ctx.beginPath();
+    ctx.moveTo(0, -H * 0.02);
+    ctx.lineTo(0, -H * 0.46);
+    ctx.stroke();
     ctx.strokeStyle = plant.dark;
     ctx.lineWidth = Math.max(1.6, H * 0.08);
-    ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(0, -H * 0.02);
     ctx.lineTo(0, -H * 0.46);
@@ -1808,14 +2287,25 @@ export class Renderer {
     for (const s of [-1, 1]) {
       const lift = Math.sin(t + (s > 0 ? 0 : 1.4)) * H * 0.012;
       const ey = -H * 0.19 + lift - s * sw * H * 0.02;
+      // 叶片：先描一圈硬边再填色
       ctx.fillStyle = plant.color;
+      ctx.strokeStyle = OL;
+      ctx.lineWidth = o * 1.6;
       ctx.beginPath();
       ctx.ellipse(s * H * 0.19, ey, H * 0.21, H * 0.085, s * -0.42, 0, TAU);
       ctx.fill();
+      ctx.stroke();
       ctx.fillStyle = plant.dark;
       ctx.beginPath();
       ctx.ellipse(s * H * 0.24, ey + H * 0.025, H * 0.1, H * 0.038, s * -0.42, 0, TAU);
       ctx.fill();
+      // 叶脉高光
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = Math.max(1, H * 0.012);
+      ctx.beginPath();
+      ctx.moveTo(s * H * 0.08, ey - H * 0.03);
+      ctx.lineTo(s * H * 0.3, ey - H * 0.05);
+      ctx.stroke();
     }
 
     // 头：几个豌豆头并排，越靠边的越矮一点，看着像一丛花
@@ -1829,11 +2319,21 @@ export class Renderer {
       const lane = (game.lanes && game.lanes[i]) || '';
       const col = lane === 'ice' ? CFG.pvz.ice.color : lane === 'fire' ? CFG.pvz.fire.color : plant.color;
       const darkC = lane === 'ice' ? '#1f6f9c' : lane === 'fire' ? '#9c3410' : plant.dark;
+      // 带属性的那条弹道在头上挂一层同色辉光，一眼看出哪条是冰 / 火
+      if (lane) this._drawGlow(ox, oy, r * 2.1, lane === 'ice' ? '#7df9ff' : '#ff9a3c', 0.3);
 
       // 头
       ctx.fillStyle = col;
+      ctx.strokeStyle = mix(darkC, '#0d1a08', 0.5);
+      ctx.lineWidth = o * 1.7;
       ctx.beginPath();
       ctx.arc(ox, oy, r, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+      // 左上受光
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.beginPath();
+      ctx.ellipse(ox - r * 0.34, oy - r * 0.38, r * 0.42, r * 0.3, -0.6, 0, TAU);
       ctx.fill();
       // 底部的暗面（给球体一点体积）
       ctx.fillStyle = darkC;
@@ -1843,9 +2343,12 @@ export class Renderer {
       // 炮口（朝前 = 屏幕上方），开火那一下会缩一下
       const mr = r * (0.46 - recoil * 0.16);
       ctx.fillStyle = darkC;
+      ctx.strokeStyle = mix(darkC, '#0d1a08', 0.5);
+      ctx.lineWidth = o * 1.4;
       ctx.beginPath();
       ctx.ellipse(ox, oy - r * 0.72 - recoil * r * 0.22, mr, r * 0.34, 0, 0, TAU);
       ctx.fill();
+      ctx.stroke();
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.beginPath();
       ctx.ellipse(ox, oy - r * 0.88 - recoil * r * 0.22, mr * 0.5, r * 0.15, 0, 0, TAU);
@@ -2139,20 +2642,34 @@ export class Renderer {
     const SHORTS = '#3d2c4a';
     const HAIR = '#8d6a53';
 
-    // 腿（光腿）
+    const OL = '#1a1013';
+    const o = Math.max(0.7, H * 0.02);
+    ctx.lineCap = 'round';
+
+    // 腿（光腿）：两遍走 —— 先描硬边，再填肉色
+    const legPath = () => {
+      ctx.beginPath();
+      for (const s of [-1, 1]) {
+        const fx = s * H * 0.07 + s * sw * H * 0.09;
+        ctx.moveTo(s * H * 0.055, -H * 0.4);
+        ctx.lineTo(fx, -H * 0.03);
+      }
+    };
+    legPath();
+    ctx.strokeStyle = OL;
+    ctx.lineWidth = H * 0.115 + o * 1.6;
+    ctx.stroke();
+    legPath();
     ctx.strokeStyle = SKIN_D;
     ctx.lineWidth = H * 0.115;
-    for (const s of [-1, 1]) {
-      const fx = s * H * 0.07 + s * sw * H * 0.09;
-      ctx.beginPath();
-      ctx.moveTo(s * H * 0.055, -H * 0.4);
-      ctx.lineTo(fx, -H * 0.03);
-      ctx.stroke();
-    }
+    ctx.stroke();
     // 深色短裤
     ctx.fillStyle = SHORTS;
+    ctx.strokeStyle = OL;
+    ctx.lineWidth = o * 1.5;
     roundRect(ctx, -H * 0.14, -H * 0.48, H * 0.28, H * 0.17, H * 0.03);
     ctx.fill();
+    ctx.stroke();
     // 大肚子（背心）：躯干 + 一个鼓出来的椭圆
     ctx.fillStyle = TANK;
     ctx.beginPath();
@@ -2162,9 +2679,11 @@ export class Renderer {
     ctx.lineTo(H * 0.125, -H * 0.46);
     ctx.closePath();
     ctx.fill();
+    ctx.stroke();
     ctx.beginPath();
     ctx.ellipse(0, -H * 0.55, H * 0.155, H * 0.125, 0, 0, TAU);
     ctx.fill();
+    ctx.stroke();
     // 背心的阴影 + 一块污渍（参考图里那件带污迹的背心）
     ctx.fillStyle = TANK_D;
     ctx.beginPath();
@@ -2179,23 +2698,31 @@ export class Renderer {
     ctx.ellipse(H * 0.06, -H * 0.5, H * 0.035, H * 0.022, 0.4, 0, TAU);
     ctx.fill();
 
-    // 两条胳膊（光膀子）
+    // 两条胳膊（光膀子）：同样两遍走
+    const armPath = () => {
+      ctx.beginPath();
+      ctx.moveTo(-H * 0.128, -H * 0.68);
+      ctx.lineTo(-H * 0.19, -H * 0.44 + sw * H * 0.03);
+      ctx.moveTo(H * 0.128, -H * 0.68);
+      ctx.lineTo(H * 0.15, -H * 0.52);
+    };
+    armPath();
+    ctx.strokeStyle = OL;
+    ctx.lineWidth = H * 0.075 + o * 1.6;
+    ctx.stroke();
+    armPath();
     ctx.strokeStyle = SKIN;
     ctx.lineWidth = H * 0.075;
-    ctx.beginPath();
-    ctx.moveTo(-H * 0.128, -H * 0.68);
-    ctx.lineTo(-H * 0.19, -H * 0.44 + sw * H * 0.03);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(H * 0.128, -H * 0.68);
-    ctx.lineTo(H * 0.15, -H * 0.52);
     ctx.stroke();
 
     // 鱼叉枪
     const gy = -H * 0.5;
     ctx.fillStyle = '#2c3b48';
+    ctx.strokeStyle = OL;
+    ctx.lineWidth = o * 1.5;
     roundRect(ctx, H * 0.04, gy - H * 0.021, H * 0.26, H * 0.042, H * 0.018);
     ctx.fill();
+    ctx.stroke();
     ctx.fillStyle = '#cfd8e0';
     ctx.beginPath();
     ctx.moveTo(H * 0.3, gy);
@@ -2203,6 +2730,13 @@ export class Renderer {
     ctx.lineTo(H * 0.37, gy + H * 0.032);
     ctx.closePath();
     ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = Math.max(1, H * 0.012);
+    ctx.beginPath();
+    ctx.moveTo(H * 0.06, gy - H * 0.012);
+    ctx.lineTo(H * 0.27, gy - H * 0.012);
+    ctx.stroke();
 
     // 秃头 + 两侧络腮胡
     const headY = -H * 0.8;
@@ -2210,10 +2744,13 @@ export class Renderer {
     ctx.fillStyle = SKIN_D; // 脖子
     roundRect(ctx, -headR * 0.5, headY + headR * 0.5, headR, headR * 0.8, headR * 0.2);
     ctx.fill();
+    ctx.strokeStyle = OL;
+    ctx.lineWidth = o * 1.5;
     ctx.fillStyle = SKIN;
     ctx.beginPath();
     ctx.arc(0, headY, headR, 0, TAU);
     ctx.fill();
+    ctx.stroke();
     ctx.fillStyle = 'rgba(255,240,220,0.5)';
     ctx.beginPath();
     ctx.ellipse(-headR * 0.2, headY - headR * 0.4, headR * 0.42, headR * 0.24, -0.5, 0, TAU);
@@ -2223,6 +2760,7 @@ export class Renderer {
       ctx.beginPath();
       ctx.ellipse(s * headR * 0.74, headY + headR * 0.16, headR * 0.32, headR * 0.46, s * 0.2, 0, TAU);
       ctx.fill();
+      ctx.stroke();
     }
 
     // 枪口火光
@@ -2231,6 +2769,15 @@ export class Renderer {
       const mr = H * (0.1 + pl.muzzle * 0.16);
       this._drawGlow(mx, gy, mr, '#ffc86a', pl.muzzle);
       this._drawGlow(mx, gy, mr * 0.45, '#fff3d0', pl.muzzle);
+      ctx.strokeStyle = `rgba(255,236,190,${0.75 * pl.muzzle})`;
+      ctx.lineWidth = Math.max(1, H * 0.012);
+      for (let i = 0; i < 3; i++) {
+        const a = -Math.PI * 0.5 + (i - 1) * 0.42;
+        ctx.beginPath();
+        ctx.moveTo(mx + Math.cos(a) * mr * 0.4, gy + Math.sin(a) * mr * 0.4);
+        ctx.lineTo(mx + Math.cos(a) * mr * 1.3, gy + Math.sin(a) * mr * 1.3);
+        ctx.stroke();
+      }
     }
   }
 
@@ -2653,6 +3200,49 @@ export class Renderer {
   //  屏幕特效 / 飘字 / HUD
   // ---------------------------------------------------------
 
+  /**
+   * 空气里的浮尘 / 火星（视觉升级）。
+   * 44 颗按定种生成的微粒，各按各的速度慢慢往上飘，飘到顶就从头再来 ——
+   * 不用粒子数组、不做碰撞，纯给画面加一层"空气感"和纵深。
+   */
+  _drawAmbient(ctx, game) {
+    const T = CFG.theme;
+    if (!this._motes) {
+      let s = 0x51ed2701;
+      const r = () => {
+        s = (s * 1664525 + 1013904223) >>> 0;
+        return s / 4294967296;
+      };
+      const m = [];
+      for (let i = 0; i < 44; i++) {
+        m.push({
+          x: (r() * 2 - 1) * (CFG.roadHalf || 0.9) * 1.35,
+          z: 3 + r() * 70,
+          spd: 0.045 + r() * 0.11,
+          ph: r(),
+          sway: 0.1 + r() * 0.5,
+          size: 0.6 + r() * 1.9,
+          warm: r() < 0.45,
+        });
+      }
+      this._motes = m;
+    }
+    const t = this.time;
+    for (const m of this._motes) {
+      const k = (t * m.spd + m.ph) % 1; // 0 → 1 的生命进度，决定飘多高、多淡
+      const z = m.z + Math.sin(t * 0.5 + m.ph * 6.28) * 1.2;
+      const p = this.cam.project(m.x + Math.sin(t * m.sway + m.ph * 9) * 0.12, z);
+      const y = p.y - k * p.s * 0.5;
+      if (y < -20 || y > this.h + 20 || p.s < 6) continue;
+      const a = (1 - k) * 0.42 + 0.08;
+      const r2 = Math.min(4.2, Math.max(0.5, m.size * (0.35 + p.s * 0.012)));
+      ctx.fillStyle = m.warm ? `rgba(255,196,128,${a})` : `rgba(${T.starRGB || '220,235,255'},${a * 0.62})`;
+      ctx.beginPath();
+      ctx.arc(p.x, y, r2, 0, TAU);
+      ctx.fill();
+    }
+  }
+
   _drawScreenFx(ctx, game, w, h) {
     // 常驻暗角
     if (!this._vignette || this._vigW !== w || this._vigH !== h) {
@@ -2681,6 +3271,32 @@ export class Renderer {
     if (game.flash > 0.01) {
       ctx.fillStyle = `rgba(255,40,30,${game.flash * 0.26})`;
       ctx.fillRect(0, 0, w, h);
+    }
+
+    // 危险逼近（视觉升级）：最近一只丧尸越近，屏幕四边越红。
+    // 比"只剩一格血"更早给到预警 —— 玩家不该靠数血条才知道身后有东西。
+    let near = Infinity;
+    for (const e of game.enemies) {
+      if (e.dead) continue;
+      const d = e.z - game.player.z;
+      if (d < near) near = d;
+    }
+    if (near < 3.6 && game.state !== 'over') {
+      if (!this._dangerGrad || this._dangerW !== w || this._dangerH !== h) {
+        const dg = ctx.createRadialGradient(w / 2, h * 0.6, h * 0.2, w / 2, h * 0.6, h * 0.72);
+        dg.addColorStop(0, 'rgba(255,20,16,0)');
+        dg.addColorStop(0.68, 'rgba(255,24,18,0.1)');
+        dg.addColorStop(1, 'rgba(255,34,22,0.62)');
+        this._dangerGrad = dg;
+        this._dangerW = w;
+        this._dangerH = h;
+      }
+      const k = clamp(1 - (near - 1) / 2.6, 0, 1);
+      const beat = 0.55 + 0.45 * Math.sin(this.time * 7.5);
+      ctx.globalAlpha = clamp(k * beat, 0, 1) * 0.8;
+      ctx.fillStyle = this._dangerGrad;
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalAlpha = 1;
     }
 
     // 枪口照亮全场的一点点提升
@@ -2720,11 +3336,24 @@ export class Renderer {
     ctx.textBaseline = 'middle';
     const baseY = safeTop + 16;
 
-    // 心
+    // 心：一排带底座的"血条胶囊"（视觉升级）—— 空槽也画出来，
+    // 玩家一眼能数出自己有几格、还剩几格。只剩 1 格时最右边那颗会脉动报警。
+    const danger = pl.hp <= 1;
+    const heartR = 7.4;
+    const plateW = pl.maxHp * 20 - 6;
+    ctx.fillStyle = CFG.theme.panel || 'rgba(10,14,22,0.72)';
+    roundRect(ctx, 10, baseY - 13, plateW, 26, 13);
+    ctx.fill();
+    ctx.strokeStyle = danger ? 'rgba(255,90,74,0.55)' : 'rgba(160,200,240,0.16)';
+    ctx.lineWidth = 1.2;
+    roundRect(ctx, 10, baseY - 13, plateW, 26, 13);
+    ctx.stroke();
+    const hbeat = danger ? 1 + 0.12 * Math.sin(this.time * 8) : 1;
     for (let i = 0; i < pl.maxHp; i++) {
       const x = 18 + i * 20;
       const on = i < pl.hp;
-      this._drawHeart(ctx, x, baseY, 7.4, on);
+      const last = i === pl.hp - 1;
+      this._drawHeart(ctx, x, baseY, heartR * (last ? hbeat : 1), on, last && danger);
     }
     // 护盾
     if (pl.shield > 0) {
@@ -2979,24 +3608,39 @@ export class Renderer {
     ctx.textBaseline = 'alphabetic';
   }
 
-  _drawHeart(ctx, cx, cy, r, filled) {
+  _drawHeart(ctx, cx, cy, r, filled, alarm = false) {
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.beginPath();
-    ctx.moveTo(0, r * 0.75);
-    ctx.bezierCurveTo(-r * 1.5, -r * 0.18, -r * 0.6, -r * 1.25, 0, -r * 0.42);
-    ctx.bezierCurveTo(r * 0.6, -r * 1.25, r * 1.5, -r * 0.18, 0, r * 0.75);
-    ctx.closePath();
+    const path = () => {
+      ctx.beginPath();
+      ctx.moveTo(0, r * 0.75);
+      ctx.bezierCurveTo(-r * 1.5, -r * 0.18, -r * 0.6, -r * 1.25, 0, -r * 0.42);
+      ctx.bezierCurveTo(r * 0.6, -r * 1.25, r * 1.5, -r * 0.18, 0, r * 0.75);
+      ctx.closePath();
+    };
     if (filled) {
-      ctx.fillStyle = '#ff4d5e';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,180,190,0.85)';
-      ctx.lineWidth = 1.1;
+      if (alarm) this._drawGlow(0, 0, r * 2.6, '#ff3b2f', 0.5);
+      // 近黑的描边 + 上亮下暗，和满屏的硬描边风格统一
+      path();
+      ctx.strokeStyle = '#1a0a0e';
+      ctx.lineWidth = Math.max(1.2, r * 0.24);
       ctx.stroke();
-    } else {
-      ctx.fillStyle = 'rgba(60,64,72,0.6)';
+      const g = ctx.createLinearGradient(0, -r, 0, r);
+      g.addColorStop(0, '#ff6d78');
+      g.addColorStop(1, '#d01f36');
+      ctx.fillStyle = g;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(140,146,158,0.5)';
+      // 高光
+      ctx.fillStyle = 'rgba(255,220,224,0.8)';
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.42, -r * 0.5, r * 0.22, r * 0.15, -0.6, 0, TAU);
+      ctx.fill();
+    } else {
+      // 空槽：暗底 + 细描边，看得出是个"凹位"
+      path();
+      ctx.fillStyle = 'rgba(48,52,62,0.55)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(150,158,172,0.45)';
       ctx.lineWidth = 1;
       ctx.stroke();
     }

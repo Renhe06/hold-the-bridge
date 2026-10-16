@@ -15,6 +15,7 @@ const el = {
   app: $('app'),
   canvas: $('game'),
   hudTop: $('hudTop'),
+  hudMid: $('hudMid'),
   score: $('score'),
   waveLabel: $('waveLabel'),
   bestLabel: $('bestLabel'),
@@ -635,6 +636,12 @@ function syncState() {
     // 主界面/对话/结算/失守时收起来，免得挡着面板或者点出界
     const playing = st === STATE.PREP || st === STATE.FIGHT;
     el.ingameBtns.classList.toggle('show', playing);
+    // 顶部/中部 HUD 只在打的时候露脸：开始界面、说明、对话、结算都是半透明面板，
+    // 底下的分数 / 波次 / 档位透出来会像两套 UI 叠在一起。
+    // 用 opacity（.hide）而不是 display:none —— measureTopHud() 要靠 .hud-top 的
+    // 实际高度来定位画布上那排心形，元素从布局里拿掉会让测量结果变 0。
+    el.hudTop.classList.toggle('hide', !playing);
+    el.hudMid.classList.toggle('hide', !playing);
     if (!playing) {
       // 死了、通关了、回主界面了：暂停状态跟着解除，否则暂停面板会一直卡在画面上
       resumeGame();
@@ -792,7 +799,19 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   }
 }
 
-requestAnimationFrame(frame);
+// 字体就位再开第一帧：得意黑（184 KB woff2）没加载完就画，第一帧的字会闪一下系统字体。
+// 最多等 1.2 秒 —— 字体挂了也不能让游戏卡住。
+const fontReady =
+  typeof document !== 'undefined' && document.fonts && document.fonts.load
+    ? Promise.race([
+        Promise.allSettled([
+          document.fonts.load('900 40px "Smiley Sans"'),
+          document.fonts.load('700 20px "Smiley Sans"'),
+        ]),
+        new Promise((r) => setTimeout(r, 1200)),
+      ])
+    : Promise.resolve();
+fontReady.then(() => requestAnimationFrame(frame));
 
 // 调试/自测钩子：给自动化冒烟测试留一个入口（对玩家无副作用）
 window.__HBT = {
