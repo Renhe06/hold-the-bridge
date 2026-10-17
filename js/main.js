@@ -519,31 +519,33 @@ function runBootLoader() {
   const bar = document.getElementById('bootBar');
   bootT0 = performance.now();
   const t0 = bootT0;
-  let ready = false;
+  let packReady = false;
+  let done = false;
   let raf = 0;
-  const finish = () => {
-    if (ready) return;
-    ready = true;
-    cancelAnimationFrame(raf);
-    if (bar) bar.style.width = '100%';
-    // 太快的机器上也不能一闪而过（连续命中缓存时 0.15s 就下完了）
-    setTimeout(closeBoot, Math.max(0, BOOT_MIN_MS - (performance.now() - t0)));
-  };
   // 点一下就走（加载页永远是可跳过的：包继续在后台下，只是不再挡着）
   el.addEventListener('pointerdown', closeBoot);
   setTimeout(closeBoot, BOOT_MAX_MS);
-  // 【用户 m08644】进度条读的是**真实完成数**，不是时间斜坡
+  // 【用户 m08644】进度条读的是**真实完成量（按字节权重）**，不是时间斜坡。
+  // 资源包真的下完（packReady）后再让条快速补到 100%，满格之后才收页 ——
+  // 不然好网络下"条还在 45% 页面就没了"，又变成假动画。
   const paint = () => {
-    if (ready) return;
-    const target = bootProgress();
-    bootBarShown += (target - bootBarShown) * 0.3;
-    if (bar) bar.style.width = `${(bootBarShown * 100).toFixed(1)}%`;
+    if (done) return;
+    const target = packReady ? 1 : bootProgress();
+    bootBarShown += (target - bootBarShown) * (packReady ? 0.34 : 0.3);
+    if (bar) bar.style.width = `${(Math.min(1, bootBarShown) * 100).toFixed(1)}%`;
+    if (packReady && bootBarShown > 0.985) {
+      done = true;
+      if (bar) bar.style.width = '100%';
+      // 太快的机器上也不能一闪而过（连续命中缓存时 0.15s 就下完了）
+      setTimeout(closeBoot, Math.max(0, BOOT_MIN_MS - (performance.now() - t0)));
+      return;
+    }
     raf = requestAnimationFrame(paint);
   };
   raf = requestAnimationFrame(paint);
   // 先让第一帧画出来，再开始抢带宽（不然加载页本身都要等）
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    loadBootPack().then(finish);
+    loadBootPack().then(() => { packReady = true; });
   }));
 }
 
