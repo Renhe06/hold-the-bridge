@@ -773,6 +773,21 @@ function renderChangelog() {
     }
     card.appendChild(head);
     card.appendChild(ul);
+    // 【用户 m10949】更新预告单独一行 + 「即将上线」小标签（方案 B）。
+    // 文案照样是纯中文文本节点，由界面字典翻成英文，所以 EN 表里要有对应键。
+    if (row.preview) {
+      const pv = document.createElement('div');
+      pv.className = 'log-preview';
+      const badge = document.createElement('span');
+      badge.className = 'log-badge';
+      badge.textContent = '即将上线';
+      const txt = document.createElement('span');
+      txt.className = 'log-preview-txt';
+      txt.textContent = row.preview;
+      pv.appendChild(badge);
+      pv.appendChild(txt);
+      card.appendChild(pv);
+    }
     el.logList.appendChild(card);
   }
 }

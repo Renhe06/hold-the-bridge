@@ -873,6 +873,37 @@ html, body {
   color: rgba(255, 209, 102, 0.65);
 }
 
+/* 更新预告（用户 m10949 方案 B）：单独一行 + 「即将上线」小标签，跟条目区分开 */
+.log-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed rgba(255, 209, 102, 0.22);
+}
+
+.log-badge {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 249, 255, 0.5);
+  background: rgba(125, 249, 255, 0.12);
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  letter-spacing: 0.5px;
+  line-height: 1.5;
+  color: #b9f6ff;
+  text-shadow: 0 0 8px rgba(125, 249, 255, 0.5);
+  white-space: nowrap;
+}
+
+.log-preview-txt {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: rgba(255, 231, 173, 0.92);
+}
+
 /* 语言开关（用户 m02901）：主界面左下角的小按钮，点了在中英之间切 */
 .lang-btn {
   position: absolute;

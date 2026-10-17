@@ -131,6 +131,14 @@ const EN = {
   '底层架构优化，提升运行速度': 'Under-the-hood work for smoother, faster runs',
   '全面适配英语，双语种同步更新': 'Full English support, both languages updated together',
   '新增版本说明，更新一目了然~': 'New update notes — see what changed at a glance~',
+  // v1.0.48（用户 m10948/m10949：条目由用户给定，只做措辞润色；预告走方案 B 的独立一行）
+  '角色页面开放，可自由更换出场角色': 'Hero screen is open — switch your hero any time',
+  '第四关「异世界」主题关卡上线，全新场景与敌人登场':
+    'Stage 4 "Otherworld" is live — new scenery and new enemies',
+  '修复多项问题，优化操作与画面细节': 'Fixed several issues; tightened controls and visuals',
+  '第五关为特典关卡，主题「保护世界」':
+    'Stage 5 is a special bonus stage — theme: "Protect the World"',
+  即将上线: 'COMING SOON',
 
   // ---- HUD / 局内 ----
   波次: 'Wave',
