@@ -2217,6 +2217,32 @@ try {
     renderer._butterfly = origB;
     ok(knightBf === 0, `勇者不飞蝴蝶（knight ${knightBf} 只）`);
 
+    // 行为②c：选了花仙子但前三关她根本没上场（用户 m11011）—— 也不该有蝴蝶。
+    // 判定必须跟 _drawHero 的皮肤分支一致：只有 fantasy 关才轮到她出场。
+    {
+      // render.js 里读的是同一个 config 模块实例，所以改这里就等于改关卡皮肤
+      const { CFG: Cf } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
+      const skin = Cf.level.skin;
+      try {
+        Cf.level.skin = null; // 前三关：原版主角
+        n = 0;
+        renderer._butterfly = (...a) => { n++; return origB.apply(renderer, a); };
+        renderer.time = 2.5;
+        game.heroId = 'fairy';
+        renderer._drawButterflies(renderer.ctx, game);
+        const offStage = n;
+        Cf.level.skin = 'fantasy';
+        n = 0;
+        renderer._drawButterflies(renderer.ctx, game);
+        const onStage = n;
+        ok(offStage === 0 && onStage >= 1,
+          `花仙子只有真上场才有蝴蝶（前三关 ${offStage} 只 / 第四关 ${onStage} 只）`);
+      } finally {
+        Cf.level.skin = skin;
+        renderer._butterfly = origB;
+      }
+    }
+
     // 行为③：挥剑刀光只给勇者画（A 档纯 VFX），花仙子不会被叠刀光
     ok(/_heroSlash\(ctx, h, swing\)/.test(src), '有挥剑刀光（_heroSlash）');
     ok(/_heroSlashTrail\(ctx, h, swing,/.test(src), '刀光是"沿剑身的速度拖尾"，不是绕手转的圆环');

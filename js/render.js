@@ -3565,8 +3565,11 @@ export class Renderer {
    */
   _drawButterflies(ctx, game) {
     // 【用户 m10372】"蝴蝶是和花仙子绑定的，换英雄了就没有"
-    // 蝴蝶是花仙子的伴飞生物，不是关卡装饰 —— 勇者上场时一只都不该有。
+    // 【用户 m11011】补一条：光是"选了花仙子"不够，**必须她真在场上**。
+    // 前三关用的是原版主角（蓝衣英雄/戴夫），花仙子只在第四关（fantasy 皮肤）登场，
+    // 所以判定要跟 _drawHero 的分支条件一模一样，否则前三关会凭空飘蝴蝶。
     if (!game || game.heroId !== 'fairy') return;
+    if (!CFG.level || CFG.level.skin !== 'fantasy') return;
     const cam = this.cam;
     const t = this.time;
     const fantasy = CFG.level.skin === 'fantasy';
