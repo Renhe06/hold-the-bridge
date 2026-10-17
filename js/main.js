@@ -375,15 +375,115 @@ if (typeof requestIdleCallback === 'function') requestIdleCallback(warmPortraits
 else setTimeout(warmPortraits, 600);
 
 // ---------------------------------------------------------
-// 【用户 m06896】启动加载动画 + "先保证游戏体验，不用执着离线"
-//   只等"进主界面马上要用"的东西：几张对话立绘（每张几十 KB）。
-//   两张第四关全身立绘（~800KB）**故意不在这里等**——那是玩到第四关才要的，
-//   首开等它只会更卡；改成进第四关对话时再悄悄预热（见 warmHeroArt）。
-//   兜底两条：最多等 2.6 秒、点一下屏幕立刻进。绝不把玩家卡在加载页上。
+// 【用户 m06896 → m08644】加载页不是"空壳动画"，它就是下载资源的那段时间。
+//   用户的说法：素材越来越多、质量要求越来越高，及时加载会卡；所以要么开局下资源包、
+//   要么把这个加载动画的时间真正用起来。
+//   现在的做法：开局**真的**把"主界面 + 角色页 + 对话"要用的资源包下完并解码完才收加载页：
+//     · 6 张对话头肩立绘（hero/cmd/dave/uncle/knight/fairy，约 240KB）
+//     · 2 张第四关全身立绘（webp 约 430KB，面板那两个 <img> 直接就是被等的对象）
+//     · 字体 woff2（约 187KB，走 document.fonts.load，不等它文字会用回退字体抖一下）
+//   进度条跟着真实完成数走，做完才满格。
+//   兜底两条：最多等 12 秒、点一下屏幕立刻进（跳过只影响观感，包继续在后台下）。
 // ---------------------------------------------------------
-const BOOT_MAX_MS = 2600;
-const BOOT_MIN_MS = 480; // 太快的机器上也不能一闪而过（会像页面抖了一下）
+const BOOT_MAX_MS = 12000;
+const BOOT_MIN_MS = 650; // 太快也不能一闪而过，动画要有存在感
 let bootClosed = false;
+let bootPackPromise = null;
+let bootPackDone = 0;
+let bootPackTotal = 1;
+
+/** 一张图：取文件 + 解码都做完才算完（只 load 不 decode，第一帧还得等解码） */
+function imageTask(url) {
+  return new Promise((res) => {
+    const im = new Image();
+    im.decoding = 'async';
+    let done = false;
+    const fin = () => { if (!done) { done = true; res(); } };
+    im.onload = () => {
+      if (typeof im.decode === 'function') im.decode().then(fin).catch(fin);
+      else fin();
+    };
+    im.onerror = fin;
+    setTimeout(fin, 9000);
+    im.src = url;
+  });
+}
+
+/** 字体：document.fonts.load 会真的去取 woff2（拿不到就算了，用回退字体） */
+function fontTask() {
+  if (typeof document === 'undefined' || !document.fonts) return Promise.resolve();
+  const done = () => Promise.resolve();
+  if (typeof document.fonts.load === 'function') {
+    return Promise.resolve(document.fonts.load('1em "Smiley Sans"'))
+      .then(() => (document.fonts.ready || done()))
+      .catch(done);
+  }
+  return Promise.resolve(document.fonts.ready || done()).catch(done);
+}
+
+/**
+ * 开局资源包。做完把 heroPanelArtReady 置真 —— 之后点「角色」是零等待。
+ * 面板里那两个 <img> 直接拿来做任务（同一个 URL 再 new Image 会白解一遍码）。
+ * 进度按**字节权重**算：一张 268KB 的全身图和一张 36KB 的头肩图不该各算 1 份，
+ * 否则进度条会先冲到 80% 再等最后那张大图。
+ */
+const PACK_BYTES = {
+  './fonts/smiley-sans.woff2': 187392,
+  './img/hero-knight.webp': 162058,
+  './img/hero-fairy.webp': 267780,
+  './img/portrait-hero.png': 41261,
+  './img/portrait-cmd.png': 37167,
+  './img/portrait-dave.png': 47723,
+  './img/portrait-uncle.png': 43394,
+  './img/portrait-knight.webp': 37604,
+  './img/portrait-fairy.webp': 36312,
+};
+const packBytes = (u) => PACK_BYTES[u] || 60000; // 以后新加的素材给个均值
+
+function loadBootPack() {
+  if (bootPackPromise) return bootPackPromise;
+  if (typeof Image === 'undefined') { // 冒烟测试的桩环境
+    heroPanelArtReady = true;
+    bootPackPromise = Promise.resolve();
+    return bootPackPromise;
+  }
+  const tasks = [];
+  const seen = new Set();
+  const add = (u, pr) => {
+    seen.add(u);
+    tasks.push({ w: packBytes(u), p: pr });
+  };
+  for (const img of heroPanelImgs()) {
+    const u = img.getAttribute('data-src') || img.getAttribute('src');
+    if (u && !seen.has(u)) add(u, panelImgReady(img));
+  }
+  for (const p of PORTRAIT_KEYS) {
+    const u = portraitSrc(p);
+    if (!seen.has(u)) add(u, imageTask(u));
+  }
+  for (const u of HERO_PANEL_ART) {
+    if (!seen.has(u)) add(u, imageTask(u));
+  }
+  const font = fontTask();
+  tasks.push({ w: packBytes('./fonts/smiley-sans.woff2'), p: font });
+  bootPackBytes = tasks.reduce((s, t) => s + t.w, 0);
+  bootPackDone = 0;
+  bootPackTotal = bootPackBytes; // 兼容旧的"完成数"口径：直接用字节当权重
+  bootPackPromise = Promise.all(
+    tasks.map((t) => t.p.then(() => { bootPackDone += t.w; })),
+  ).then(() => { heroPanelArtReady = true; });
+  return bootPackPromise;
+}
+
+let bootBarShown = 0.05;
+let bootPackBytes = 1;
+/** 真实进度（0..1，按字节权重）；再叠一条极慢的时间斜坡，网络卡住时条也还在动 */
+function bootProgress() {
+  const real = Math.min(1, bootPackDone / Math.max(1, bootPackBytes));
+  const ramp = 1 - Math.exp(-(performance.now() - bootT0) / 1800);
+  return Math.min(0.96, 0.05 + 0.9 * real + 0.02 * ramp);
+}
+let bootT0 = 0;
 
 function closeBoot() {
   if (bootClosed) return;
@@ -417,40 +517,34 @@ function runBootLoader() {
     return;
   }
   const bar = document.getElementById('bootBar');
-  const t0 = performance.now();
+  bootT0 = performance.now();
+  const t0 = bootT0;
   let ready = false;
   let raf = 0;
   const finish = () => {
+    if (ready) return;
     ready = true;
     cancelAnimationFrame(raf);
     if (bar) bar.style.width = '100%';
-    // 太快的机器上也不能一闪而过（会像页面抖了一下）
+    // 太快的机器上也不能一闪而过（连续命中缓存时 0.15s 就下完了）
     setTimeout(closeBoot, Math.max(0, BOOT_MIN_MS - (performance.now() - t0)));
   };
-  // 点一下就走（加载页永远是可跳过的）
+  // 点一下就走（加载页永远是可跳过的：包继续在后台下，只是不再挡着）
   el.addEventListener('pointerdown', closeBoot);
   setTimeout(closeBoot, BOOT_MAX_MS);
-  // 【用户 m06896】这里**不再等立绘**：外壳（html/css/js/字体）到这一步其实已经好了，
-  // 真正要等的是"第一帧画出来"。立绘全部交给下面的空闲预热（warmPortraits），
-  // 不占玩家的等待时间 —— 之前等 6 张立绘（约 630KB）要 1.5 秒，那才是"打开就卡"。
-  // 进度条用一条时间斜坡撑住动效（最长 0.65s 爬到 90%），首帧一到立刻满格。
-  let frames = 2;
-  const tick = () => {
-    frames -= 1;
-    if (frames > 0) requestAnimationFrame(tick);
-    else finish();
-  };
-  // 进度条走一条"渐近"曲线：0.65s 到 ~41%、2s 到 ~75%、5s 到 ~89%，永远在动但永远不装满分。
-  // （原来 0.65s 就冲到 90% 然后干等 —— 冷启动要 3 秒多，看着像卡死了。）
-  const ramp = () => {
+  // 【用户 m08644】进度条读的是**真实完成数**，不是时间斜坡
+  const paint = () => {
     if (ready) return;
-    const ms = performance.now() - t0;
-    const p = Math.min(90, 90 * (1 - Math.exp(-ms / 1100)));
-    if (bar) bar.style.width = `${p.toFixed(1)}%`;
-    raf = requestAnimationFrame(ramp);
+    const target = bootProgress();
+    bootBarShown += (target - bootBarShown) * 0.3;
+    if (bar) bar.style.width = `${(bootBarShown * 100).toFixed(1)}%`;
+    raf = requestAnimationFrame(paint);
   };
-  raf = requestAnimationFrame(ramp);
-  requestAnimationFrame(tick);
+  raf = requestAnimationFrame(paint);
+  // 先让第一帧画出来，再开始抢带宽（不然加载页本身都要等）
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    loadBootPack().then(finish);
+  }));
 }
 
 // 第四关的全身立绘（两张共 ~800KB）只在"真的要打那关"时才取：
@@ -487,13 +581,15 @@ const LEVEL_ART = {
   ],
 };
 
-function preloadAll(urls) {
+function preloadAll(urls, onProgress) {
   if (typeof Image === 'undefined') return Promise.resolve();
+  let done = 0;
+  const bump = () => { done += 1; if (onProgress) onProgress(done / urls.length); };
   return Promise.all(urls.map((u) => new Promise((res) => {
     const im = new Image();
     im.decoding = 'async';
-    let done = false;
-    const fin = () => { if (!done) { done = true; res(); } };
+    let fin2 = false;
+    const fin = () => { if (!fin2) { fin2 = true; bump(); res(); } };
     im.onload = () => {
       if (typeof im.decode === 'function') im.decode().then(fin).catch(fin);
       else fin();
@@ -506,6 +602,12 @@ function preloadAll(urls) {
 
 let loaderOpen = false;
 let loaderRaf = 0;
+let loaderReal = 0; // 进关卡时的真实进度（0..1），由 setLoaderProgress 推
+
+/** 【用户 m08644】进关卡的加载页也读真实进度，而不是一条时间斜坡 */
+function setLoaderProgress(f) {
+  loaderReal = Math.max(loaderReal, Math.min(1, f || 0));
+}
 
 function showLoader() {
   const el = document.getElementById('bootOverlay');
@@ -515,14 +617,16 @@ function showLoader() {
   el.classList.remove('done');
   const bar = document.getElementById('bootBar');
   const t0 = performance.now();
+  loaderReal = 0;
   if (bar) bar.style.width = '4%';
   if (typeof requestAnimationFrame !== 'function') return;
   const tick = () => {
     if (!loaderOpen) return;
-    if (bar) {
-      const p = Math.min(93, 93 * (1 - Math.exp(-(performance.now() - t0) / 900)));
-      bar.style.width = `${p.toFixed(1)}%`;
-    }
+    // 真实进度为主（开局资源包已经在缓存里时它直接接近 1）；
+    // 再垫一条很慢的时间斜坡，保证"还在动"，但绝不会跑到真实进度前面把满格骗掉。
+    const ramp = 1 - Math.exp(-(performance.now() - t0) / 2000);
+    const p = Math.min(94, 4 + 90 * Math.max(loaderReal * 0.97, ramp * 0.12));
+    if (bar) bar.style.width = `${p.toFixed(1)}%`;
     loaderRaf = requestAnimationFrame(tick);
   };
   loaderRaf = requestAnimationFrame(tick);
@@ -545,8 +649,10 @@ function startLevel(idx) {
   // 桩环境（tools/smoke-test.mjs 的 document 桩）没有 Image：直接开局，
   // 不然 beginLevel 会被推到一个微任务之后，测试里的同步断言就全错位了
   if (!urls.length || typeof Image === 'undefined') { game.beginLevel(idx); return; }
+  // 资源包已经在开局下过一轮：这里基本是"命中内存缓存 → 立刻满格"，
+  // 真正没下过的关卡（后来新增皮肤的素材）才会在这里真的等一次。
   showLoader();
-  preloadAll(urls).then(() => { hideLoader(); game.beginLevel(idx); });
+  preloadAll(urls, setLoaderProgress).then(() => { hideLoader(); game.beginLevel(idx); });
 }
 
 // 立刻开始等（外壳已经由 Service Worker 缓存优先返回了，这里主要是几张立绘）
@@ -797,23 +903,9 @@ let heroPanelWarm = null;
  * 做完把 heroPanelArtReady 置真，之后点「角色」是零等待、连加载页都不出现。
  */
 function startHeroPanelWarmup() {
-  if (heroPanelWarm || heroPanelArtReady) return heroPanelWarm || Promise.resolve();
-  const jobs = heroPanelImgs().map(panelImgReady);
-  if (typeof Image !== 'undefined') {
-    for (const u of HERO_PANEL_ART.slice(2)) {
-      const im = new Image();
-      im.decoding = 'async';
-      im.src = u;
-      if (typeof im.decode === 'function') {
-        const pr = im.decode();
-        if (pr && typeof pr.catch === 'function') pr.catch(() => {});
-      }
-    }
-  }
-  heroPanelWarm = Promise.all(jobs).then(() => {
-    heroPanelArtReady = true;
-  });
-  return heroPanelWarm;
+  // 【用户 m08644】不再另起一份下载：直接复用开局的资源包（同一批 URL 已经在下了）
+  if (heroPanelArtReady) return Promise.resolve();
+  return loadBootPack();
 }
 
 function openHeroes() {

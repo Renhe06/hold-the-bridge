@@ -2177,9 +2177,15 @@ try {
     ok(/function runBootLoader\(\)/.test(main) && /function closeBoot\(\)/.test(main), 'main.js 里有加载页的开关');
     ok(/setTimeout\(closeBoot, BOOT_MAX_MS\)/.test(main) && /addEventListener\('pointerdown', closeBoot\)/.test(main),
       '加载页有兜底：最多等 BOOT_MAX_MS、点一下立刻进（不会把玩家卡在加载页）');
-    ok(/Math\.exp\(-ms \/ 1100\)/.test(main), '进度条走渐近曲线（不会冲到 90% 然后干等）');
+    // 【用户 m08644】加载页不是空壳：进度条读的是真实完成数，且开局真把资源包下完解码完
+    ok(/function bootProgress\(\)/.test(main) && /bootPackDone \/ Math\.max\(1, bootPack(Bytes|Total)\)/.test(main),
+      '加载页进度条读的是真实完成量（不是时间斜坡假装的）');
+    ok(/function loadBootPack\(\)/.test(main) && /PORTRAIT_KEYS/.test(main) && /fontTask\(\)/.test(main),
+      '开局资源包包含全部头肩立绘与字体（点「角色」不再二次加载）');
+    ok(/loadBootPack\(\)\.then\(finish\)/.test(main) || /loadBootPack\(\)\.then\(/.test(main),
+      '加载页确实等资源包做完才收（不是等两帧就收）');
     ok(/function warmHeroArt\(/.test(main) && /CFG\.level\.skin === 'fantasy'\) warmHeroArt/.test(main),
-      '第四关全身立绘改成"进对话时预热"（不占首开时间）');
+      '第四关全身立绘在对话时再兜一次预热（进关卡更稳）');
     ok(!/hero-(knight|fairy)\.(png|webp)/.test(sw), 'sw.js 的预缓存外壳里没有全身立绘');
     // 【用户 m07770】"进关卡前先进入加载页面后台加载资源"
     ok(/const LEVEL_ART = \{/.test(main) && /fantasy: \[/.test(main) && /hero-knight\.webp/.test(main),
