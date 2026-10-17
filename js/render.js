@@ -445,29 +445,161 @@ export class Renderer {
       tower(cx - wallW / 2 + 4, 30, 62);
       tower(cx + wallW / 2 - 4, 30, 62);
       tower(cx, 38, 78);
-      // 村子：几间民房（坡屋顶 + 亮着的窗 —— 有人还在屋里躲着）
-      let hx = 2;
-      while (hx < w - 10) {
-        const hw = 26 + rnd() * 20;
-        const hh = 22 + rnd() * 16;
-        const hy = base - 10 - hh;
-        g.fillStyle = 'rgba(0,0,0,0.22)';
-        g.fillRect(hx + 2, hy + 3, hw, hh);
-        g.fillStyle = F.house;
-        g.fillRect(hx, hy, hw, hh);
-        g.fillStyle = F.roof;
+      // 村子：古典奇幻的石木民房 —— 下半石砌、上半木构、陡坡石板顶、
+      // 菱格窗透暖光、拱形木门、烟囱冒烟（参考：中世纪石桥 + 石木农舍画法）
+      const cottage = (x, gy, hw) => {
+        const hh = hw * (0.6 + rnd() * 0.24);
+        const wallTop = gy - hh;
+        const upper = gy - hh * 0.44;
+        g.fillStyle = 'rgba(0,0,0,0.3)';
+        g.fillRect(x + 2.5, wallTop + 2.5, hw, hh);
+        // 石砌下半 + 灰缝
+        g.fillStyle = '#6b6357';
+        g.fillRect(x, upper, hw, gy - upper);
+        g.fillStyle = 'rgba(18,14,10,0.34)';
+        for (let s = upper + 3.5; s < gy; s += 3.6) g.fillRect(x, s, hw, 1);
+        // 木构上半：灰泥 + 外露梁柱
+        g.fillStyle = '#8a7156';
+        g.fillRect(x, wallTop, hw, upper - wallTop);
+        g.fillStyle = '#4a382a';
+        g.fillRect(x, wallTop, hw, 1.8);
+        g.fillRect(x, upper - 1.4, hw, 1.8);
+        const nb = Math.max(2, Math.round(hw / 9));
+        for (let b = 0; b <= nb; b++) g.fillRect(x + (hw * b) / nb - 0.6, wallTop, 1.3, upper - wallTop);
+        // 陡坡石板顶（近黑紫）+ 檐下阴影 + 瓦垄
+        const rh = hw * (0.5 + rnd() * 0.14);
+        g.fillStyle = 'rgba(0,0,0,0.4)';
         g.beginPath();
-        g.moveTo(hx - 4, hy);
-        g.lineTo(hx + hw / 2, hy - hw * 0.36);
-        g.lineTo(hx + hw + 4, hy);
+        g.moveTo(x - 5, wallTop + 1.5);
+        g.lineTo(x + hw / 2, wallTop - rh + 2);
+        g.lineTo(x + hw + 5, wallTop + 1.5);
         g.closePath();
         g.fill();
-        g.fillStyle = F.castleWin;
-        g.globalAlpha = 0.72;
-        g.fillRect(hx + hw * 0.2, hy + hh * 0.34, hw * 0.22, hh * 0.3);
-        g.fillRect(hx + hw * 0.58, hy + hh * 0.34, hw * 0.22, hh * 0.3);
-        g.globalAlpha = 1;
-        hx += hw + 16 + rnd() * 26;
+        g.fillStyle = '#3a2f42';
+        g.beginPath();
+        g.moveTo(x - 5, wallTop);
+        g.lineTo(x + hw / 2, wallTop - rh);
+        g.lineTo(x + hw + 5, wallTop);
+        g.closePath();
+        g.fill();
+        g.strokeStyle = 'rgba(0,0,0,0.24)';
+        g.lineWidth = 1;
+        for (let k = 1; k < 5; k++) {
+          const ex = x - 5 + ((hw + 10) * k) / 5;
+          const vx = x + hw / 2;
+          g.beginPath();
+          g.moveTo(vx, wallTop - rh + 1.5);
+          g.lineTo(ex, wallTop + 0.5);
+          g.stroke();
+        }
+        g.strokeStyle = 'rgba(226,214,240,0.16)';
+        g.beginPath();
+        g.moveTo(x - 5, wallTop);
+        g.lineTo(x + hw / 2, wallTop - rh);
+        g.stroke();
+        // 菱格窗（窗后先透一团暖光）
+        const wy = wallTop + (upper - wallTop) * 0.52;
+        const ws = Math.max(3, Math.min(5.5, hw * 0.1));
+        const dia = (cx, cy) => {
+          g.fillStyle = 'rgba(255,190,110,0.16)';
+          g.beginPath();
+          g.arc(cx, cy, ws * 2.4, 0, TAU);
+          g.fill();
+          g.save();
+          g.translate(cx, cy);
+          g.rotate(Math.PI / 4);
+          g.fillStyle = '#ffcf7a';
+          g.fillRect(-ws, -ws, ws * 2, ws * 2);
+          g.strokeStyle = 'rgba(56,32,18,0.9)';
+          g.lineWidth = 1;
+          g.beginPath();
+          g.moveTo(-ws, 0);
+          g.lineTo(ws, 0);
+          g.moveTo(0, -ws);
+          g.lineTo(0, ws);
+          g.stroke();
+          g.restore();
+        };
+        dia(x + hw * 0.3, wy);
+        if (hw > 30) dia(x + hw * 0.72, wy);
+        // 拱形木门
+        const dw = Math.min(9, hw * 0.26);
+        const dh = Math.min(15, (gy - upper) * 0.82);
+        g.fillStyle = '#37271b';
+        g.beginPath();
+        g.moveTo(x + hw * 0.5 - dw / 2, gy);
+        g.lineTo(x + hw * 0.5 - dw / 2, gy - dh + dw / 2);
+        g.arc(x + hw * 0.5, gy - dh + dw / 2, dw / 2, Math.PI, 0);
+        g.lineTo(x + hw * 0.5 + dw / 2, gy);
+        g.closePath();
+        g.fill();
+        g.fillStyle = 'rgba(255,190,110,0.35)';
+        g.fillRect(x + hw * 0.5 - dw * 0.1, gy - dh * 0.55, dw * 0.2, dh * 0.5);
+        // 烟囱 + 一缕烟
+        const chx = x + hw * (0.68 + rnd() * 0.16);
+        g.fillStyle = '#4a4048';
+        g.fillRect(chx, wallTop - rh * 0.6, 4.5, rh * 0.62 + 4);
+        g.fillStyle = 'rgba(150,140,170,0.2)';
+        g.fillRect(chx, wallTop - rh * 0.6 - 3, 4.5, 3);
+        g.fillStyle = 'rgba(210,200,225,0.09)';
+        g.beginPath();
+        g.ellipse(chx + 2, wallTop - rh * 0.72, 5 + rnd() * 3, 3 + rnd() * 2, 0, 0, TAU);
+        g.fill();
+      };
+      let hx = 2;
+      let hi = 0;
+      while (hx < w - 10) {
+        const hw = 26 + rnd() * 20;
+        if (hi === 3) {
+          // 偶尔来一座带尖顶的小礼拜堂，把天际线拔高、别一排平顶
+          const tw = 16;
+          g.fillStyle = 'rgba(0,0,0,0.3)';
+          g.fillRect(hx + 2, base - 10 - 34, tw, 34);
+          g.fillStyle = '#6b6357';
+          g.fillRect(hx, base - 10 - 34, tw, 34);
+          g.fillStyle = '#3a2f42';
+          g.beginPath();
+          g.moveTo(hx - 3, base - 10 - 34);
+          g.lineTo(hx + tw / 2, base - 10 - 34 - 26);
+          g.lineTo(hx + tw + 3, base - 10 - 34);
+          g.closePath();
+          g.fill();
+          g.fillStyle = 'rgba(226,214,240,0.16)';
+          g.beginPath();
+          g.moveTo(hx - 3, base - 10 - 34);
+          g.lineTo(hx + tw / 2, base - 10 - 34 - 26);
+          g.stroke();
+          g.fillStyle = '#ffcf7a';
+          g.fillRect(hx + tw * 0.5 - 2.5, base - 10 - 30, 5, 7);
+          hx += tw + 18 + rnd() * 20;
+          hi++;
+          continue;
+        }
+        cottage(hx, base - 10, hw);
+        hx += hw + 14 + rnd() * 22;
+        hi++;
+      }
+      // 水车磨坊：一轮子挂在侧面，古典村庄的标志物
+      {
+        const mx = w * 0.62;
+        const gy = base - 10;
+        cottage(mx, gy, 30);
+        g.save();
+        g.translate(mx + 40, gy - 12);
+        g.strokeStyle = '#5a4a36';
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(0, 0, 13, 0, TAU);
+        g.stroke();
+        g.lineWidth = 1.2;
+        for (let k = 0; k < 8; k++) {
+          const a2 = (k / 8) * TAU;
+          g.beginPath();
+          g.moveTo(0, 0);
+          g.lineTo(Math.cos(a2) * 13, Math.sin(a2) * 13);
+          g.stroke();
+        }
+        g.restore();
       }
       // 松林
       for (let i = 0; i < 9; i++) {
@@ -486,13 +618,16 @@ export class Renderer {
           g.fill();
         }
       }
-      // 最前排木栅栏
-      g.fillStyle = T.railBar;
-      g.fillRect(0, base - 13, w, 2.5);
-      g.fillRect(0, base - 5, w, 2.5);
-      for (let fx = 3; fx < w; fx += 15) {
-        g.fillStyle = T.railPost;
-        g.fillRect(fx, base - 16, 3.5, 18);
+      // 最前排的石砌矮墙（原来那排木栅栏太"公路"，换成压顶的石墙 + 少量垛口）
+      g.fillStyle = '#5f584c';
+      g.fillRect(0, base - 13, w, 11);
+      g.fillStyle = 'rgba(232,214,182,0.35)';
+      g.fillRect(0, base - 13, w, 2);
+      g.fillStyle = 'rgba(18,14,10,0.3)';
+      for (let wy2 = base - 9; wy2 < base - 2; wy2 += 3.4) g.fillRect(0, wy2, w, 1);
+      for (let fx = 3; fx < w; fx += 21) {
+        g.fillStyle = '#6c6559';
+        g.fillRect(fx, base - 17, 6, 4.5);
       }
       this.cityCanvas = c;
       this.cityH = h;
@@ -1005,39 +1140,127 @@ export class Renderer {
       }
     }
 
-    // 伸缩缝（给纵深提供参照物）
-    ctx.fillStyle = T.seam;
-    for (let z = zN + 1.2; z < 96; z += 2.2) {
-      const a = cam.project(-RH, z);
-      const b = cam.project(RH, z);
-      const c = cam.project(RH, z + 0.09);
-      const d = cam.project(-RH, z + 0.09);
-      if (a.y - d.y < 0.12) continue;
+    // ---- 【用户 m08343】第四关：古典奇幻的石砌桥面 ----
+    // 一排排错缝石板：每排 4 块、奇数排错半块，石板之间留缝让底色当"灰浆"透出来，
+    // 少量石板压一层青苔。远近视差天然产生纵深感，比原来那条公路虚线"异世界"得多。
+    const fDeck = CFG.level.skin === 'fantasy';
+    if (fDeck) {
+      const F = (CFG.theme && CFG.theme.fantasy) || {};
+      const pal = F.stoneDeck || ['#4b463d', '#565048', '#605a50', '#6a6357'];
+      const moss = F.stoneMoss || 'rgba(58,88,46,0.42)';
+      const NCOL = 4;
+      const cell = (2 * RH) / NCOL;
+      let row = 0;
+      for (let z = zN; z < Math.min(zF + 8, 96); z += 1.15, row++) {
+        const z1 = z + 1.15;
+        const off = row % 2 ? cell * 0.5 : 0;
+        for (let i = -1; i <= NCOL; i++) {
+          const xaRaw = -RH + i * cell + off;
+          const xbRaw = xaRaw + cell;
+          const ca = Math.max(xaRaw, -RH);
+          const cb = Math.min(xbRaw, RH);
+          if (cb - ca < 0.004) continue;
+          // 石板内缩一点，缝就是底色（灰浆）
+          const gi = 0.0016;
+          const x0 = Math.max(-RH, ca + gi);
+          const x1 = Math.min(RH, cb - gi);
+          if (x1 - x0 < 0.002) continue;
+          const za = z + 0.006;
+          const zb = z1 - 0.006;
+          const p1 = cam.project(x0, za);
+          const p2 = cam.project(x1, za);
+          const p3 = cam.project(x1, zb);
+          const p4 = cam.project(x0, zb);
+          if (p1.y - p4.y < 0.14) continue;
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y + 3);
+          ctx.lineTo(p2.x, p2.y + 3);
+          ctx.lineTo(p3.x, p3.y);
+          ctx.lineTo(p4.x, p4.y);
+          ctx.closePath();
+          const h = ((row * 7 + i * 13 + 5) * 2654435761) >>> 0;
+          ctx.fillStyle = pal[h % pal.length];
+          ctx.fill();
+          // 靠镜头那条边打一条极淡的亮边：石头有厚度、不像贴纸
+          if (x1 - x0 > 0.05) {
+            ctx.strokeStyle = 'rgba(255,238,208,0.07)';
+            ctx.lineWidth = Math.max(0.5, p1.y - p4.y > 40 ? 1.2 : 0.7);
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y + 3);
+            ctx.lineTo(p2.x, p2.y + 3);
+            ctx.stroke();
+          }
+          // 青苔：贴外侧（靠护栏那半）长的更常见
+          if (h % 7 === 0) {
+            const outer = Math.abs((x0 + x1) / 2) > RH * 0.45;
+            ctx.globalAlpha = outer ? 0.9 : 0.35;
+            ctx.fillStyle = moss;
+            ctx.beginPath();
+            ctx.moveTo(p4.x, p4.y);
+            ctx.lineTo(p3.x, p3.y);
+            ctx.lineTo((p3.x + p4.x) / 2 + (p2.x - p1.x) * 0.1, (p3.y + p4.y) / 2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+      // 中间那条被车马磨亮的走道（不打虚线了，用磨损带代替公路标线）
+      const wa = cam.project(-RH * 0.09, zN);
+      const wb = cam.project(RH * 0.09, zN);
+      const wc = cam.project(RH * 0.09, Math.min(zF, 92));
+      const wd = cam.project(-RH * 0.09, Math.min(zF, 92));
       ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.lineTo(c.x, c.y);
-      ctx.lineTo(d.x, d.y);
+      ctx.moveTo(wa.x, wa.y + 4);
+      ctx.lineTo(wb.x, wb.y + 4);
+      ctx.lineTo(wc.x, wc.y);
+      ctx.lineTo(wd.x, wd.y);
       ctx.closePath();
+      const wg = ctx.createLinearGradient(0, wc.y, 0, wa.y);
+      wg.addColorStop(0, 'rgba(255,238,206,0.03)');
+      wg.addColorStop(0.55, 'rgba(255,238,206,0.09)');
+      wg.addColorStop(1, 'rgba(255,232,196,0.05)');
+      ctx.fillStyle = wg;
       ctx.fill();
     }
 
-    // 中央虚线
-    ctx.fillStyle = T.dash;
-    for (let z = zN + 1.4; z < 92; z += 3.1) {
-      const z2 = z + 1.55;
-      const a = cam.project(-0.013, z);
-      const b = cam.project(0.013, z);
-      const c = cam.project(0.013, z2);
-      const d = cam.project(-0.013, z2);
-      if (a.y - d.y < 0.1) continue;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.lineTo(c.x, c.y);
-      ctx.lineTo(d.x, d.y);
-      ctx.closePath();
-      ctx.fill();
+    // 伸缩缝（给纵深提供参照物）；石桥用排缝代替，这里跳过
+    if (!fDeck) {
+      ctx.fillStyle = T.seam;
+      for (let z = zN + 1.2; z < 96; z += 2.2) {
+        const a = cam.project(-RH, z);
+        const b = cam.project(RH, z);
+        const c = cam.project(RH, z + 0.09);
+        const d = cam.project(-RH, z + 0.09);
+        if (a.y - d.y < 0.12) continue;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.lineTo(c.x, c.y);
+        ctx.lineTo(d.x, d.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // 中央虚线（石桥不画公路标线）
+    if (!fDeck) {
+      ctx.fillStyle = T.dash;
+      for (let z = zN + 1.4; z < 92; z += 3.1) {
+        const z2 = z + 1.55;
+        const a = cam.project(-0.013, z);
+        const b = cam.project(0.013, z);
+        const c = cam.project(0.013, z2);
+        const d = cam.project(-0.013, z2);
+        if (a.y - d.y < 0.1) continue;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.lineTo(c.x, c.y);
+        ctx.lineTo(d.x, d.y);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
 
     // 两侧边线
@@ -1104,6 +1327,10 @@ export class Renderer {
     }
 
     // 护栏：立柱 + 顶部横栏（强透视线，是"桥"的关键视觉）
+    if (fDeck) {
+      this._drawFantasyParapet(ctx, zN);
+      return;
+    }
     const railH = 0.085;
     const lampCol = CFG.level.theme === 'water' ? '#7df9ff' : CFG.level.theme === 'lawn' ? '#ffe066' : '#ff9a4a';
     ctx.lineCap = 'round';
@@ -1145,6 +1372,79 @@ export class Renderer {
           ctx.fillStyle = '#fff4d8';
           ctx.beginPath();
           ctx.arc(p.x, top - wr * 0.2, wr * 0.36, 0, TAU);
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  /**
+   * 【用户 m08343】第四关的"女儿墙"：中世纪石桥那种低矮石护栏 + 垛口 + 铁艺灯笼。
+   * 采样方式与原来的木栅栏一致（按透视缩放），只是从"一根横栏 + 立柱"变成有厚度的墙体。
+   */
+  _drawFantasyParapet(ctx, zN) {
+    const cam = this.cam;
+    const T = CFG.theme;
+    const F = (T && T.fantasy) || {};
+    const RH = cam.roadHalf;
+    const hgt = 0.115; // 女儿墙高度（世界单位）
+    const cap = F.parapetTop || 'rgba(232,214,182,0.55)';
+    const iron = F.lanternIron || '#2b2622';
+    const pA = (F.parapet && F.parapet[0]) || '#6c6559';
+    const pB = (F.parapet && F.parapet[1]) || '#574f44';
+    const lampCol = '#ffb970';
+    for (const s of [-1, 1]) {
+      const xs = s * RH;
+      const zs = [];
+      for (let z = zN; z < 130; z *= 1.13) zs.push(z);
+      const bottom = [];
+      const top = [];
+      for (const z of zs) {
+        const p = cam.project(xs, z);
+        if (!(p.s > 0.01)) continue;
+        bottom.push([p.x, p.y + 3]);
+        top.push([p.x, p.y + 3 - hgt * p.s]);
+      }
+      if (bottom.length < 2) continue;
+      // 墙体
+      ctx.beginPath();
+      ctx.moveTo(bottom[0][0], bottom[0][1]);
+      for (let i = 1; i < bottom.length; i++) ctx.lineTo(bottom[i][0], bottom[i][1]);
+      for (let i = top.length - 1; i >= 0; i--) ctx.lineTo(top[i][0], top[i][1]);
+      ctx.closePath();
+      const g = ctx.createLinearGradient(0, top[top.length - 1][1], 0, bottom[0][1]);
+      g.addColorStop(0, pA);
+      g.addColorStop(1, pB);
+      ctx.fillStyle = g;
+      ctx.fill();
+      // 顶盖：一条亮线，让墙有"石头压顶"的厚度
+      ctx.beginPath();
+      ctx.moveTo(top[0][0], top[0][1]);
+      for (let i = 1; i < top.length; i++) ctx.lineTo(top[i][0], top[i][1]);
+      ctx.strokeStyle = cap;
+      ctx.lineWidth = Math.max(0.8, cam.scaleNear * 0.006);
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+      // 垛口 + 灯笼
+      let k = 0;
+      for (let z = zN + (s > 0 ? 0.9 : 0); z < 80; z += 2.0, k++) {
+        const p = cam.project(xs, z);
+        const wall = hgt * p.s;
+        const h = wall * 0.42;
+        const w = Math.max(1.2, 0.02 * p.s);
+        if (h < 0.8) continue;
+        const topY = p.y + 3 - wall;
+        ctx.fillStyle = pA;
+        ctx.fillRect(p.x - w / 2, topY - h, w, h);
+        ctx.fillStyle = cap;
+        ctx.fillRect(p.x - w / 2, topY - h, w, Math.max(0.5, h * 0.24));
+        if (k % 3 === 1 && p.s > 7) {
+          const lr = Math.max(1.8, p.s * 0.045);
+          ctx.fillStyle = iron;
+          ctx.fillRect(p.x - lr * 0.11, topY - h - lr * 0.95, Math.max(0.7, lr * 0.22), lr * 0.95);
+          this._drawGlow(p.x, topY - h - lr * 1.25, lr * 2.1, lampCol, 0.45);
+          ctx.fillStyle = '#fff2cf';
+          roundRect(ctx, p.x - lr * 0.32, topY - h - lr * 1.62, lr * 0.64, lr * 0.72, lr * 0.16);
           ctx.fill();
         }
       }
@@ -2926,7 +3226,7 @@ export class Renderer {
           rec.ok = true;
         }
       };
-      im.src = `./img/hero-${id}.png`;
+      im.src = `./img/hero-${id}.webp`;
       rec.img = im;
     }
     if (!rec.ok) return null;

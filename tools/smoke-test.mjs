@@ -2142,17 +2142,18 @@ try {
     ok(html.includes('class="hero-art"') && !html.includes('class="hero-pic"'),
       '角色卡片改成展示全身立绘（.hero-art），不再是圆形头像');
     for (const who of ['knight', 'fairy']) {
-      ok(html.includes(`data-src="./img/hero-${who}.png"`), `角色面板里挂了 ${who} 的全身图`);
+      ok(html.includes(`data-src="./img/hero-${who}.webp"`), `角色面板里挂了 ${who} 的全身图（webp）`);
       // 【用户 m06896】「不用完全追求离线游玩，先保证游戏体验」
       //   两张全身立绘一共 ~800KB，放进预缓存清单 = 每次改版本都要先下完才装好 SW，
       //   首开会明显卡。所以现在的规矩反过来：**外壳预缓存、图片交给浏览器缓存**，
       //   这里钉住"它们不在外壳清单里"，免得以后又被人塞回去。
-      ok(!sw.includes(`./img/hero-${who}.png`), `${who} 的全身图不进预缓存外壳（首开要快）`);
+      ok(!sw.includes(`./img/hero-${who}.webp`), `${who} 的全身图不进预缓存外壳（首开要快）`);
       let size = 0;
       let portrait = 0;
-      try { size = fs.statSync(path.join(ROOT, 'img', `hero-${who}.png`)).size; } catch (_) { size = 0; }
-      try { portrait = fs.statSync(path.join(ROOT, 'img', `portrait-${who}.png`)).size; } catch (_) { portrait = 0; }
-      ok(size > 20000, `${who} 的全身图存在且有内容（${size} 字节）`);
+      try { size = fs.statSync(path.join(ROOT, 'img', `hero-${who}.webp`)).size; } catch (_) { size = 0; }
+      try { portrait = fs.statSync(path.join(ROOT, 'img', `portrait-${who}.webp`)).size; } catch (_) { portrait = 0; }
+      // 【用户 m08343】贴图太糊 → 源图重出成 640×960，面板/开场加载改走 webp（体积 4.3× 小）
+      ok(size > 100000, `${who} 的全身图存在且有内容（${size} 字节）`);
       ok(portrait > 20000, `${who} 的对话立绘也是同一套图裁的（${portrait} 字节）`);
     }
     // 外壳 / 图片的分流规则本身也要在（图片不 respondWith，才不会拖住安装）
@@ -2179,9 +2180,9 @@ try {
     ok(/Math\.exp\(-ms \/ 1100\)/.test(main), '进度条走渐近曲线（不会冲到 90% 然后干等）');
     ok(/function warmHeroArt\(/.test(main) && /CFG\.level\.skin === 'fantasy'\) warmHeroArt/.test(main),
       '第四关全身立绘改成"进对话时预热"（不占首开时间）');
-    ok(!/hero-(knight|fairy)\.png/.test(sw), 'sw.js 的预缓存外壳里没有全身立绘');
+    ok(!/hero-(knight|fairy)\.(png|webp)/.test(sw), 'sw.js 的预缓存外壳里没有全身立绘');
     // 【用户 m07770】"进关卡前先进入加载页面后台加载资源"
-    ok(/const LEVEL_ART = \{/.test(main) && /fantasy: \[/.test(main) && /hero-knight\.png/.test(main),
+    ok(/const LEVEL_ART = \{/.test(main) && /fantasy: \[/.test(main) && /hero-knight\.webp/.test(main),
       'main.js 有关卡素材表（fantasy 列出了两张全身立绘）');
     ok(/function preloadAll\(/.test(main) && /function startLevel\(/.test(main),
       '开局的入口走 startLevel（先 preloadAll 再 beginLevel）');

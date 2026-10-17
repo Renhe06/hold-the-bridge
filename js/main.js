@@ -353,7 +353,10 @@ const PORTRAIT_KEYS = (() => {
   }
   return [...set];
 })();
-const portraitSrc = (p) => `./img/portrait-${p}.png`;
+// 【用户 m08343】两张第四关头肩立绘换 webp（220KB→37KB、239KB→36KB），
+// 老的四张（hero/cmd/dave/uncle）本来就是 40KB 左右，没必要动。
+const WEBP_PORTRAITS = { knight: 1, fairy: 1 };
+const portraitSrc = (p) => `./img/portrait-${p}.${WEBP_PORTRAITS[p] ? 'webp' : 'png'}`;
 
 function warmPortraits() {
   for (const p of PORTRAIT_KEYS) {
@@ -456,7 +459,7 @@ function warmHeroArt(id) {
   if (typeof Image === 'undefined') return; // 冒烟测试的桩环境没有 Image
   const im = new Image();
   im.decoding = 'async';
-  im.src = `./img/hero-${key}.png`;
+  im.src = `./img/hero-${key}.webp`;
   if (typeof im.decode === 'function') {
     const pr = im.decode();
     if (pr && typeof pr.catch === 'function') pr.catch(() => {});
@@ -472,10 +475,10 @@ function warmHeroArt(id) {
 // ---------------------------------------------------------
 const LEVEL_ART = {
   fantasy: [
-    './img/hero-knight.png',
-    './img/hero-fairy.png',
-    './img/portrait-knight.png',
-    './img/portrait-fairy.png',
+    './img/hero-knight.webp',
+    './img/hero-fairy.webp',
+    './img/portrait-knight.webp',
+    './img/portrait-fairy.webp',
   ],
 };
 
@@ -738,27 +741,63 @@ function loadHero() {
 }
 
 const HERO_PANEL_ART = [
-  './img/hero-knight.png',
-  './img/hero-fairy.png',
-  './img/portrait-knight.png',
-  './img/portrait-fairy.png',
+  './img/hero-knight.webp',
+  './img/hero-fairy.webp',
+  './img/portrait-knight.webp',
+  './img/portrait-fairy.webp',
 ];
 let heroPanelArtReady = false;
 
-function openHeroes() {
-  // 【用户 m08143】"角色页面也要进加载页"：面板里是两张近 1MB 的全身立绘，
-  // 以前是打开面板才开始取，网慢时能看见"先空一格、图再滑进来"。
-  // 现在先竖加载页把这四张下完再开面板；下过一次就记着，之后打开是瞬开。
-  if (!heroPanelArtReady && typeof Image !== 'undefined') {
-    showLoader();
-    preloadAll(HERO_PANEL_ART).then(() => {
-      heroPanelArtReady = true;
-      hideLoader();
-      heroPanelShow();
-    });
-    return;
+/**
+ * 【用户 m08143】角色面板的体感问题：点开先看到加载页，加载页收掉后又是主页，
+ * 过几秒面板才冒出来，而且两张立绘还是"从上往下刷"。
+ * 原因有两个：
+ *   ① 面板是 hideLoader 之后才 show 的，而 hideLoader 里有 260ms 最小时长 + 420ms 淡出，
+ *      中间这段时间露出来的就是主页；
+ *   ② 面板里的 <img> 是把自己的 src 指向同一张图，浏览器要**重新解码**，
+ *      解码没完之前就会一段一段往下刷。
+ * 现在改成：面板先摆好（藏在加载页后面）→ 等面板里这几张 <img> 自己 decode 完 →
+ * 再收加载页。这样"露出来的第一眼"就是画完的面板。
+ */
+function panelImgReady(img) {
+  if (!img) return Promise.resolve();
+  if (!img.getAttribute('src') && img.getAttribute('data-src')) img.setAttribute('src', img.getAttribute('data-src'));
+  if (typeof Image === 'undefined' || typeof img.decode !== 'function') return Promise.resolve();
+  if (img.complete && img.naturalWidth > 0) {
+    // 已经解码过的图再 decode() 会很快返回
+    return img.decode().catch(() => {});
   }
-  heroPanelShow();
+  return new Promise((res) => {
+    const fin = () => {
+      if (typeof img.decode === 'function') img.decode().then(res).catch(res);
+      else res();
+    };
+    img.addEventListener('load', fin, { once: true });
+    img.addEventListener('error', fin, { once: true });
+    setTimeout(res, 9000);
+  });
+}
+
+function openHeroes() {
+  const needLoader = !heroPanelArtReady;
+  heroPanelShow(); // 先摆好，别让玩家先看见主页
+  // 冒烟测试的 DOM 桩没有 querySelectorAll，这里要容错
+  const imgs =
+    typeof document.querySelectorAll === 'function'
+      ? Array.prototype.slice.call(document.querySelectorAll('.lv.hero .hero-art img'))
+      : [];
+  if (needLoader) showLoader();
+  Promise.all(imgs.map(panelImgReady)).then(() => {
+    heroPanelArtReady = true;
+    if (needLoader) hideLoader();
+  });
+  // 头肩立绘是对话面板用的，不该挡住角色页：后台悄悄热一下就好
+  if (needLoader && typeof Image !== 'undefined') {
+    for (const u of HERO_PANEL_ART.slice(2)) {
+      const im = new Image();
+      im.src = u;
+    }
+  }
 }
 
 function heroPanelShow() {
