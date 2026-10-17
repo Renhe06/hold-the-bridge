@@ -431,6 +431,8 @@ const PACK_BYTES = {
   './fonts/smiley-sans.woff2': 187392,
   './img/hero-knight.webp': 162058,
   './img/hero-fairy.webp': 267780,
+  './img/hero-fairy-body.webp': 250302,
+  './img/hero-fairy-wings.webp': 51406,
   './img/portrait-hero.png': 41261,
   './img/portrait-cmd.png': 37167,
   './img/portrait-dave.png': 47723,
@@ -578,6 +580,9 @@ const LEVEL_ART = {
   fantasy: [
     './img/hero-knight.webp',
     './img/hero-fairy.webp',
+    // 【用户 m09695 翅膀扇动】花仙子的立绘拆成「身体 + 翅膀」两层，翅膀要单独绕翅根转
+    './img/hero-fairy-body.webp',
+    './img/hero-fairy-wings.webp',
     './img/portrait-knight.webp',
     './img/portrait-fairy.webp',
   ],
@@ -856,6 +861,9 @@ function loadHero() {
 const HERO_PANEL_ART = [
   './img/hero-knight.webp',
   './img/hero-fairy.webp',
+  // 面板也要这两张：点「角色」→ 进关卡之间不用再等（它们是同一次 bootPack 里的）
+  './img/hero-fairy-body.webp',
+  './img/hero-fairy-wings.webp',
   './img/portrait-knight.webp',
   './img/portrait-fairy.webp',
 ];

@@ -2164,6 +2164,49 @@ try {
     ok(html.includes('class="lv hero"'), '角色卡片复用了关卡卡片的样式');
   }
 
+  // (g2) 英雄动画（用户 m09695）：法杖光 + 蝴蝶 —— 都是纯程序化叠加，立绘一个像素都没改
+  {
+    const src = fs.readFileSync(path.join(ROOT, 'js', 'render.js'), 'utf8');
+    ok(/_heroWandGlow\(ctx, h, swing, charge\)/.test(src), '有法杖光（_heroWandGlow）');
+    ok(/\(0\.105 - 0\.5\)/.test(src) && /0\.175 - 0\.955/.test(src),
+      '法杖头的坐标是从 639×960 的立绘里量出来的（归一化 0.105 / 0.175）');
+    ok(/charge = clamp\(1 - wp\.cd \/ full, 0, 1\)/.test(src),
+      '光按"这一发的冷却进度"蓄力（不是常亮）');
+    ok(/_butterfly\(ctx, x, y, r, flap, col, alpha\)/.test(src), '有蝴蝶（_butterfly）');
+    ok(/_drawButterflies\(ctx, game\);\s*\n\s*this\._drawHero\(ctx, game\);/.test(src),
+      '蝴蝶画在英雄之前（人物永远是焦点）');
+
+    // 行为①：法杖光只在花仙子身上出现
+    let wand = 0;
+    const origWand = renderer._heroWandGlow;
+    renderer._heroWandGlow = function (...a) { wand++; return origWand.apply(this, a); };
+    const fakeArt = { width: 640, height: 960 };
+    game.heroId = 'fairy';
+    renderer._heroSprite(renderer.ctx, game, 120, game.player, fakeArt, 'fairy');
+    const wandFairy = wand;
+    wand = 0;
+    renderer._heroSprite(renderer.ctx, game, 120, game.player, fakeArt, 'knight');
+    const wandKnight = wand;
+    renderer._heroWandGlow = origWand;
+    ok(wandFairy === 1 && wandKnight === 0,
+      `法杖光只给花仙子画（fairy ${wandFairy} 次 / knight ${wandKnight} 次）`);
+
+    // 行为②：蝴蝶是"时不时"的 —— 出场时段会画，隐藏时段一只都不画
+    let n = 0;
+    const origB = renderer._butterfly;
+    renderer._butterfly = (...a) => { n++; return origB.apply(renderer, a); };
+    renderer.time = 2.5;
+    renderer._drawButterflies(renderer.ctx, game);
+    const seen = n;
+    n = 0;
+    renderer.time = 6.6;
+    renderer._drawButterflies(renderer.ctx, game);
+    const hidden = n;
+    renderer._butterfly = origB;
+    ok(seen >= 1 && hidden === 0,
+      `蝴蝶时不时才飞出来（t=2.5 时 ${seen} 只 / t=6.6 时 ${hidden} 只）`);
+  }
+
   // (h) 启动加载页 + "不用执着离线，先保证体验"（用户 m06896）
   //   这几条都是"最怕以后整理代码时被顺手删掉/改回去"的东西：
   //   加载页在就有一层兜底，图片不进预缓存才有首开的快。

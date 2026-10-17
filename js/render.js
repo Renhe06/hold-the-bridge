@@ -898,6 +898,8 @@ export class Renderer {
     this._drawFog(ctx, w);
     this._drawRings(ctx, game);
     this._drawWarns(ctx, game);
+    // 【用户 m09695】桥边时不时飞过几只蝴蝶（画在英雄之前：人物永远是焦点）
+    this._drawButterflies(ctx, game);
     this._drawHero(ctx, game);
     this._drawShout(ctx, game);
     this._drawAmbient(ctx, game);
@@ -3041,7 +3043,7 @@ export class Renderer {
     if (CFG.level.skin === 'fantasy') {
       const id = game.heroId === 'fairy' ? 'fairy' : 'knight';
       const art = this._heroArt(id);
-      if (art) this._heroSprite(ctx, H, pl, art, id);
+      if (art) this._heroSprite(ctx, game, H, pl, art, id);
       else if (id === 'fairy') this._heroFairy(ctx, H, sw, pl);
       else this._heroKnight(ctx, H, sw, pl);
       ctx.restore();
@@ -3265,7 +3267,7 @@ export class Renderer {
    * 第四关主角的立绘贴图（用户 m06010：角色模型要精致精美，用给的全身图）。
    * 懒加载 + 记忆化：第一帧就开始加载，加载好之前先用手绘版顶着。
    */
-  _heroArt(id) {
+  _heroArt(id, file) {
     if (typeof Image === 'undefined') return null; // 冒烟测试的 document 桩里没有 Image
     this._arts = this._arts || {};
     let rec = this._arts[id];
@@ -3289,7 +3291,8 @@ export class Renderer {
           rec.ok = true;
         }
       };
-      im.src = `./img/hero-${id}.webp`;
+      // file 可以让同一套解码/守卫逻辑复用到「立绘分层」那两张图上
+      im.src = `./img/${file || `hero-${id}`}.webp`;
       rec.img = im;
     }
     if (!rec.ok) return null;
@@ -3306,11 +3309,20 @@ export class Renderer {
    * 锚点说明：贴图裁出来的矩形包含剑尖/裙摆，人物真正踩地的那条线在高度
    * 的 95.5% 处（量过：勇者 0.961、花仙子 0.941），所以底边要往下压一点点。
    */
-  _heroSprite(ctx, H, pl, art, id) {
+  _heroSprite(ctx, game, H, pl, art, id) {
     const ANCHOR = 0.955;
     if (!art || !(art.width > 0) || !(art.height > 0)) return;
     if (!Number.isFinite(H) || H <= 0) return;
     const swing = Math.min(1, pl.muzzle * 3.4);
+    // 【用户 m09695】"攻击时法杖要亮光"：光要有"蓄力→出手"的形状，不能只是常亮。
+    // 开火后 game.weapon.cd 从满值往回数，charge 0→1 就是这一发的蓄力进度；
+    // 出手那一刻由 pl.muzzle 的爆闪接管（两者在绘制时取大）。
+    const wp = game && game.weapon;
+    let charge = 0;
+    if (wp && Number.isFinite(wp.cd) && wp.cd > 0) {
+      const full = Math.max(0.06, (wp.interval || 0.3) / (wp.rateMul || 1));
+      charge = clamp(1 - wp.cd / full, 0, 1);
+    }
     const step = pl.moving ? Math.sin(pl.anim) : 0;
     const breathe = 1 + Math.sin(this.time * 3.1) * 0.008;
     // 【用户 m06896】"老是卡顿"的一个源头就在这三行：
@@ -3364,9 +3376,19 @@ export class Renderer {
       this._drawGlow(0, -h * 0.56, h * 0.4, id === 'fairy' ? '#ff9ad8' : '#7fd4ff', 0.26 * swing);
       ctx.restore();
     }
+    // 【用户 m09695 翅膀扇动】花仙子走「身体 + 翅膀」两层，**画序一定是身体在底、翅膀在顶**：
+    // ① 静止姿态：翅膀层在原掩膜位置里就是原图像素，盖在身体上 = 和原图一模一样；
+    // ② 扇动时：翅膀转开让出的那条缝里，露出的是身体层同一片翅膀的浓模糊（同色系粉色，
+    //    看着像运动残影），不是背景黑洞、也不是灰雾。
+    // 反过来先画翅膀就会出问题：身体层虽然 alpha 不变，但翅膀区域的 RGB 被填成了粉色，
+    // 盖在翅膀上 = 翅膀整个被盖掉（踩过一次，别再来）。
+    // 分层图没到位（老版本缓存 / 只下到了整图）就退回单张，绝不能把人弄丢。
+    const wingArt = id === 'fairy' ? this._heroArt('fairy-wings', 'hero-fairy-wings') : null;
+    const bodyArt = wingArt && id === 'fairy' ? this._heroArt('fairy-body', 'hero-fairy-body') : null;
     // 逐帧把 427×640 的立绘重采样到屏幕尺寸太贵（CPU 光栅化下实测 +18ms/帧），
     // 所以按尺寸烘一张缓存图（含边缘光），正常帧只做一次小尺寸 blit。
-    const baked = this._heroBake(id, art, hBase);
+    // 键里带 :body，免得"整图烘出来的缓存"被"分层后的身体"复用（反之亦然）
+    const baked = this._heroBake(bodyArt ? `${id}:body` : id, bodyArt || art, hBase);
     if (baked && Number.isFinite(baked.base) && baked.base > 0) {
       const k = h / baked.base;
       ctx.drawImage(baked.cv, -baked.w * k / 2, -h * ANCHOR - baked.pad * k, baked.w * k, baked.h * k);
@@ -3374,6 +3396,192 @@ export class Renderer {
       // 烘焙不可用（尺寸异常 / 画布没拿到 2d 上下文）时直接放大贴一次，
       // 绝不能因为烘图失败把整个人物弄丢（用户 m08143 报的就是"只剩脚下光环"）。
       ctx.drawImage(art, -w / 2, -h * ANCHOR, w, h);
+    }
+    if (wingArt) {
+      const pivotY = -h * ANCHOR + h * 0.245;
+      const flap = Math.sin(this.time * 5.6);
+      // ±6.3°：翅膀很大，角度再大就会露出手背那条"让开的缝"（缝里是身体层的粉色残影，
+      // 幅度小的时候它读作运动模糊，幅度大就读作糊了）
+      const ang = flap * 0.11;
+      for (const side of [0, 1]) {
+        const fx = side ? 0.586 : 0.450;
+        const pieceX = -w / 2 + fx * w;
+        const pieceLeft = -w / 2 + (side ? 0.5 : 0) * w;
+        const bakedW = this._heroBake(`fairy:wing${side}`, wingArt, hBase,
+          { fx0: side ? 0.5 : 0, fx1: side ? 1 : 0.5 });
+        if (!bakedW || !(bakedW.base > 0)) continue;
+        const k = h / bakedW.base;
+        const dx = pieceLeft - bakedW.pad * k;
+        const dy = -h * ANCHOR - bakedW.pad * k;
+        const pw = bakedW.w * k;
+        const ph = bakedW.h * k;
+        const rot = side ? -ang : ang; // 左右镜像：同时张开/同时收
+        // 拖影：同一片翅膀按"上一时刻的角度"再贴一次，把让开的那条缝用翅膀自己的像素补上
+        // （比露粉色残影更像真扇动，代价只是多一次小 blit）
+        ctx.save();
+        ctx.globalAlpha = 0.42;
+        ctx.translate(pieceX, pivotY);
+        ctx.rotate(rot * 1.55);
+        ctx.translate(-pieceX, -pivotY);
+        ctx.drawImage(bakedW.cv, dx, dy, pw, ph);
+        ctx.restore();
+        ctx.save();
+        ctx.translate(pieceX, pivotY);
+        ctx.rotate(rot);
+        ctx.translate(-pieceX, -pivotY);
+        ctx.drawImage(bakedW.cv, dx, dy, pw, ph);
+        ctx.restore();
+      }
+    }
+    // 【用户 m09695】花仙子的法杖光压在立绘之上（加色），蓄力时杖头一点点亮起来，
+    // 出手瞬间爆一下 —— 立绘本身一个像素都不用改。
+    if (id === 'fairy') this._heroWandGlow(ctx, h, swing, charge);
+    ctx.restore();
+  }
+
+  /**
+   * 【用户 m09695】"攻击时法杖要亮光"。
+   * 坐标是从 639×960 的立绘里量出来的（法杖头在归一化 (0.105, 0.175) 处），
+   * 换算到"脚底为原点、向上为负"的局部坐标后，和立绘一起受 lean 旋转影响。
+   * 全程只有加色贴图 + 小圆点，每帧 5~7 次 drawImage，不新建渐变。
+   */
+  _heroWandGlow(ctx, h, swing, charge) {
+    const RATIO = 639 / 960; // 立绘宽高比
+    const wx = (0.105 - 0.5) * h * RATIO;
+    const wy = h * (0.175 - 0.955);
+    // 蓄力和出手都推亮度；再加一条 6.4Hz 的微弱脉动，看起来像"活着的光"
+    const lvl = Math.min(1, Math.max(charge, swing));
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 6.4);
+    const a = clamp(0.16 + 0.62 * lvl + 0.06 * pulse, 0, 1);
+
+    // 外晕 → 中晕 → 核心（三层，核心小、外晕大而淡）
+    this._drawGlow(wx, wy, h * (0.17 + 0.06 * lvl), '#ff8ad8', a * 0.62);
+    this._drawGlow(wx, wy, h * (0.075 + 0.02 * lvl), '#ffd0f2', a * 0.85);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = '#fff4ff';
+    ctx.globalAlpha = clamp(0.45 + 0.5 * lvl, 0, 1);
+    ctx.beginPath();
+    ctx.arc(wx, wy, Math.max(1.1, h * (0.011 + 0.006 * lvl)), 0, TAU);
+    ctx.fill();
+
+    // 出手爆闪：一圈扩开的环 + 一下大范围暖光
+    if (swing > 0.02) {
+      const k = 1 - swing; // 0 → 刚出手，1 → 淡完
+      ctx.strokeStyle = `rgba(255,196,242,${(0.55 * swing).toFixed(3)})`;
+      ctx.lineWidth = Math.max(1, h * 0.013 * swing);
+      ctx.beginPath();
+      ctx.arc(wx, wy, h * (0.09 + 0.26 * k), 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+      this._drawGlow(wx, wy, h * 0.46, '#ffb6ec', 0.30 * swing);
+    } else {
+      ctx.restore();
+    }
+
+    // 地面光池：杖光真的照到脚边的桥面（压扁的加色光斑）
+    if (lvl > 0.12) {
+      ctx.save();
+      ctx.translate(0, -h * 0.012);
+      ctx.scale(1, 0.26);
+      this._drawGlow(0, 0, h * (0.34 + 0.12 * lvl), '#ff9ae0', 0.10 + 0.20 * lvl);
+      ctx.restore();
+    }
+
+    // 杖头往上飘的光粒（纯按时间算，停帧也稳）
+    for (let i = 0; i < 4; i++) {
+      const t = this.time * (0.75 + 0.10 * i) + i * 1.7;
+      const up = (t * 0.42 + i * 0.27) % 1;
+      const px = wx + Math.sin(t * 1.9) * h * 0.05;
+      const py = wy + h * 0.015 - up * h * 0.30;
+      this._drawGlow(px, py, h * (0.017 + 0.010 * (1 - up)), i % 2 ? '#ffc8ef' : '#fff8ff', (1 - up) * (0.20 + 0.45 * lvl));
+    }
+  }
+
+  /**
+   * 【用户 m09695】"周围时不时飞出几只蝴蝶"。
+   * 纯程序化：零素材、零加载、零状态 —— 全部由 this.time 推出来，停帧/回放都稳。
+   * 三只各有 11~16 秒的出场周期，每次横穿桥面 6 秒左右，其余时间不画。
+   */
+  _drawButterflies(ctx, game) {
+    const cam = this.cam;
+    const t = this.time;
+    const fantasy = CFG.level.skin === 'fantasy';
+    for (let i = 0; i < 3; i++) {
+      const period = 11 + i * 2.6;
+      const u = (t + i * 3.9) % period;
+      const flight = period * 0.55; // 每次出场飞这么久，剩下时间不出场
+      if (u > flight) continue;
+      const k = u / flight; // 0→1 横穿进度
+      // 桥面中心在 x=0 附近，路面半宽约 0.5 世界单位；蝴蝶只在这条带子里飞
+      const z = 10 + i * 4.5 + Math.sin(t * 0.7 + i) * 1.4;
+      const x = -0.46 + k * 0.92 + Math.sin(t * 1.3 + i * 2.1) * 0.07;
+      const p = cam.project(x, z);
+      if (!(p.s > 0) || p.y > this.h || p.y < -40) continue;
+      const hgt = 0.12 + 0.07 * Math.sin(t * 0.9 + i * 1.7); // 离桥面高度（世界单位）
+      const y = p.y - hgt * p.s;
+      const r = Math.max(2.4, 0.024 * p.s);
+      const flap = 0.16 + 0.84 * Math.abs(Math.sin(t * 9.5 + i * 2.3));
+      const fade = Math.min(1, Math.min(k, 1 - k) * 5); // 出场淡入、走远淡出
+      const col = fantasy
+        ? (i % 2 ? '#ffc2e2' : '#ffe9a8')
+        : (i % 2 ? '#cfe6ff' : '#ffd9a8');
+      this._butterfly(ctx, p.x, y, r, flap, col, 0.82 * fade);
+    }
+  }
+
+  /** 一只蝴蝶：两对椭圆翅（上翅大、下翅小）绕身体中轴做 scaleX 挤压 = 扇翅。 */
+  _butterfly(ctx, x, y, r, flap, col, alpha) {
+    if (!(alpha > 0.01)) return;
+    const a = clamp(alpha, 0, 1);
+    // 身后一层极淡的加法雾：远处自然消失，近处才看得见"它自己在发光"
+    this._drawGlow(x, y, r * 2.4, col, 0.13 * a);
+    ctx.save();
+    ctx.globalAlpha = a;
+    const squash = 0.26 + 0.74 * flap;
+    const rim = 'rgba(74,44,64,0.55)';
+    for (const s of [-1, 1]) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(s * squash, 1);
+      // 上翅
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.ellipse(r * 0.66, -r * 0.42, r * 0.72, r * 0.54, -0.46, 0, TAU);
+      ctx.fill();
+      ctx.lineWidth = Math.max(0.5, r * 0.075);
+      ctx.strokeStyle = rim;
+      ctx.stroke();
+      // 下翅（比上翅小一圈、更靠中间）
+      ctx.globalAlpha = a * 0.86;
+      ctx.beginPath();
+      ctx.ellipse(r * 0.44, r * 0.40, r * 0.46, r * 0.38, 0.40, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+      // 翅根一点暖色高光，让"两片翅膀"读得出来
+      ctx.globalAlpha = a * 0.9;
+      ctx.fillStyle = 'rgba(255,255,255,0.72)';
+      ctx.beginPath();
+      ctx.ellipse(r * 0.22, -r * 0.16, r * 0.20, r * 0.16, 0, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+    // 身体
+    ctx.globalAlpha = a * 0.95;
+    ctx.fillStyle = 'rgba(56,38,52,0.95)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, Math.max(0.7, r * 0.115), r * 0.46, 0, 0, TAU);
+    ctx.fill();
+    // 触角（太小就不画，免得糊成一团黑点）
+    if (r > 4) {
+      ctx.strokeStyle = `rgba(56,38,52,${(a * 0.85).toFixed(3)})`;
+      ctx.lineWidth = Math.max(0.6, r * 0.055);
+      ctx.beginPath();
+      ctx.moveTo(x - r * 0.04, y - r * 0.42);
+      ctx.quadraticCurveTo(x - r * 0.30, y - r * 0.80, x - r * 0.44, y - r * 0.94);
+      ctx.moveTo(x + r * 0.04, y - r * 0.42);
+      ctx.quadraticCurveTo(x + r * 0.30, y - r * 0.80, x + r * 0.44, y - r * 0.94);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -3383,12 +3591,25 @@ export class Renderer {
    * 高度按 4px 量化、且**同一张画布复用**（每帧 new 一个 canvas 会被重烘拖死）；
    * 只有尺寸档位变化（或换角色）时才重烘一次。
    */
-  _heroBake(id, art, h) {
+  /**
+   * 把立绘烘成"屏幕尺寸 + 边缘光"的缓存画布。
+   * 高度按 4px 量化、且**同一张画布复用**（每帧 new 一个 canvas 会被重烘拖死）；
+   * 只有尺寸档位变化（或换角色）时才重烘一次。
+   *
+   * 【用户 m09695 翅膀扇动】一张图变成了三块缓存：身体 + 左翅 + 右翅。
+   * 翅根是各自的旋转轴，所以两片翅膀必须分开烘（crop = 只烘画面左半/右半）。
+   * 缓存按 key 存成一张表，键里带 crop 档位，互不踢对方。
+   */
+  _heroBake(key, art, h, crop) {
     if (!art || !(art.width > 0) || !(art.height > 0)) return null;
     if (!Number.isFinite(h) || h <= 0) return null;
-    const key = `${id}|${Math.round(h / 4)}`;
+    const fx0 = crop ? crop.fx0 : 0;
+    const fx1 = crop ? crop.fx1 : 1;
+    const ck = `${key}|${Math.round(h / 4)}|${fx0.toFixed(3)}`;
+    this._heroBaked = this._heroBaked || {};
     // 只有"烘成功过"的缓存才复用它（rec.ok）：否则一次 NaN/空图会把整个人物永久烘没
-    if (this._heroBaked && this._heroBaked.key === key && this._heroBaked.ok) return this._heroBaked;
+    const hit = this._heroBaked[ck];
+    if (hit && hit.ok) return hit;
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
     // 【用户 m07770：贴图太糊】烘图必须按**设备像素**（h × dpr）来烘。
     // 以前按 CSS 像素烘一张 230px 高的画布，再被主画布（已经 setTransform(dpr)）
@@ -3397,13 +3618,13 @@ export class Renderer {
     const ratio = art.width / art.height;
     if (!Number.isFinite(ratio) || ratio <= 0) return null;
     const hh = Math.max(2, Math.round(h * dp));
-    const ww = Math.max(2, Math.round(hh * ratio));
+    const ww = Math.max(2, Math.round(hh * ratio * (fx1 - fx0)));
     if (!Number.isFinite(hh) || !Number.isFinite(ww)) return null;
     const pad = Math.max(2, Math.ceil(hh * 0.045));
-    let rec = this._heroBaked;
+    let rec = this._heroBaked[ck];
     if (!rec || !rec.cv) {
       const cv = document.createElement('canvas');
-      rec = this._heroBaked = { key: '', cv, w: 0, h: 0, pad: 0, base: 0, ok: false };
+      rec = this._heroBaked[ck] = { key: ck, cv, w: 0, h: 0, pad: 0, base: 0, ok: false };
     }
     rec.ok = false; // 先降级，画完确认没问题再置回 true
     try {
@@ -3416,22 +3637,27 @@ export class Renderer {
     const gg = typeof rec.cv.getContext === 'function' ? rec.cv.getContext('2d') : null;
     if (!gg) return null;
     if ('imageSmoothingQuality' in gg) gg.imageSmoothingQuality = 'high';
-    // 先垫一圈微微放大的加色副本 → 边缘光（夜景里立绘不至于像贴纸）
-    gg.globalCompositeOperation = 'lighter';
-    gg.globalAlpha = 0.16;
-    const rw = Math.round(ww * 1.04);
-    const rh = Math.round(hh * 1.04);
+    const sx = fx0 * art.width;
+    const sw = (fx1 - fx0) * art.width;
     try {
-      gg.drawImage(art, pad + (ww - rw) / 2, pad + (hh - rh) / 2, rw, rh);
+      // 边缘光只给身体：翅膀是半透明的，加边缘光会把它糊成一团
+      if (!crop) {
+        // 先垫一圈微微放大的加色副本 → 边缘光（夜景里立绘不至于像贴纸）
+        gg.globalCompositeOperation = 'lighter';
+        gg.globalAlpha = 0.16;
+        const rw = Math.round(ww * 1.04);
+        const rh = Math.round(hh * 1.04);
+        gg.drawImage(art, pad + (ww - rw) / 2, pad + (hh - rh) / 2, rw, rh);
+      }
       gg.globalCompositeOperation = 'source-over';
       gg.globalAlpha = 1;
-      gg.drawImage(art, pad, pad, ww, hh);
+      gg.drawImage(art, sx, 0, sw, art.height, pad, pad, ww, hh);
     } catch {
       gg.globalCompositeOperation = 'source-over';
       gg.globalAlpha = 1;
       return null; // 画不进去就别缓存（下一帧会重新烘）
     }
-    rec.key = key;
+    rec.key = ck;
     // 对外一律用 CSS 尺寸（主画布已经按 dpr 缩放），内部画布是 dpr 倍分辨率
     rec.w = (ww + pad * 2) / dp;
     rec.h = (hh + pad * 2) / dp;
