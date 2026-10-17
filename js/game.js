@@ -305,12 +305,14 @@ export class Game {
 
   update(dtRaw) {
     let dt = Math.min(dtRaw, 0.05);
-    // 击杀顿帧：把时间流速压到 22%，持续 40~140ms。
+    // 击杀顿帧：把时间流速压到 42%，持续 26~100ms。
     // 打击"爽感"里最便宜也最有效的一招（子弹时间那一下）。
     // 用真实 dtRaw 递减，否则顿帧会把自己也拖长。
+    // 【用户 m08839】原来压到 22%：僵尸潮里一秒十几次 0.22×/1× 的切换看起来就是卡顿，
+    // 现在放缓到 42%，保留"打了一下的顿感"，但不至于像掉帧。
     if (this.hitStop > 0) {
       this.hitStop -= dtRaw;
-      dt *= 0.22;
+      dt *= 0.42;
     }
     this.time += dt;
 
@@ -1804,8 +1806,17 @@ export class Game {
 
       this.gainEnergy(e.kind === 'boss' ? CFG.charge.perBoss : CFG.charge.perKill);
 
-      // 顿帧 + 震屏：击杀手感的两个主要来源
-      this.hitStop = Math.max(this.hitStop, e.kind === 'boss' ? 0.15 : big ? 0.08 : 0.045);
+      // 顿帧 + 震屏：击杀手感的两个主要来源。
+      // 【用户 m08839】「打僵尸视觉上会卡顿，尤其是僵尸潮」：原来每杀一只都给 45ms 顿帧，
+      // 僵尸潮里一秒死十几只 → 时间流速在 0.22× 和 1× 之间来回跳几十次，看起来就是一抽一抽的卡。
+      // 现在：①顿帧时长压短、流速从 0.22 提到 0.42（保手感、去掉"整屏冻住"的观感）；
+      //       ②场上还有一堆怪时（连杀进行中）只给精英/壮汉/首领顿帧，杂兵不再顿 ——
+      //         僵尸潮本来就是"扫"的节奏，不该被顿帧切片。
+      if (e.kind === 'boss' || big || e.elite) {
+        this.hitStop = Math.max(this.hitStop, e.kind === 'boss' ? 0.1 : big ? 0.055 : 0.032);
+      } else if (this.enemies.length < 12) {
+        this.hitStop = Math.max(this.hitStop, 0.026);
+      }
 
       // 连杀里程碑：每 5 连叫一声，音高随连杀往上爬
       if (this.combo % 5 === 0) {

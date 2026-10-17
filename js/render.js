@@ -80,7 +80,46 @@ export class Renderer {
     this._bakeSky();
     this._bakeCity();
     this._bakedTheme = CFG.level.theme;
+    // 尺寸变了一切烘焙图都失效（静态背景 / 桥面）
+    this._bakeKey = '';
     return this;
+  }
+
+  /**
+   * 【用户 m08839】「打僵尸视觉上会卡顿，尤其是僵尸潮」—— 固定镜头下有两层东西
+   * **既不看时间也不看战局**：
+   *   · 背景层 `_drawBackdrop`（夜空/城景/地平线光，0 个 this.time 引用）
+   *   · 桥面   `_drawDeck`（石砖/苔痕/静态痕迹，0 个 this.time、0 个 game.* 引用，
+   *             痕迹走的是 `_deckMarksCache`）—— 石桥一段要画 150+ 个 quad 加描边
+   * 这两层各烘焙一张离屏图，每帧只 drawImage 两次；逐像素和原来重画一致。
+   * 失效条件：resize、换关卡主题、换皮肤（统一走 `_bakeKey`）。
+   * 注意 `_drawDeck` 内部会调 `_drawGlow()`，而它用的是 `this.ctx` —— 烘焙时临时
+   * 把 `this.ctx` 指向离屏 context，否则灯的光晕会画到主画布上。
+   */
+  _syncBaked(w, h) {
+    const key = w + 'x' + h + '@' + this.dpr + '|' + CFG.level.theme + '|' + CFG.level.skin;
+    if (this._bakeKey === key && this._bgCv && this._deckCv) return;
+    this._bakeKey = key;
+    const mk = () => {
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(w * this.dpr));
+      c.height = Math.max(1, Math.round(h * this.dpr));
+      const g = c.getContext('2d');
+      g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      return { c, g };
+    };
+    // 背景 = 夜空/城景/地平线光 + 海面底色渐变（都在飞机与浮游物下面）
+    const bg = mk();
+    this._drawBackdrop(bg.g, w, h);
+    this._drawWaterBase(bg.g, w, h);
+    this._bgCv = bg.c;
+    // 桥面 = 石砖/苔痕/静态痕迹（血泊与尸体在 `_drawGround` 里，仍逐帧画在上面）
+    const dk = mk();
+    const prevCtx = this.ctx;
+    this.ctx = dk.g;
+    this._drawDeck(dk.g);
+    this.ctx = prevCtx;
+    this._deckCv = dk.c;
   }
 
   _glow(color) {
@@ -831,14 +870,23 @@ export class Renderer {
       this._bakeCity();
       this._bakedTheme = CFG.level.theme;
     }
-
-    this._drawBackdrop(ctx, w, h);
+    // 【用户 m08839】静态背景 + 桥面各烘焙一张，每帧只贴两次图（见 `_syncBaked`）
+    this._syncBaked(w, h);
+    if (this._bgCv) {
+      ctx.drawImage(this._bgCv, 0, 0, this._bgCv.width, this._bgCv.height, 0, 0, w, h);
+    } else {
+      this._drawBackdrop(ctx, w, h);
+    }
     this._drawPlane(ctx, game);
     this._drawWater(ctx, w, h);
     // 【用户 m08143】"桥两侧近景继续改动"：第四关的岸上摆会发光的晶簇、蘑菇、
     // 刻符石与芦苇，再加两层贴地的雾 —— 让桥两边不再只是一片渐变水色。
     if (CFG.level.skin === 'fantasy') this._drawFantasyBanks(ctx, w, h);
-    this._drawDeck(ctx);
+    if (this._deckCv) {
+      ctx.drawImage(this._deckCv, 0, 0, this._deckCv.width, this._deckCv.height, 0, 0, w, h);
+    } else {
+      this._drawDeck(ctx);
+    }
     this._drawGround(ctx, game);
     this._drawSuns(ctx, game);
     this._drawHaze(ctx, w);
@@ -929,7 +977,11 @@ export class Renderer {
     ctx.fillRect(0, horizon - 26, w, 38);
   }
 
-  _drawWater(ctx, w, h) {
+  /**
+   * 海面底色（三段渐变）。固定镜头下不随时间变，所以在 `_syncBaked()` 里烘焙进
+   * 背景图；`_drawWater()` 只留会动的碎光。拆两半是为了烘焙与动画能各取所需。
+   */
+  _drawWaterBase(ctx, w, h) {
     const T = CFG.theme;
     const horizon = this.cam.horizonY;
     const g = ctx.createLinearGradient(0, horizon, 0, h);
@@ -938,6 +990,13 @@ export class Renderer {
     g.addColorStop(1, T.sea[2]);
     ctx.fillStyle = g;
     ctx.fillRect(0, horizon, w, h - horizon);
+  }
+
+  _drawWater(ctx, w, h) {
+    const T = CFG.theme;
+    const horizon = this.cam.horizonY;
+    // 底色已经烘焙在背景图里（`_syncBaked`）；这里只在没有烘焙图时兜底重画一次
+    if (!this._bgCv) this._drawWaterBase(ctx, w, h);
 
     // 水面碎光（第一关是橙色反光，水世界是白色浪花）
     const t = this.time;
@@ -2180,10 +2239,12 @@ export class Renderer {
     const v = (0.9 + ((e.id * 37) % 21) / 105) * (0.42 + 0.58 * hatch); // 每只体型略有差异；孵化期更小
     const isWind = e.atk === 'wind';
     const isLunge = e.atk === 'lunge';
-    // 【用户 m02901 性能】三档 LOD：屏幕高 <22px 的（一屏里最多的那批）只画剪影，
-    // 22~44px 走精简人形，≥44px 才是全细节。远处的细节本来就看不见，
+    // 【用户 m02901 性能】三档 LOD：屏幕高 <24px 的（一屏里最多的那批）只画剪影，
+    // 24~52px 走精简人形，≥52px 才是全细节。远处的细节本来就看不见，
     // 省下的时间全部还给近处那几只 —— 真机掉帧主要就来自"一屏 40 只全都画全套"。
-    const lod = H < 22 ? 0 : H < 44 ? 1 : 2;
+    // 【用户 m08839】僵尸潮卡顿：这一档是"质量/成本"折中值 —— 比原来的 22/44 略收敛
+    // （H 22~24 的碎小怪降级为剪影），但主战场 H≥52 的近景僵尸仍是全细节。
+    const lod = H < 24 ? 0 : H < 52 ? 1 : 2;
 
     ctx.save();
     ctx.globalAlpha = fade;
@@ -2736,26 +2797,28 @@ export class Renderer {
     ctx.fillStyle = col;
     ctx.fill();
     if (!fast) {
-    ctx.save();
-    torsoPath();
-    ctx.clip();
+    // 【用户 m08839 僵尸潮卡顿】原来这里用 save()+clip() 把明暗面裁进躯干，
+    // 每只僵尸一个图层，30 只就是 30 层，Skia 攒到一定数量会整体 flush 一次
+    // （实测周期性 250ms 尖峰，且随像素面积线性放大）。
+    // 改成把明暗面画在躯干轮廓内侧一点点，效果肉眼看不出区别，但不产生图层。
+    const shIn = shoulder * 0.97;
     // 受光面（左上到中间）
     ctx.globalAlpha = 0.5;
     ctx.fillStyle = light;
     ctx.beginPath();
-    ctx.moveTo(-shoulder * 1.1, shY - 0.06 * H);
-    ctx.lineTo(shoulder * 0.05, shY - 0.06 * H);
+    ctx.moveTo(-shIn, shY - 0.02 * H);
+    ctx.lineTo(shoulder * 0.05, shY - 0.02 * H);
     ctx.lineTo(-shoulder * 0.12, hipY);
-    ctx.lineTo(-shoulder * 1.1, hipY);
+    ctx.lineTo(-shIn * 0.92, hipY);
     ctx.closePath();
     ctx.fill();
     // 暗面（右侧）
     ctx.globalAlpha = 0.45;
     ctx.fillStyle = shade;
     ctx.beginPath();
-    ctx.moveTo(shoulder * 0.36, shY - 0.06 * H);
-    ctx.lineTo(shoulder * 1.1, shY - 0.06 * H);
-    ctx.lineTo(shoulder * 1.1, hipY);
+    ctx.moveTo(shoulder * 0.36, shY - 0.02 * H);
+    ctx.lineTo(shIn, shY - 0.02 * H);
+    ctx.lineTo(shIn * 0.92, hipY);
     ctx.lineTo(shoulder * 0.2, hipY);
     ctx.closePath();
     ctx.fill();
@@ -2776,7 +2839,7 @@ export class Renderer {
     ctx.moveTo(-shoulder * 0.5, shY + 0.06 * H);
     ctx.quadraticCurveTo(-waist * 0.35, hipY - 0.12 * H, -waist * 0.1, hipY - 0.02 * H);
     ctx.stroke();
-    ctx.restore();
+    ctx.globalAlpha = 1;
     }
     // 破衣服的下摆
     ctx.fillStyle = outline;
