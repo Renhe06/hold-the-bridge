@@ -393,6 +393,11 @@ function closeBoot() {
   try {
     if (!window.__HBT_BOOT_MS) window.__HBT_BOOT_MS = Math.round(performance.now());
   } catch (_) { /* 无 window 的桩环境 */ }
+  // 【用户 m08593】"加载页就是为了后台提前加载啊，为什么进角色页面还要等图片加载"
+  //   —— 说得对：角色页那两张立绘现在只有 430KB（webp），不该等到点开才下。
+  //   加载页一收就在后台预热（玩家这时正在看主页），等点「角色」时图已经在内存里解完码，
+  //   面板直接开、连加载页都不用再盖一层。
+  startHeroPanelWarmup();
   const el = document.getElementById('bootOverlay');
   if (!el) return;
   el.classList.add('done');
@@ -778,26 +783,49 @@ function panelImgReady(img) {
   });
 }
 
-function openHeroes() {
-  const needLoader = !heroPanelArtReady;
-  heroPanelShow(); // 先摆好，别让玩家先看见主页
-  // 冒烟测试的 DOM 桩没有 querySelectorAll，这里要容错
-  const imgs =
-    typeof document.querySelectorAll === 'function'
-      ? Array.prototype.slice.call(document.querySelectorAll('.lv.hero .hero-art img'))
-      : [];
-  if (needLoader) showLoader();
-  Promise.all(imgs.map(panelImgReady)).then(() => {
-    heroPanelArtReady = true;
-    if (needLoader) hideLoader();
-  });
-  // 头肩立绘是对话面板用的，不该挡住角色页：后台悄悄热一下就好
-  if (needLoader && typeof Image !== 'undefined') {
+/** 面板里那两张全身立绘的 <img>（冒烟测试的 DOM 桩没有 querySelectorAll，要容错） */
+function heroPanelImgs() {
+  if (typeof document.querySelectorAll !== 'function') return [];
+  return Array.prototype.slice.call(document.querySelectorAll('.lv.hero .hero-art img'));
+}
+
+let heroPanelWarm = null;
+/**
+ * 【用户 m08593】加载页一收就在后台把角色页的图备好：
+ *   - 面板那两张 <img> 直接把 src 挂上并 decode()（面板本身是隐藏的，不占画面）；
+ *   - 对话用的头肩立绘用 new Image() 预热，不阻塞任何东西。
+ * 做完把 heroPanelArtReady 置真，之后点「角色」是零等待、连加载页都不出现。
+ */
+function startHeroPanelWarmup() {
+  if (heroPanelWarm || heroPanelArtReady) return heroPanelWarm || Promise.resolve();
+  const jobs = heroPanelImgs().map(panelImgReady);
+  if (typeof Image !== 'undefined') {
     for (const u of HERO_PANEL_ART.slice(2)) {
       const im = new Image();
+      im.decoding = 'async';
       im.src = u;
+      if (typeof im.decode === 'function') {
+        const pr = im.decode();
+        if (pr && typeof pr.catch === 'function') pr.catch(() => {});
+      }
     }
   }
+  heroPanelWarm = Promise.all(jobs).then(() => {
+    heroPanelArtReady = true;
+  });
+  return heroPanelWarm;
+}
+
+function openHeroes() {
+  // 常见情况：开机预热早做完了 —— 直接开面板，一层加载页都不盖
+  if (heroPanelArtReady) {
+    heroPanelShow();
+    return;
+  }
+  // 极端情况：开机 0.x 秒就点进来了，图还没备好。面板先摆好 + 加载页兜一下。
+  heroPanelShow();
+  showLoader();
+  startHeroPanelWarmup().then(() => hideLoader());
 }
 
 function heroPanelShow() {
