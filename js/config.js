@@ -464,16 +464,24 @@ export const CFG = {
       animal: 'dragon',
       stopRatio: 0.52,
       firstSkill: 1.6,
-      skillEvery: 2.6,
-      skills: ['fire', 'wind', 'summon'],
-      // 喷火：横铺的火墙，找缝站（比博士的火球少一颗、更慢，看得清）
-      fireCount: 4,
-      fireGap: 0.62,
+      skillEvery: 2.3,
+      // 【用户 m11492】"技能覆盖不够、太轻松能躲掉"：原来三车道只铺两道、整条空车道留给你，
+      // 缝宽 0.17 且一眼就看得出该站哪 —— 现在两段式：整座桥铺满，只留一条 0.22 的窄缝，
+      // 第一段缝在对侧、0.62 秒后第二段把缝挪回来，必须连着走两次。
+      // （排程见 game.js 的 scheduleCast / _dragonWall）
+      skills: ['fire', 'wind', 'fire', 'summon'],
+      // 喷火：火墙的列间距 / 命中半宽（相邻列判定重叠 → 是一堵连续的墙，不是一排气泡）
+      fireColGap: 0.13,
+      fireHitW: 0.085,
+      fireVolleyDelay: 0.62,
+      fireDrift: 0.45, // 火墙整体横向漂移（世界单位/秒）：缝边走边扫，站着等是躲不掉的
       fireSpeed: 7.5,
       fireColor: '#ff8a3a',
-      // 挥翅冲击波：两道宽风压从恶龙那边推过来，站进缝里才躲得开
-      windCount: 2,
-      windGap: 1.35,
+      // 挥翅冲击波：风压墙更宽更慢，缝 0.28，两段间隔更长
+      windColGap: 0.17,
+      windHitW: 0.105,
+      windVolleyDelay: 0.75,
+      windDrift: 0.34, // 风压墙漂移慢一点（它本身就很宽）
       windSpeed: 6.2,
       windColor: 'rgba(214,236,255,0.92)',
       summonCount: 3, // 一次召几批哥布林（每批 kinds.boss.spawnCount 只）

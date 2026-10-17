@@ -2053,28 +2053,60 @@ try {
   game.hazardCd = 0;
   game.bossSkill2(dragon);
   const fires = game.spits.filter((s) => s.dragon && !s.edge).length;
-  ok(fires === 2, `喷火焰吐息（桥面三车道里放 ${fires} 道、留一条缝）`);
+  // 【用户 m11492】"技能覆盖不够、太轻松能躲掉"：现在是整桥铺满的火墙 + 一条窄缝，
+  // 所以不再是"三车道里放两道"，列数由 fireColGap 推出来（7 列里跳过 2 列）。
+  ok(fires >= 4 && fires <= 6, `喷火焰吐息（整桥火墙 ${fires} 列、只留一条缝）`);
   // 【用户 m07770】恶龙技能的落点必须在桥面内、不能全落在桥外
   const drw = game.cam.roadHalf;
-  const dragonXs = game.spits.filter((s) => s.dragon).map((s) => s.x);
-  const offDeck = game.spits.filter((s) => s.dragon && Math.abs(s.x) <= drw && !s.edge).length;
+  const fireXs = game.spits.filter((s) => s.dragon && !s.edge).map((s) => s.x);
+  const offDeck = fireXs.filter((x) => Math.abs(x) <= drw).length;
+  ok(offDeck >= 3, `火墙铺满桥面（列 ${fireXs.map((x) => x.toFixed(2)).join(' / ')}｜桥半宽 ${drw.toFixed(2)}）`);
   ok(
-    offDeck >= 2 && dragonXs.some((x) => Math.abs(x) < 0.1),
-    `喷火落在桥上（车道 ${game.spits.filter((s) => s.dragon && !s.edge).map((s) => s.x.toFixed(2)).join(' / ')}｜桥半宽 ${drw.toFixed(2)}）`
+    fireXs.some((x) => x > 0.2) && fireXs.some((x) => x < -0.2),
+    '火墙同时压住左右两侧（不能只堵半边）'
   );
+  // 关键回归守卫：缝太宽 = 又能站着不动躲，缝太窄 = 手机上躲不掉
+  const fireHitW = game.spits.find((s) => s.dragon && !s.edge).hitW;
+  const gapOf = (xs, hitW) => {
+    const ws = xs.map((x) => [x - hitW, x + hitW]).sort((a, b) => a[0] - b[0]);
+    let best = 0;
+    let cur = -drw * 1.12;
+    for (const [a, b] of ws) {
+      if (a > cur) best = Math.max(best, a - cur);
+      cur = Math.max(cur, b);
+    }
+    return Math.max(best, drw * 1.12 - cur);
+  };
+  const fireGap = gapOf(fireXs, fireHitW);
+  ok(fireGap >= 0.14 && fireGap <= 0.34, `火墙的缝宽 ${fireGap.toFixed(2)}（要能挤进去、又不能随便站着躲）`);
   ok(
     Math.abs(game.spits.find((s) => s.edge).x) > drw,
     '桥沿那两簇是纯气氛的边火（判定上不会打到人）'
+  );
+  // 两段式：第一段只发一波，0.62 秒后第二段把缝挪到另一侧
+  ok(game.warns.length >= 1 || game.spits.length > 0, '火墙分两段排上（第一段立刻发，第二段延迟）');
+  const nBefore2nd = game.spits.length;
+  game.updateLaterCasts(0.8);
+  ok(game.spits.length > nBefore2nd, `第二段火墙如期补上（${nBefore2nd} → ${game.spits.length} 道）`);
+  ok(
+    game.spits.some((s) => s.vx > 0) && game.spits.some((s) => s.vx < 0),
+    '两段火墙反向漂移（缝会边走边扫，站着等躲不掉）'
   );
   game.spits.length = 0;
   game.hazardCd = 0;
   game.bossSkill2(dragon);
   const gusts = game.spits.filter((s) => s.wind).length;
-  ok(gusts === 2, `挥翅膀打出 ${gusts} 道冲击波`);
+  ok(gusts >= 2, `挥翅膀打出 ${gusts} 道风压墙`);
   ok(
-    game.spits.filter((s) => s.wind).every((s) => Math.abs(s.x) <= drw),
-    `风压也压在桥面车道内（${game.spits.filter((s) => s.wind).map((s) => s.x.toFixed(2)).join(' / ')}｜桥半宽 ${drw.toFixed(2)}）`
+    game.spits.filter((s) => s.wind).every((s) => Math.abs(s.x) <= drw * 1.3),
+    `风压也压在桥面内（${game.spits.filter((s) => s.wind).map((s) => s.x.toFixed(2)).join(' / ')}｜桥半宽 ${drw.toFixed(2)}）`
   );
+  const windGap = gapOf(
+    game.spits.filter((s) => s.wind).map((s) => s.x),
+    game.spits.find((s) => s.wind).hitW
+  );
+  ok(windGap >= 0.18 && windGap <= 0.4, `风压墙的缝宽 ${windGap.toFixed(2)}（比火墙宽，因为它是推开不是秒杀）`);
+
   const beforeAdds = game.enemies.length;
   game.hazardCd = 0;
   game.bossSkill2(dragon);

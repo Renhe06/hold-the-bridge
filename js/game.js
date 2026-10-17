@@ -61,6 +61,10 @@ export class Game {
     this.rings = [];
     this.warns = []; // BOSS 导弹的地面预警圈
     this.hazardCd = 0; // 【用户 m01220】两轮 BOSS 危险技能之间的硬间隔（见 CFG.bossMissile.cooldown）
+    // 【用户 m11492】"第四关 BOSS 技能覆盖不够，太轻松能躲掉" —— 恶龙的火墙/风压
+    // 改成两段式：第一段留一条缝，第二段把缝挪到别处。中间这段用这个队列排程，
+    // 不依赖 update 的调用顺序（每帧统一走表）。
+    this.laterCasts = [];
     this.nextId = 1;
     this.shake = 0;
     this.flash = 0;
@@ -378,6 +382,7 @@ export class Game {
     this.updatePopups(dt);
     this.updateRings(dt);
     this.updateWarns(dt);
+    this.updateLaterCasts(dt);
 
     const pl = this.player;
     pl.iframe = Math.max(0, pl.iframe - dt);
@@ -957,28 +962,105 @@ export class Game {
     return true;
   }
 
+  /** 排一个延时施法（恶龙火墙/风压的第二段用它）。 */
+  scheduleCast(delay, fn) {
+    this.laterCasts.push({ t: Math.max(0.02, delay), fn });
+  }
+
+  updateLaterCasts(dt) {
+    if (!this.laterCasts.length) return;
+    const due = [];
+    for (const c of this.laterCasts) {
+      c.t -= dt;
+      if (c.t <= 0) due.push(c);
+    }
+    if (due.length) this.laterCasts = this.laterCasts.filter((c) => c.t > 0);
+    for (const c of due) c.fn();
+  }
+
   /**
-   * 恶龙的喷火（用户 m04749；落点在 m07770 按桥面车道重排）：
-   * 两道压在你可能站的地方、一条留空，外加桥沿两簇纯气氛的边火 ——
-   * 边火落在玩家够不到的位置（|x| > 0.35），只负责把"整座桥都在烧"做出来。
+   * 恶龙技能的底盘：铺一堵"墙"，只留一条缝（用户 m11492）。
+   *
+   * 老版是三车道铺两列、整条车道留空 —— 缝宽 0.17 且是整整一条道，
+   * 玩家往那边一站就完全没事，所以反馈是"太轻松能躲掉"。
+   * 现在：从 -roadHalf 铺到 +roadHalf，列间距 colGap、命中半宽 hitW
+   * （相邻列的判定互相重叠 → 是**一堵连续的墙**），只在 slot 处跳过两列留一条窄缝；
+   * 第二段施法把 slot 错到另一侧，逼玩家在墙与墙之间再走一次。
+   *
+   * slot 用"列序号"表达（-M..M），取 ±0.5、±1.5… 这种半整数就是"跳过 slot 两侧各一列"。
+   */
+  _dragonWall(e, opt) {
+    const rw = (this.cam && this.cam.roadHalf) || 0.35;
+    const step = opt.colGap;
+    const M = Math.max(1, Math.round(rw / step));
+    const slot = clamp(opt.slot, -M + 0.5, M - 0.5);
+    // 缝的中心：渲染端直接照它在这面墙上挖洞（比从漂移后的列位置反推稳）
+    const holeX = slot * step;
+    for (let k = -M; k <= M; k++) {
+      // 跳过缝：缝中心两侧各一列（这样缝宽 = 3*step - 2*hitW，人站得进去）
+      if (Math.abs(k - slot) <= 0.5 + 1e-6) continue;
+      this.spits.push({
+        x: k * step,
+        orig: k * step, // 原始列位：漂移后用它算位移，缝的位置跟着漂
+        z: e.z - e.size * (opt.zMul || 0.25),
+        vz: -opt.speed,
+        phase: rand(0, Math.PI * 2),
+        hole: holeX,
+        holeW: opt.hitW,
+        color: opt.color,
+        hot: !!opt.hot,
+        wind: !!opt.wind,
+        hitW: opt.hitW,
+        vx: opt.drift || 0,
+        dragon: true,
+        wall: true,   // 恶龙的火墙/风压墙：渲染时按"一整面墙"放大画
+        dead: false,
+      });
+    }
+    return M;
+  }
+
+  /** 缝该放哪边：给 side=+1 就放在右侧，-1 放左侧（列序号 ±1.5）。 */
+  _slotForSide(side) {
+    return side > 0 ? 1.5 : -1.5;
+  }
+
+  /**
+   * 恶龙的喷火（用户 m04749 加；m11492 改成"两段火墙、缝会跑"）：
+   * 第一段把缝留在玩家对侧 → 逼你横移过去；
+   * 0.62 秒后第二段把缝挪到你刚跑过去的那侧 → 你还得再挪回来或原地贴缝。
+   * 两段都只有一条 0.24 宽的缝，站错就直接吃一记。
+   * 桥沿两簇边火仍然纯气氛（|x| > roadHalf*1.06，够不到人）。
    */
   dragonFire(e) {
     const B = CFG.fantasy.boss2;
     if (this.hazardCd > 0) return false;
-    const rw = (this.cam && this.cam.roadHalf) || 0.35;
-    for (const x of this.deckLanes(this.freeLaneFor())) {
-      this.spits.push({
-        x,
-        z: e.z - e.size * 0.25,
-        vz: -B.fireSpeed,
-        phase: rand(0, Math.PI * 2),
-        color: B.fireColor,
-        hot: true,
-        dragon: true,
-        hitW: 0.085,
-        dead: false,
+    const px = this.player ? this.player.x : 0;
+    const wall = {
+      colGap: B.fireColGap,
+      hitW: B.fireHitW,
+      speed: B.fireSpeed,
+      color: B.fireColor,
+      hot: true,
+      drift: B.fireDrift,
+      zMul: 0.25,
+    };
+    // 第一段：缝放对侧，先逼你动
+    this._dragonWall(e, { ...wall, slot: this._slotForSide(px > 0 ? -1 : 1) });
+    // 第二段：缝换到你"跑过去的那侧"，读的是这一刻的位置
+    this.scheduleCast(B.fireVolleyDelay, () => {
+      const cur = this.player ? this.player.x : 0;
+      this._dragonWall(e, {
+        ...wall,
+        speed: B.fireSpeed * 1.15,
+        drift: -B.fireDrift,
+        zMul: 0.18,
+        slot: this._slotForSide(cur > 0 ? 1 : -1),
       });
-    }
+      this.spawnParticles(e.x, e.z - e.size * 0.45, 14, 'spark', '#ffd08a');
+      this.sfx.fireball();
+    });
+    const rw = (this.cam && this.cam.roadHalf) || 0.35;
     for (const s of [-1, 1]) {
       this.spits.push({
         x: s * rw * 1.06,
@@ -994,34 +1076,36 @@ export class Game {
     }
     this.hazardCd = CFG.bossMissile.cooldown;
     this.sfx.fireball();
-    // 龙头位置喷出一串火星，让"从嘴里喷出来"看得出来
     this.spawnParticles(e.x, e.z - e.size * 0.45, 18, 'spark', '#ffd08a');
     this.addPopup(e.x, e.z - 0.6, '火焰吐息', B.fireColor, 1.2);
     return true;
   }
 
   /**
-   * 恶龙挥翅（用户 m04749；落点在 m07770 按桥面车道重排）：
-   * 两道很宽的风压压住左右两条车道，中间那条留给你 —— 和喷火的"留一侧"正好互补，
-   * 所以玩家要记两套走位：喷火往空的那侧靠、挥翅回正中。
+   * 恶龙挥翅（用户 m04749 加；m11492 同样改成两段）：
+   * 风压的墙更宽更慢，所以缝也留得更宽一点，但同样是"第一段对侧、第二段回身"。
+   * 和喷火的区别：风压不烫（hot=false），而且两段的间隔更长，节奏是"呼——吸"。
    */
   dragonGust(e) {
     const B = CFG.fantasy.boss2;
     if (this.hazardCd > 0) return false;
-    const step = ((this.cam && this.cam.roadHalf) || 0.35) * 0.8;
-    for (const x of [-step, step]) {
-      this.spits.push({
-        x,
-        z: e.z - e.size * 0.2,
-        vz: -B.windSpeed,
-        phase: rand(0, Math.PI * 2),
-        color: B.windColor,
-        hot: false,
-        wind: true,
-        hitW: 0.1,
-        dead: false,
-      });
-    }
+    const px = this.player ? this.player.x : 0;
+    const wall = {
+      colGap: B.windColGap,
+      hitW: B.windHitW,
+      speed: B.windSpeed,
+      color: B.windColor,
+      wind: true,
+      drift: B.windDrift,
+      zMul: 0.2,
+    };
+    this._dragonWall(e, { ...wall, slot: this._slotForSide(px > 0 ? -1 : 1) });
+    this.scheduleCast(B.windVolleyDelay, () => {
+      const cur = this.player ? this.player.x : 0;
+      this._dragonWall(e, { ...wall, speed: B.windSpeed * 1.12, drift: -B.windDrift, slot: this._slotForSide(cur > 0 ? 1 : -1) });
+      this.shake = Math.max(this.shake, 7);
+      this.sfx.whoosh();
+    });
     this.hazardCd = CFG.bossMissile.cooldown;
     this.sfx.whoosh();
     this.shake = Math.max(this.shake, 8);
@@ -2209,6 +2293,10 @@ export class Game {
       if (s.dead) continue;
       const z0 = s.z;
       s.z += s.vz * dt;
+      // 【用户 m11492】恶龙的火墙/风压带一点横向漂移：缝会边走边扫，
+      // 站着不动等缝过来是躲不掉的，得跟着缝一起横向修。
+      // s.vx 只有这两种技能会设，其它吐酸/火球仍然是纯直线。
+      if (s.vx) s.x += s.vx * dt;
       s.phase += dt * 14;
       // 直着飞、不追人：所以横向走位就能躲开（这就是它带来的新操作）
       //

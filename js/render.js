@@ -898,6 +898,7 @@ export class Renderer {
     this._drawFog(ctx, w);
     this._drawRings(ctx, game);
     this._drawWarns(ctx, game);
+    this._drawDragonWalls(ctx, game);
     // 【用户 m09695】桥边时不时飞过几只蝴蝶（画在英雄之前：人物永远是焦点）
     this._drawButterflies(ctx, game);
     this._drawHero(ctx, game);
@@ -1955,10 +1956,156 @@ export class Renderer {
     ctx.restore();
   }
 
+  /**
+   * 【用户 m11492】恶龙的火墙 / 风压墙。
+   * 同一波的所有列共用同一个 z，所以按 z 分组、把各列的 [x-hitW, x+hitW] 合并成区间，
+   * 只在这些区间上画一条幕布 —— 缝在哪里、有多宽，屏幕上就是一眼看得出的那道口子。
+   * （逐簇画会在近处糊成一团、远处只剩火星，这也是之前"看不出该往哪躲"的一半原因。）
+   */
+  _drawDragonWalls(ctx, game) {
+    const list = game.spits;
+    if (!list || !list.length) return;
+    const rw = this.cam.roadHalf * 1.15;
+    const groups = new Map();
+    for (const s of list) {
+      if (!s.wall) continue;
+      const key = Math.round(s.z * 10) + '|' + (s.wind ? 'w' : 'f');
+      let g = groups.get(key);
+      if (!g) {
+        g = { z: s.z, wind: !!s.wind, segs: [] };
+        groups.set(key, g);
+      }
+      // 覆盖区间 + 这一波的缝（缝跟着墙一起漂：用当前位移 orig→x 修正）
+      const dl = s.x - (s.orig === undefined ? s.x : s.orig);
+      g.segs.push([s.x - s.hitW, s.x + s.hitW, (s.hole || 0) + dl, s.holeW || s.hitW]);
+    }
+    if (!groups.size) return;
+    const sorted = [...groups.values()].sort((a, b) => b.z - a.z);
+    for (const g of sorted) {
+      const cam = this.cam;
+      const p = cam.project(0, g.z);
+      const S = p.s;
+      const merge = [...g.segs].sort((a, b) => a[0] - b[0]);
+      const ivs = [];
+      for (const seg of merge) {
+        const a = Math.max(-rw, seg[0]);
+        const b = Math.min(rw, seg[1]);
+        if (b <= a) continue;
+        const last = ivs[ivs.length - 1];
+        if (last && a <= last[1] + 1e-6) last[1] = Math.max(last[1], b);
+        else ivs.push([a, b]);
+      }
+      // 墙永远铺满整座桥，只在排程给的那条缝上留口子 —— 这样即使墙整体漂到桥外，
+      // 桥上也不会出现"靠栏杆站着就安全"的空当（唯一安全的地方就是那条缝）。
+      const holes = g.segs.filter((s) => s.length === 4).map((s) => [s[2] - s[3], s[2] + s[3]]);
+      ivs.length = 0;
+      ivs.push([-rw, rw]);
+      for (const [ha, hb] of holes) {
+        for (let i = ivs.length - 1; i >= 0; i--) {
+          const [a, b] = ivs[i];
+          if (hb <= a || ha >= b) continue;
+          ivs.splice(i, 1);
+          if (ha > a) ivs.push([a, Math.min(ha, b)]);
+          if (hb < b) ivs.push([Math.max(hb, a), b]);
+        }
+      }
+      const hgt = (g.wind ? 0.3 : 0.36) * S; // 幕布高度（世界单位 → 屏幕）
+      const baseY = p.y;
+      const t = this.time * (g.wind ? 6.5 : 8.5) + g.z;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const [a, b] of ivs) {
+        const x0 = cam.project(a, g.z).x;
+        const x1 = cam.project(b, g.z).x;
+        const wpx = x1 - x0;
+        if (wpx < 1.5) continue;
+        const cx = (x0 + x1) * 0.5;
+        // 幕布后面的整体辉光
+        // 光晕跟着幕布高度走（不能跟着宽度走：贴到镜头前时 wpx 很大，
+        // 那样会糊出一大块橙色板子，把缝和火舌全盖掉）
+        this._drawGlow(cx, baseY - hgt * 0.3, hgt * (g.wind ? 0.7 : 0.9),
+          g.wind ? 'rgba(200,228,255,0.9)' : 'rgba(255,140,50,0.95)', g.wind ? 0.22 : 0.3);
+        // 主体：下沿贴桥面、上沿走一条起伏的焰尖
+        const grd = ctx.createLinearGradient(cx, baseY + hgt * 0.06, cx, baseY - hgt);
+        if (g.wind) {
+          grd.addColorStop(0, 'rgba(206,232,255,0.30)');
+          grd.addColorStop(0.55, 'rgba(232,246,255,0.20)');
+          grd.addColorStop(1, 'rgba(255,255,255,0)');
+        } else {
+          grd.addColorStop(0, 'rgba(255,246,214,0.92)');
+          grd.addColorStop(0.35, 'rgba(255,178,74,0.86)');
+          grd.addColorStop(0.78, 'rgba(255,110,32,0.6)');
+          grd.addColorStop(1, 'rgba(255,80,20,0)');
+        }
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.moveTo(x0, baseY + hgt * 0.06);
+        const n = Math.max(2, Math.round(wpx / 34));
+        const step = wpx / n;
+        let prevY = baseY - hgt * 0.7;
+        for (let i = 0; i <= n; i++) {
+          const fx = x0 + step * i;
+          const wv = 0.66 + 0.34 * Math.sin(t * 0.9 + i * 1.7);
+          const y = baseY - hgt * wv;
+          if (i === 0) ctx.lineTo(fx, y);
+          else ctx.quadraticCurveTo(fx - step * 0.5, Math.min(prevY, y) - hgt * 0.1, fx, y);
+          prevY = y;
+        }
+        ctx.lineTo(x1, baseY + hgt * 0.06);
+        ctx.closePath();
+        ctx.fill();
+        // 焰舌：几道更亮的高光，让幕布在动
+        if (!g.wind) {
+          const m = Math.max(1, Math.round(wpx / 40));
+          for (let i = 0; i <= m; i++) {
+            const fx = x0 + ((wpx * (i + 0.5)) / (m + 1));
+            const sw = Math.sin(t * 2.3 + i * 2.1) * 0.16;
+            const bw = (wpx / (m + 1)) * 0.34;
+            ctx.fillStyle = 'rgba(255,244,204,0.26)';
+            ctx.beginPath();
+            ctx.moveTo(fx - bw, baseY);
+            ctx.quadraticCurveTo(fx - bw * 0.4 + sw * 16, baseY - hgt * 0.55, fx + sw * 26, baseY - hgt * 0.78);
+            ctx.quadraticCurveTo(fx + bw * 0.5 + sw * 10, baseY - hgt * 0.34, fx + bw, baseY);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+      }
+      // 缝的两侧各点一道更亮的火柱：让"门"在一整面火里一眼可见
+      // （否则整面墙颜色均匀，玩家只会觉得"全屏都在烧"，看不出该往哪钻）
+      for (const [ha, hb] of holes) {
+        for (const hx of [ha, hb]) {
+          if (hx < -rw || hx > rw) continue;
+          const px = cam.project(hx, g.z).x;
+          const hh = hgt * (g.wind ? 0.9 : 1.25);
+          const grd2 = ctx.createLinearGradient(px, baseY + 4, px, baseY - hh);
+          grd2.addColorStop(0, g.wind ? 'rgba(240,250,255,0.85)' : 'rgba(255,252,232,0.95)');
+          grd2.addColorStop(0.5, g.wind ? 'rgba(214,236,255,0.5)' : 'rgba(255,196,92,0.72)');
+          grd2.addColorStop(1, 'rgba(255,140,40,0)');
+          ctx.fillStyle = grd2;
+          const wj = Math.max(3, hgt * 0.16);
+          ctx.beginPath();
+          ctx.moveTo(px - wj, baseY + 4);
+          ctx.quadraticCurveTo(px - wj * 0.5, baseY - hh * 0.6, px + Math.sin(t * 2.4) * wj * 0.6, baseY - hh);
+          ctx.quadraticCurveTo(px + wj * 0.8, baseY - hh * 0.5, px + wj, baseY + 4);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+  }
+
   _drawSpit(ctx, s) {
     const cam = this.cam;
     const p = cam.project(s.x, s.z);
     // hot（僵尸博士的火球）：同一套飞行物，画得更大更烫
+    // 【用户 m11492】恶龙的火墙/风压墙是"一整面墙"：单簇必须比火球大一倍，
+    // 相邻两簇才会连起来 —— 否则铺满桥面的墙在屏幕上只是几颗小火星，玩家根本看不出哪里是缝。
+    // 【用户 m11492】整面墙不再一簇一簇画（那样近处会糊成一团、远处只剩小火星），
+    // 交给 _drawDragonWalls 按世界坐标画成一条连续的带子。
+    if (s.wall) return;
     const r = Math.max(2, (s.hot ? 0.05 : 0.022) * p.s);
     const wob = 1 + Math.sin(s.phase) * 0.18;
     if (s.hot) {
