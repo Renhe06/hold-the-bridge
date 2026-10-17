@@ -700,6 +700,9 @@ export class Renderer {
     this._drawBackdrop(ctx, w, h);
     this._drawPlane(ctx, game);
     this._drawWater(ctx, w, h);
+    // 【用户 m08143】"桥两侧近景继续改动"：第四关的岸上摆会发光的晶簇、蘑菇、
+    // 刻符石与芦苇，再加两层贴地的雾 —— 让桥两边不再只是一片渐变水色。
+    if (CFG.level.skin === 'fantasy') this._drawFantasyBanks(ctx, w, h);
     this._drawDeck(ctx);
     this._drawGround(ctx, game);
     this._drawSuns(ctx, game);
@@ -817,6 +820,134 @@ export class Renderer {
       g2.addColorStop(1, T.foam[2]);
       ctx.fillStyle = g2;
       ctx.fillRect(cx - cw / 2, yy, cw, 1.5);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * 【用户 m08143】「桥两侧近景继续改动」：第四关两岸摆上发光晶簇、发光蘑菇、
+   * 刻符石与芦苇，再叠两层贴地雾，让桥两边不再只是一片渐变水色。
+   * 位置用固定种子生成一次（存 this._bankProps），之后每帧只做投影绘制 ——
+   * 场景稳定、不会每帧抖动，也不会每帧 new 对象。
+   */
+  _drawFantasyBanks(ctx, w, h) {
+    const cam = this.cam;
+    const horizon = cam.horizonY;
+    if (!this._bankProps) {
+      let seed = 20241;
+      const rnd2 = () => {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        return seed / 0x7fffffff;
+      };
+      const list = [];
+      const zNear = CFG.deckNearZ + 1.5;
+      const zFar = CFG.deckFarZ * 0.72;
+      for (let i = 0; i < 34; i++) {
+        const side = i % 2 ? 1 : -1;
+        const kindR = rnd2();
+        list.push({
+          x: side * (cam.roadHalf * (1.3 + rnd2() * 2.8)),
+          z: zNear + rnd2() * (zFar - zNear),
+          kind: kindR < 0.4 ? 'crystal' : kindR < 0.66 ? 'mushroom' : kindR < 0.85 ? 'stone' : 'reed',
+          s: 0.55 + rnd2() * 0.75,
+          phase: rnd2() * TAU,
+          warm: rnd2() < 0.5,
+        });
+      }
+      list.sort((a, b) => b.z - a.z); // 远的先画
+      this._bankProps = list;
+    }
+    const t = this.time;
+    for (const p of this._bankProps) {
+      const pr = cam.project(p.x, p.z);
+      if (pr.y < horizon + 1 || pr.y > h + 60) continue;
+      const S = pr.s * p.s;
+      const px = pr.x;
+      const py = pr.y;
+      if (p.kind === 'crystal') {
+        // 晶簇：3 根长短不一的尖晶，加色发光
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        this._drawGlow(px, py - S * 0.06, S * 0.22, p.warm ? '#ff9ad8' : '#8fe0ff', 0.34);
+        for (let i = 0; i < 3; i++) {
+          const hh = S * (0.1 + i * 0.03) * (1 + 0.08 * Math.sin(t * 2 + p.phase + i));
+          const dx = (i - 1) * S * 0.042;
+          const ww2 = S * 0.026;
+          const gC = ctx.createLinearGradient(px + dx, py - hh, px + dx, py);
+          gC.addColorStop(0, p.warm ? 'rgba(255,214,240,0.95)' : 'rgba(214,244,255,0.95)');
+          gC.addColorStop(1, p.warm ? 'rgba(214,90,168,0.5)' : 'rgba(80,150,220,0.45)');
+          ctx.fillStyle = gC;
+          ctx.beginPath();
+          ctx.moveTo(px + dx, py - hh);
+          ctx.lineTo(px + dx + ww2, py - hh * 0.28);
+          ctx.lineTo(px + dx, py);
+          ctx.lineTo(px + dx - ww2, py - hh * 0.28);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      } else if (p.kind === 'mushroom') {
+        // 发光蘑菇：暖色伞盖 + 一点伞下光
+        const capR = S * 0.05;
+        const capY = py - S * 0.075;
+        ctx.fillStyle = 'rgba(24,18,30,0.85)';
+        ctx.fillRect(px - capR * 0.22, capY, capR * 0.44, S * 0.075);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        this._drawGlow(px, capY, capR * 2.6, '#ffb3d9', 0.26);
+        ctx.restore();
+        ctx.fillStyle = p.warm ? '#ff9ecb' : '#c9a6ff';
+        ctx.beginPath();
+        ctx.ellipse(px, capY, capR, capR * 0.72, 0, Math.PI, TAU);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,246,255,0.85)';
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.arc(px + (i - 1) * capR * 0.45, capY - capR * 0.16, Math.max(0.6, capR * 0.12), 0, TAU);
+          ctx.fill();
+        }
+      } else if (p.kind === 'stone') {
+        // 刻符石：暗石头 + 青色符纹
+        const R = S * 0.07;
+        ctx.fillStyle = 'rgba(34,28,52,0.92)';
+        ctx.beginPath();
+        ctx.ellipse(px, py - R * 0.35, R * 0.9, R * 0.72, 0, 0, TAU);
+        ctx.fill();
+        ctx.save();
+        ctx.globalAlpha = 0.55 + 0.35 * Math.sin(t * 1.6 + p.phase);
+        ctx.strokeStyle = '#8fe0ff';
+        ctx.lineWidth = Math.max(0.8, R * 0.13);
+        ctx.beginPath();
+        ctx.moveTo(px - R * 0.3, py - R * 0.62);
+        ctx.lineTo(px, py - R * 0.3);
+        ctx.lineTo(px - R * 0.18, py - R * 0.12);
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        // 芦苇/枯草：几根细线，随风轻摆
+        ctx.strokeStyle = 'rgba(58,86,60,0.9)';
+        ctx.lineWidth = Math.max(0.7, S * 0.006);
+        for (let i = 0; i < 5; i++) {
+          const bx = px + (i - 2) * S * 0.016;
+          const bend = Math.sin(t * 1.4 + p.phase + i * 0.6) * S * 0.012;
+          ctx.beginPath();
+          ctx.moveTo(bx, py);
+          ctx.quadraticCurveTo(bx + bend * 0.5, py - S * 0.05, bx + bend, py - S * (0.085 + i * 0.006));
+          ctx.stroke();
+        }
+      }
+    }
+    // 贴地雾：两层从地平线下压的淡紫/淡青薄雾
+    ctx.save();
+    const fogH = Math.min(h - horizon, 260);
+    for (let i = 0; i < 2; i++) {
+      const fy = horizon + i * fogH * 0.34;
+      const fg = ctx.createLinearGradient(0, fy, 0, fy + fogH * 0.7);
+      const tint = i ? '150,255,210' : '176,150,255';
+      fg.addColorStop(0, `rgba(${tint},${0.1 - i * 0.03})`);
+      fg.addColorStop(1, `rgba(${tint},0)`);
+      ctx.fillStyle = fg;
+      ctx.fillRect(0, fy, w, fogH * 0.7);
     }
     ctx.restore();
   }
@@ -1470,16 +1601,56 @@ export class Renderer {
     const r = Math.max(2, (s.hot ? 0.05 : 0.022) * p.s);
     const wob = 1 + Math.sin(s.phase) * 0.18;
     if (s.hot) {
-      const c = s.color || '#ff7a1f';
-      this._drawGlow(p.x, p.y - r * 0.7, r * 4.2, c, 0.9);
-      ctx.fillStyle = '#ffe9a8';
+      // 【用户 m08143】"火球画成更像火焰"：原来是一层光晕 + 一个椭圆 + 一个小圆点，
+      // 看着像一颗发光药丸。现在按火焰画：叠加光晕 + 三条随时间扭动的火舌
+      // （外焰橙 → 中焰金 → 内焰近白）+ 往上飘的火星；火舌朝后（屏幕上方）甩。
+      const c1 = s.color || '#ff7a1f';
+      const t = this.time * 9 + (s.phase || 0);
+      const fl = 1 + Math.sin(t) * 0.12;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      this._drawGlow(p.x, p.y - r * 0.7, r * 5.2, c1, 0.42);
+      const cyp = p.y - r * 0.5;
+      for (let i = 0; i < 3; i++) {
+        // 三条火舌左右错开，轮廓才是"跳动的火"而不是一颗光滑的泪滴
+        const off = (i - 1) * r * 0.44;
+        const sway = Math.sin(t * 1.3 + i * 2.1) * r * 0.5;
+        const len = r * (2.2 + 0.55 * (1 + Math.sin(t * 1.9 + i * 1.3)) * 0.5 - i * 0.18);
+        const wdt = r * (0.95 - i * 0.16) * wob * fl;
+        const cxp = p.x + off + sway * 0.35;
+        const g2 = ctx.createLinearGradient(cxp, cyp - len, cxp, cyp + wdt);
+        g2.addColorStop(0, i === 2 ? 'rgba(255,246,208,0)' : 'rgba(255,110,32,0)');
+        g2.addColorStop(0.45, i === 2 ? 'rgba(255,248,214,0.85)' : i === 1 ? 'rgba(255,180,80,0.8)' : 'rgba(255,110,32,0.72)');
+        g2.addColorStop(1, i === 2 ? 'rgba(255,252,238,0.95)' : i === 1 ? 'rgba(255,216,128,0.9)' : 'rgba(255,150,55,0.88)');
+        ctx.fillStyle = g2;
+        ctx.beginPath();
+        ctx.moveTo(cxp - wdt, cyp + wdt * 0.15);
+        ctx.quadraticCurveTo(cxp - wdt * 1.05, cyp - len * 0.45, cxp + sway * 0.45, cyp - len);
+        ctx.quadraticCurveTo(cxp + wdt * 0.95, cyp - len * 0.4, cxp + wdt, cyp + wdt * 0.15);
+        ctx.quadraticCurveTo(cxp, cyp + wdt * 1.25, cxp - wdt, cyp + wdt * 0.15);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // 焰尖上方一缕淡烟，压住"火球"的球感
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = '#c9b6d8';
       ctx.beginPath();
-      ctx.ellipse(p.x, p.y - r * 0.7, r * wob, r * 1.15 * wob, 0, 0, TAU);
+      ctx.ellipse(p.x + Math.sin(t * 0.7) * r * 0.5, cyp - r * 3.1, r * 0.75, r * 1.15, 0, 0, TAU);
       ctx.fill();
-      ctx.fillStyle = c;
-      ctx.beginPath();
-      ctx.arc(p.x + r * 0.2, p.y - r * 1.0, r * 0.5, 0, TAU);
-      ctx.fill();
+      ctx.globalAlpha = 1;
+      // 火星：从火球往上飘，越飘越淡
+      for (let i = 0; i < 4; i++) {
+        const a = ((t * 0.11 + i * 0.27) % 1);
+        const sx = p.x + Math.sin(t * 0.9 + i * 2.3) * r * 1.7;
+        const sy = p.y - r * (0.9 + a * 3.4);
+        ctx.globalAlpha = (1 - a) * 0.75;
+        ctx.fillStyle = i % 2 ? '#ffd27a' : '#ff8a3a';
+        ctx.beginPath();
+        ctx.arc(sx, sy, Math.max(0.6, r * 0.18 * (1 - a * 0.5)), 0, TAU);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
       return;
     }
     this._drawGlow(p.x, p.y - r * 0.7, r * 3.4, '#a6ff3d', 0.85);
@@ -2736,14 +2907,32 @@ export class Renderer {
     this._arts = this._arts || {};
     let rec = this._arts[id];
     if (!rec) {
-      rec = this._arts[id] = { img: null, ok: false };
+      rec = this._arts[id] = { img: null, ok: false, decoding: false };
       const im = new Image();
       im.decoding = 'async';
-      im.onload = () => { rec.ok = (im.naturalWidth || 0) > 0; };
+      im.onload = () => {
+        // 【用户 m08143：勇者偶尔没贴图只剩脚下光环】只在 onload 时置 ok 还不够：
+        // 图已经 load 完但还没 decode 完的那几帧，drawImage 会画不出东西，
+        // 而烘焙缓存一旦把这"空的一帧"烘进去就会一直空着。所以必须等 decode()。
+        if (!(im.naturalWidth > 0) || !(im.naturalHeight > 0)) return;
+        if (typeof im.decode === 'function') {
+          if (rec.decoding) return;
+          rec.decoding = true;
+          im.decode().then(
+            () => { rec.ok = true; },
+            () => { rec.ok = true; }, // decode 失败也放行，交给下面的尺寸兜底
+          );
+        } else {
+          rec.ok = true;
+        }
+      };
       im.src = `./img/hero-${id}.png`;
       rec.img = im;
     }
-    return rec.ok ? rec.img : null;
+    if (!rec.ok) return null;
+    const im = rec.img;
+    if (!im || !(im.width > 0) || !(im.height > 0)) return null;
+    return im;
   }
 
   /**
@@ -2756,6 +2945,8 @@ export class Renderer {
    */
   _heroSprite(ctx, H, pl, art, id) {
     const ANCHOR = 0.955;
+    if (!art || !(art.width > 0) || !(art.height > 0)) return;
+    if (!Number.isFinite(H) || H <= 0) return;
     const swing = Math.min(1, pl.muzzle * 3.4);
     const step = pl.moving ? Math.sin(pl.anim) : 0;
     const breathe = 1 + Math.sin(this.time * 3.1) * 0.008;
@@ -2813,10 +3004,12 @@ export class Renderer {
     // 逐帧把 427×640 的立绘重采样到屏幕尺寸太贵（CPU 光栅化下实测 +18ms/帧），
     // 所以按尺寸烘一张缓存图（含边缘光），正常帧只做一次小尺寸 blit。
     const baked = this._heroBake(id, art, hBase);
-    if (baked) {
+    if (baked && Number.isFinite(baked.base) && baked.base > 0) {
       const k = h / baked.base;
       ctx.drawImage(baked.cv, -baked.w * k / 2, -h * ANCHOR - baked.pad * k, baked.w * k, baked.h * k);
     } else {
+      // 烘焙不可用（尺寸异常 / 画布没拿到 2d 上下文）时直接放大贴一次，
+      // 绝不能因为烘图失败把整个人物弄丢（用户 m08143 报的就是"只剩脚下光环"）。
       ctx.drawImage(art, -w / 2, -h * ANCHOR, w, h);
     }
     ctx.restore();
@@ -2828,23 +3021,35 @@ export class Renderer {
    * 只有尺寸档位变化（或换角色）时才重烘一次。
    */
   _heroBake(id, art, h) {
+    if (!art || !(art.width > 0) || !(art.height > 0)) return null;
+    if (!Number.isFinite(h) || h <= 0) return null;
     const key = `${id}|${Math.round(h / 4)}`;
-    if (this._heroBaked && this._heroBaked.key === key) return this._heroBaked;
+    // 只有"烘成功过"的缓存才复用它（rec.ok）：否则一次 NaN/空图会把整个人物永久烘没
+    if (this._heroBaked && this._heroBaked.key === key && this._heroBaked.ok) return this._heroBaked;
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
     // 【用户 m07770：贴图太糊】烘图必须按**设备像素**（h × dpr）来烘。
     // 以前按 CSS 像素烘一张 230px 高的画布，再被主画布（已经 setTransform(dpr)）
     // 以 230 CSS px 贴回去 —— 手机 DPR=2 时等于把 230px 的图放大到 460px，糊掉一倍。
     const dp = this.dpr && this.dpr > 0 ? this.dpr : 1;
+    const ratio = art.width / art.height;
+    if (!Number.isFinite(ratio) || ratio <= 0) return null;
     const hh = Math.max(2, Math.round(h * dp));
-    const ww = Math.max(2, Math.round(hh * (art.width / art.height)));
+    const ww = Math.max(2, Math.round(hh * ratio));
+    if (!Number.isFinite(hh) || !Number.isFinite(ww)) return null;
     const pad = Math.max(2, Math.ceil(hh * 0.045));
     let rec = this._heroBaked;
     if (!rec || !rec.cv) {
       const cv = document.createElement('canvas');
-      rec = this._heroBaked = { key: '', cv, w: 0, h: 0, pad: 0, base: 0 };
+      rec = this._heroBaked = { key: '', cv, w: 0, h: 0, pad: 0, base: 0, ok: false };
     }
-    rec.cv.width = ww + pad * 2;
-    rec.cv.height = hh + pad * 2;
+    rec.ok = false; // 先降级，画完确认没问题再置回 true
+    try {
+      rec.cv.width = ww + pad * 2;
+      rec.cv.height = hh + pad * 2;
+    } catch {
+      return null;
+    }
+    if (!(rec.cv.width > 0) || !(rec.cv.height > 0)) return null;
     const gg = typeof rec.cv.getContext === 'function' ? rec.cv.getContext('2d') : null;
     if (!gg) return null;
     if ('imageSmoothingQuality' in gg) gg.imageSmoothingQuality = 'high';
@@ -2853,16 +3058,24 @@ export class Renderer {
     gg.globalAlpha = 0.16;
     const rw = Math.round(ww * 1.04);
     const rh = Math.round(hh * 1.04);
-    gg.drawImage(art, pad + (ww - rw) / 2, pad + (hh - rh) / 2, rw, rh);
-    gg.globalCompositeOperation = 'source-over';
-    gg.globalAlpha = 1;
-    gg.drawImage(art, pad, pad, ww, hh);
+    try {
+      gg.drawImage(art, pad + (ww - rw) / 2, pad + (hh - rh) / 2, rw, rh);
+      gg.globalCompositeOperation = 'source-over';
+      gg.globalAlpha = 1;
+      gg.drawImage(art, pad, pad, ww, hh);
+    } catch {
+      gg.globalCompositeOperation = 'source-over';
+      gg.globalAlpha = 1;
+      return null; // 画不进去就别缓存（下一帧会重新烘）
+    }
     rec.key = key;
     // 对外一律用 CSS 尺寸（主画布已经按 dpr 缩放），内部画布是 dpr 倍分辨率
     rec.w = (ww + pad * 2) / dp;
     rec.h = (hh + pad * 2) / dp;
     rec.pad = pad / dp;
     rec.base = hh / dp;
+    if (!Number.isFinite(rec.base) || rec.base <= 0) return null;
+    rec.ok = true;
     return rec;
   }
 

@@ -737,7 +737,31 @@ function loadHero() {
   game.heroId = id;
 }
 
+const HERO_PANEL_ART = [
+  './img/hero-knight.png',
+  './img/hero-fairy.png',
+  './img/portrait-knight.png',
+  './img/portrait-fairy.png',
+];
+let heroPanelArtReady = false;
+
 function openHeroes() {
+  // 【用户 m08143】"角色页面也要进加载页"：面板里是两张近 1MB 的全身立绘，
+  // 以前是打开面板才开始取，网慢时能看见"先空一格、图再滑进来"。
+  // 现在先竖加载页把这四张下完再开面板；下过一次就记着，之后打开是瞬开。
+  if (!heroPanelArtReady && typeof Image !== 'undefined') {
+    showLoader();
+    preloadAll(HERO_PANEL_ART).then(() => {
+      heroPanelArtReady = true;
+      hideLoader();
+      heroPanelShow();
+    });
+    return;
+  }
+  heroPanelShow();
+}
+
+function heroPanelShow() {
   for (const h of HEROES) {
     const node = el['hero' + h.id.charAt(0).toUpperCase() + h.id.slice(1)];
     if (!node) continue;
