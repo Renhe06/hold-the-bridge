@@ -908,20 +908,43 @@ export class Game {
     }
   }
 
-  /** 火球齐射：横铺整条路的一大排火球（速度比酸液慢，看得清、走得开） */
+  /**
+   * 【用户 m07770】BOSS 技能落点必须在桥面上。
+   * 桥面半宽只有 cam.roadHalf（0.35 世界单位，约 2.6 个身位），
+   * 原来 ±0.93 / ±0.675 的落点全在桥外：屏幕上火铺满整条路，桥上的人却一点事没有。
+   * 这里统一按"三条车道"（±0.8·roadHalf 和正中）铺，并且**永远把离玩家最远的那一条留空**，
+   * 逼玩家横移一步 —— 既真的会打到、又一定躲得开。
+   */
+  deckLanes(free) {
+    const rw = (this.cam && this.cam.roadHalf) || 0.35;
+    const step = rw * 0.8;
+    // free：-1 留左边 / 0 留中间 / 1 留右边
+    return [-step, 0, step].filter((_, i) => i - 1 !== free);
+  }
+
+  /** 玩家在哪边就从对面留缝；站正中时随机留一侧（不然"原地不动"就能躲） */
+  freeLaneFor() {
+    const rw = (this.cam && this.cam.roadHalf) || 0.35;
+    const px = this.player ? this.player.x : 0;
+    if (px > rw * 0.12) return -1;
+    if (px < -rw * 0.12) return 1;
+    return rand(0, 1) < 0.5 ? -1 : 1;
+  }
+
+  /** 火球齐射：沿桥面车道铺（速度比酸液慢，看得清、走得开） */
   doctorFireballs(e) {
     const B = this.boss2Cfg();
     if (this.hazardCd > 0) return false; // 【用户 m01220】别和导弹阵叠在一起
-    const n = B.fireballCount || B.fireCount;
-    const half = (n - 1) / 2;
-    for (let i = 0; i < n; i++) {
+    const lanes = this.deckLanes(this.freeLaneFor());
+    for (const x of lanes) {
       this.spits.push({
-        x: (i - half) * (B.fireballGap || B.fireGap),
+        x,
         z: e.z - e.size * 0.25,
         vz: -(B.fireballSpeed || B.fireSpeed),
         phase: rand(0, Math.PI * 2),
         color: B.fireballColor || B.fireColor,
         hot: true,
+        hitW: 0.09,
         dead: false,
       });
     }
@@ -933,23 +956,37 @@ export class Game {
   }
 
   /**
-   * 恶龙的喷火（用户 m04749）：和博士的火球齐射同一套逻辑 ——
-   * 一排火横铺过来，中间留缝，走对方向就躲得开。少一颗、慢一点，看得更清楚。
+   * 恶龙的喷火（用户 m04749；落点在 m07770 按桥面车道重排）：
+   * 两道压在你可能站的地方、一条留空，外加桥沿两簇纯气氛的边火 ——
+   * 边火落在玩家够不到的位置（|x| > 0.35），只负责把"整座桥都在烧"做出来。
    */
   dragonFire(e) {
     const B = CFG.fantasy.boss2;
     if (this.hazardCd > 0) return false;
-    const n = B.fireCount;
-    const half = (n - 1) / 2;
-    for (let i = 0; i < n; i++) {
+    const rw = (this.cam && this.cam.roadHalf) || 0.35;
+    for (const x of this.deckLanes(this.freeLaneFor())) {
       this.spits.push({
-        x: (i - half) * B.fireGap,
+        x,
         z: e.z - e.size * 0.25,
         vz: -B.fireSpeed,
         phase: rand(0, Math.PI * 2),
         color: B.fireColor,
         hot: true,
         dragon: true,
+        hitW: 0.085,
+        dead: false,
+      });
+    }
+    for (const s of [-1, 1]) {
+      this.spits.push({
+        x: s * rw * 1.06,
+        z: e.z - e.size * 0.25,
+        vz: -B.fireSpeed,
+        phase: rand(0, Math.PI * 2),
+        color: B.fireColor,
+        hot: true,
+        dragon: true,
+        edge: true,
         dead: false,
       });
     }
@@ -962,24 +999,24 @@ export class Game {
   }
 
   /**
-   * 恶龙挥翅（用户 m04749）：两道很宽的"风压"从它那边推过来。
-   * 和火球齐射的区别是：更少（两道）、更宽、更慢 —— 逼你横向大挪一步，
-   * 而不是像火球那样原地找缝。命中和火球共用 this.spits 这套判定。
+   * 恶龙挥翅（用户 m04749；落点在 m07770 按桥面车道重排）：
+   * 两道很宽的风压压住左右两条车道，中间那条留给你 —— 和喷火的"留一侧"正好互补，
+   * 所以玩家要记两套走位：喷火往空的那侧靠、挥翅回正中。
    */
   dragonGust(e) {
     const B = CFG.fantasy.boss2;
     if (this.hazardCd > 0) return false;
-    const n = B.windCount;
-    const half = (n - 1) / 2;
-    for (let i = 0; i < n; i++) {
+    const step = ((this.cam && this.cam.roadHalf) || 0.35) * 0.8;
+    for (const x of [-step, step]) {
       this.spits.push({
-        x: (i - half) * B.windGap,
+        x,
         z: e.z - e.size * 0.2,
         vz: -B.windSpeed,
         phase: rand(0, Math.PI * 2),
         color: B.windColor,
         hot: false,
         wind: true,
+        hitW: 0.1,
         dead: false,
       });
     }
@@ -2156,6 +2193,7 @@ export class Game {
 
   updateSpits(dt) {
     const pl = this.player;
+    const HW0 = CFG.hero.halfWidth + 0.06;
     for (const s of this.spits) {
       if (s.dead) continue;
       const z0 = s.z;
@@ -2166,7 +2204,11 @@ export class Game {
       // 命中判定必须用"这一帧飞过的整段路径"，不能只看落点：
       // 酸球速度 15，一帧（dt 上限 0.05）能飞 0.75 个世界单位，
       // 比 0.45 的命中窗口还宽，只看落点会直接穿人而过。
-      const inX = Math.abs(s.x - pl.x) < CFG.hero.halfWidth + 0.06;
+      //
+      // 【用户 m07770】hitW：BOSS 的铺桥技能自己有更窄的判定宽度（默认仍是 0.135），
+      // 这样三条车道才能既真的威胁到桥上的人、又留出一条能站进去的缝。
+      const hw = s.hitW || HW0;
+      const inX = !s.edge && Math.abs(s.x - pl.x) < hw;
       const lo = Math.min(z0, s.z);
       const hi = Math.max(z0, s.z);
       if (inX && pl.z + 0.45 >= lo && pl.z - 0.45 <= hi) {

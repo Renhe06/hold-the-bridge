@@ -243,6 +243,80 @@ export class Renderer {
     g.arc(mx + mr * 0.3, my + mr * 0.26, mr * 0.14, 0, TAU);
     g.arc(mx + mr * 0.05, my - mr * 0.42, mr * 0.1, 0, TAU);
     g.fill();
+    // 【用户 m07770】第四关的天空要更"异世界"：
+    // 一大一小两颗月亮（原来只有一颗普通的）+ 一颗带环的行星 + 三道极光带。
+    // 这些只画在 skyCanvas 里（一次性烘焙），不占每帧开销。
+    if (CFG.level.skin === 'fantasy') {
+      const F = T.fantasy;
+      // ── 极光：三条竖着流的软光带，加色叠加 ──
+      g.save();
+      g.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 4; i++) {
+        const ax = w * (0.1 + i * 0.24);
+        const band = g.createLinearGradient(0, 0, w * 0.5, 0);
+        const hue = i % 2 ? '150,255,210' : '176,150,255';
+        band.addColorStop(0, `rgba(${hue},0)`);
+        band.addColorStop(0.45, `rgba(${hue},0.17)`);
+        band.addColorStop(1, `rgba(${hue},0)`);
+        g.fillStyle = band;
+        g.beginPath();
+        g.moveTo(ax - w * 0.16, 0);
+        g.quadraticCurveTo(ax, h * 0.5, ax - w * 0.06, h);
+        g.lineTo(ax + w * 0.1, h);
+        g.quadraticCurveTo(ax + w * 0.2, h * 0.45, ax + w * 0.2, 0);
+        g.closePath();
+        g.fill();
+      }
+      g.restore();
+      // ── 带环行星（左上方）：本体 + 一圈斜环 ──
+      const px = w * 0.24;
+      const py = h * 0.3;
+      const pr = Math.max(16, w * 0.085);
+      const pglow = g.createRadialGradient(px, py, pr * 0.5, px, py, pr * 2.6);
+      pglow.addColorStop(0, 'rgba(190,170,255,0.26)');
+      pglow.addColorStop(1, 'rgba(150,130,230,0)');
+      g.fillStyle = pglow;
+      g.fillRect(px - pr * 2.6, py - pr * 2.6, pr * 5.2, pr * 5.2);
+      const planet = g.createRadialGradient(px - pr * 0.35, py - pr * 0.4, pr * 0.2, px, py, pr);
+      planet.addColorStop(0, '#e9dcff');
+      planet.addColorStop(0.55, '#b9a2e8');
+      planet.addColorStop(1, '#6b5494');
+      g.fillStyle = planet;
+      g.beginPath();
+      g.arc(px, py, pr, 0, TAU);
+      g.fill();
+      // 环：一段被本体挡住的感觉靠两笔弧线做出来
+      g.save();
+      g.translate(px, py);
+      g.rotate(-0.42);
+      for (const [rr, aw, alpha] of [[pr * 1.55, pr * 0.2, 0.5], [pr * 1.85, pr * 0.12, 0.3]]) {
+        g.strokeStyle = `rgba(232,222,255,${alpha})`;
+        g.lineWidth = aw;
+        g.beginPath();
+        g.ellipse(0, 0, rr, rr * 0.3, 0, Math.PI * 0.02, Math.PI * 0.98);
+        g.stroke();
+        g.beginPath();
+        g.ellipse(0, 0, rr, rr * 0.3, 0, Math.PI * 1.02, Math.PI * 1.98);
+        g.stroke();
+      }
+      g.restore();
+      // ── 远处一颗小月亮（异世界的第二颗）──
+      const mx2 = w * 0.58;
+      const my2 = h * 0.17;
+      const mr2 = Math.max(7, w * 0.026);
+      g.fillStyle = 'rgba(255,214,190,0.16)';
+      g.beginPath();
+      g.arc(mx2, my2, mr2 * 2.6, 0, TAU);
+      g.fill();
+      g.fillStyle = F.moon2 || '#ffd9c6';
+      g.beginPath();
+      g.arc(mx2, my2, mr2, 0, TAU);
+      g.fill();
+      g.fillStyle = 'rgba(150,110,120,0.3)';
+      g.beginPath();
+      g.arc(mx2 - mr2 * 0.3, my2 + mr2 * 0.2, mr2 * 0.28, 0, TAU);
+      g.fill();
+    }
 
     this.skyCanvas = c;
     this.skyH = h;
@@ -283,6 +357,58 @@ export class Renderer {
         g.lineTo(w + 12, base - 10);
         g.closePath();
         g.fill();
+      }
+      // 【用户 m07770】异世界的"浮空岛"与发光晶簇：山影之后、古堡之前，
+      // 让远景一眼就不像人间 —— 一块倒锥的岩体浮在半空，顶上压一层草皮，
+      // 底部长着会发光的晶体；古堡旁边再插三根晶柱。
+      for (let i = 0; i < 3; i++) {
+        const ix = w * (0.58 + i * 0.17) + rnd() * 8;
+        const iw = 16 + rnd() * 10;
+        const iy = base - 58 - rnd() * 22;
+        // 岩体（倒锥）
+        g.fillStyle = 'rgba(30,24,54,0.95)';
+        g.beginPath();
+        g.moveTo(ix - iw, iy);
+        g.lineTo(ix + iw, iy);
+        g.lineTo(ix + iw * 0.22, iy + iw * 1.15);
+        g.lineTo(ix - iw * 0.3, iy + iw * 0.95);
+        g.closePath();
+        g.fill();
+        // 顶上的草皮
+        g.fillStyle = F.grassA;
+        g.beginPath();
+        g.ellipse(ix, iy, iw, iw * 0.28, 0, Math.PI, TAU);
+        g.fill();
+        // 底部的发光晶体
+        for (let k = 0; k < 3; k++) {
+          const gx = ix - iw * 0.45 + k * iw * 0.45;
+          const gh = iw * (0.3 + rnd() * 0.35);
+          g.fillStyle = 'rgba(120,220,255,0.5)';
+          g.beginPath();
+          g.moveTo(gx, iy + iw * 0.5);
+          g.lineTo(gx - gh * 0.34, iy + iw * 0.5 + gh);
+          g.lineTo(gx + gh * 0.34, iy + iw * 0.5 + gh);
+          g.closePath();
+          g.fill();
+        }
+      }
+      // 城堡旁三根晶柱（越高越细，顶端有一团光）
+      for (let i = 0; i < 3; i++) {
+        const sx = w * (0.15 + i * 0.055);
+        const sh = 34 + rnd() * 26;
+        const sw2 = 5 + rnd() * 3;
+        g.fillStyle = 'rgba(64,52,110,0.9)';
+        g.beginPath();
+        g.moveTo(sx, base - 28 - sh);
+        g.lineTo(sx + sw2, base - 34);
+        g.lineTo(sx - sw2, base - 34);
+        g.closePath();
+        g.fill();
+        const tip = g.createRadialGradient(sx, base - 28 - sh, 0, sx, base - 28 - sh, sw2 * 2.4);
+        tip.addColorStop(0, 'rgba(178,238,255,0.55)');
+        tip.addColorStop(1, 'rgba(120,200,255,0)');
+        g.fillStyle = tip;
+        g.fillRect(sx - sw2 * 2.4, base - 28 - sh - sw2 * 2.4, sw2 * 4.8, sw2 * 4.8);
       }
       // 古堡：城墙 + 城垛 + 三座尖顶塔 + 暖窗 + 红旗
       const cx = w * 0.30;
@@ -2705,7 +2831,11 @@ export class Renderer {
     const key = `${id}|${Math.round(h / 4)}`;
     if (this._heroBaked && this._heroBaked.key === key) return this._heroBaked;
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
-    const hh = Math.max(2, Math.round(h));
+    // 【用户 m07770：贴图太糊】烘图必须按**设备像素**（h × dpr）来烘。
+    // 以前按 CSS 像素烘一张 230px 高的画布，再被主画布（已经 setTransform(dpr)）
+    // 以 230 CSS px 贴回去 —— 手机 DPR=2 时等于把 230px 的图放大到 460px，糊掉一倍。
+    const dp = this.dpr && this.dpr > 0 ? this.dpr : 1;
+    const hh = Math.max(2, Math.round(h * dp));
     const ww = Math.max(2, Math.round(hh * (art.width / art.height)));
     const pad = Math.max(2, Math.ceil(hh * 0.045));
     let rec = this._heroBaked;
@@ -2728,10 +2858,11 @@ export class Renderer {
     gg.globalAlpha = 1;
     gg.drawImage(art, pad, pad, ww, hh);
     rec.key = key;
-    rec.w = ww + pad * 2;
-    rec.h = hh + pad * 2;
-    rec.pad = pad;
-    rec.base = hh;
+    // 对外一律用 CSS 尺寸（主画布已经按 dpr 缩放），内部画布是 dpr 倍分辨率
+    rec.w = (ww + pad * 2) / dp;
+    rec.h = (hh + pad * 2) / dp;
+    rec.pad = pad / dp;
+    rec.base = hh / dp;
     return rec;
   }
 
@@ -4559,6 +4690,45 @@ export class Renderer {
       ctx.strokeStyle = rgba(col, 0.28);
       ctx.lineWidth = 1;
       ctx.stroke();
+
+      // 【用户 m07770】异世界的门卡：顶上一颗会发光的晶体宝石 + 两侧刻符，
+      // 让奖励门看着像"石板上挂着的护符"，而不是一张弹窗卡片。
+      if (CFG.level.skin === 'fantasy') {
+        ctx.strokeStyle = rgba(col, active ? 0.8 : 0.4);
+        ctx.lineWidth = Math.max(1, ph * 0.014);
+        ctx.lineCap = 'round';
+        for (const sx2 of [-1, 1]) {
+          for (let i = 0; i < 3; i++) {
+            const ry = top + ph * (0.32 + i * 0.16);
+            const rx = cx + sx2 * (pwPx - pad * 1.6);
+            ctx.beginPath();
+            ctx.moveTo(rx - sx2 * ph * 0.045, ry - ph * 0.026);
+            ctx.lineTo(rx, ry);
+            ctx.lineTo(rx - sx2 * ph * 0.045, ry + ph * 0.026);
+            ctx.stroke();
+          }
+        }
+        const gemY = top + ph * 0.13;
+        const gs = ph * 0.056;
+        ctx.globalCompositeOperation = 'lighter';
+        const glow = ctx.createRadialGradient(cx, gemY, 0, cx, gemY, gs * 2.6);
+        glow.addColorStop(0, rgba(col, active ? 0.5 : 0.3));
+        glow.addColorStop(1, rgba(col, 0));
+        ctx.fillStyle = glow;
+        ctx.fillRect(cx - gs * 2.6, gemY - gs * 2.6, gs * 5.2, gs * 5.2);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.beginPath();
+        ctx.moveTo(cx, gemY - gs * 1.35);
+        ctx.lineTo(cx + gs, gemY);
+        ctx.lineTo(cx, gemY + gs * 1.35);
+        ctx.lineTo(cx - gs, gemY);
+        ctx.closePath();
+        ctx.fillStyle = rgba(col, active ? 0.95 : 0.6);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,248,234,0.8)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
 
       // 四角取景框 —— 和 DOM 那边的面板同一套语言（贴着卡片的角，两条边朝里收）
       const ax = pwPx * 0.22;

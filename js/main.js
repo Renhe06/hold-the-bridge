@@ -387,12 +387,15 @@ function closeBoot() {
   bootClosed = true;
   // 给自动化留个数（viz/probe-boot.mjs 用它量"玩家被拦住多久"，
   // 页面自己的时钟才准：外面量进去还得算上无头浏览器启动那 1 秒）
-  try { window.__HBT_BOOT_MS = Math.round(performance.now()); } catch (_) { /* 无 window 的桩环境 */ }
+  try {
+    if (!window.__HBT_BOOT_MS) window.__HBT_BOOT_MS = Math.round(performance.now());
+  } catch (_) { /* 无 window 的桩环境 */ }
   const el = document.getElementById('bootOverlay');
   if (!el) return;
   el.classList.add('done');
-  // 淡出动画走完再摘掉节点（样式表里 .boot.done 是 0.42s）
-  setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 520);
+  // 【用户 m07770】节点**不再删除**：进关卡前还要复用这块加载页（showLoader），
+  // 现成节点已经带品牌注释和翻译好的标题，重建一套反而要再写一份文案。
+  // .boot.done 是 opacity:0 + pointer-events:none，留着也吃不到点击。
 }
 
 function runBootLoader() {
@@ -458,6 +461,84 @@ function warmHeroArt(id) {
     const pr = im.decode();
     if (pr && typeof pr.catch === 'function') pr.catch(() => {});
   }
+}
+
+// ---------------------------------------------------------
+// 【用户 m07770】"进页面或关卡前先进入加载页面后台加载需要的资源"
+//   启动那块（runBootLoader）只等外壳，按需求补一张"进关卡前"的加载页：
+//   素材在后台下完再开局，玩家就不会看到"人先到、图后到"。
+//   第四关两张全身立绘现在已经 1.7MB，以后素材只会更多，这张表就是挂载点。
+//   复用 #bootOverlay（品牌名 + 进度条，且标题在启动时已翻译过），不新增文案。
+// ---------------------------------------------------------
+const LEVEL_ART = {
+  fantasy: [
+    './img/hero-knight.png',
+    './img/hero-fairy.png',
+    './img/portrait-knight.png',
+    './img/portrait-fairy.png',
+  ],
+};
+
+function preloadAll(urls) {
+  if (typeof Image === 'undefined') return Promise.resolve();
+  return Promise.all(urls.map((u) => new Promise((res) => {
+    const im = new Image();
+    im.decoding = 'async';
+    let done = false;
+    const fin = () => { if (!done) { done = true; res(); } };
+    im.onload = () => {
+      if (typeof im.decode === 'function') im.decode().then(fin).catch(fin);
+      else fin();
+    };
+    im.onerror = fin;
+    setTimeout(fin, 9000); // 网络再差也不能把玩家按在加载页上
+    im.src = u;
+  })));
+}
+
+let loaderOpen = false;
+let loaderRaf = 0;
+
+function showLoader() {
+  const el = document.getElementById('bootOverlay');
+  if (!el || loaderOpen) return;
+  loaderOpen = true;
+  bootClosed = false;
+  el.classList.remove('done');
+  const bar = document.getElementById('bootBar');
+  const t0 = performance.now();
+  if (bar) bar.style.width = '4%';
+  if (typeof requestAnimationFrame !== 'function') return;
+  const tick = () => {
+    if (!loaderOpen) return;
+    if (bar) {
+      const p = Math.min(93, 93 * (1 - Math.exp(-(performance.now() - t0) / 900)));
+      bar.style.width = `${p.toFixed(1)}%`;
+    }
+    loaderRaf = requestAnimationFrame(tick);
+  };
+  loaderRaf = requestAnimationFrame(tick);
+}
+
+function hideLoader() {
+  if (!loaderOpen) return;
+  loaderOpen = false;
+  if (loaderRaf) cancelAnimationFrame(loaderRaf);
+  const bar = document.getElementById('bootBar');
+  if (bar) bar.style.width = '100%';
+  // 至少亮 260ms：本地几毫秒就下完，闪一下比不闪还难受
+  setTimeout(closeBoot, 260);
+}
+
+/** 开局入口：有素材就先过加载页，没有就直接开 */
+function startLevel(idx) {
+  const lv = (CFG.levels && CFG.levels[idx]) || {};
+  const urls = (lv.skin && LEVEL_ART[lv.skin]) || [];
+  // 桩环境（tools/smoke-test.mjs 的 document 桩）没有 Image：直接开局，
+  // 不然 beginLevel 会被推到一个微任务之后，测试里的同步断言就全错位了
+  if (!urls.length || typeof Image === 'undefined') { game.beginLevel(idx); return; }
+  showLoader();
+  preloadAll(urls).then(() => { hideLoader(); game.beginLevel(idx); });
 }
 
 // 立刻开始等（外壳已经由 Service Worker 缓存优先返回了，这里主要是几张立绘）
@@ -623,7 +704,7 @@ onTap(el.clearNext, () => {
   const nextId = (game.lastReward && game.lastReward.nextLevel) || 0;
   if (!nextId) return;
   sfx.uiClick();
-  game.beginLevel(levelIndexOf(nextId));
+  startLevel(levelIndexOf(nextId));
 });
 
 // ---- 主界面四个入口 ----
@@ -742,7 +823,7 @@ for (let i = 1; i <= 10; i++) {
     sfx.uiClick();
     hideLevels();
     guardClick(); // 收面板的那一下别让落空的 click 打到下面那层
-    game.beginLevel(levelIndexOf(i));
+    startLevel(levelIndexOf(i));
   });
 }
 
@@ -1206,4 +1287,9 @@ window.__HBT = {
   // 画布文字是运行时翻译的（见 js/i18n.js 的 installCanvas），
   // 版面对齐体检要拿到"真正画出去的那串"来量宽度，所以把翻译器也挂出来
   i18n: I18N,
+  // 进关卡的入口（用户 m07770 的加载页）：探针要能直接触发"选关 → 加载 → 开局"
+  startLevel,
+  LEVEL_ART,
+  showLoader,
+  hideLoader,
 };

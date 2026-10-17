@@ -862,18 +862,29 @@ try {
     boss.casts > castsAfterFirst,
     `等满冷却（${C.bossMissile.cooldown}s）之后接着放（技能记账 ${castsAfterFirst} → ${boss.casts}｜冷却 ${game.hazardCd.toFixed(2)}｜skillT ${boss.skillT.toFixed(2)}｜state ${game.state}｜hp ${boss.hp}）`
   );
-  // 火球齐射要留出真能站人的缝：命中半宽 = hero.halfWidth + 0.06
-  const fireHit = C.hero.halfWidth + 0.06;
-  const fxs = [];
-  const fhalf = (B2.fireballCount - 1) / 2;
-  for (let i = 0; i < B2.fireballCount; i++) fxs.push((i - fhalf) * B2.fireballGap);
-  let widest = 0;
-  for (let i = 0; i < fxs.length - 1; i++) {
-    widest = Math.max(widest, fxs[i + 1] - fxs[i] - fireHit * 2);
+  // 【用户 m07770】火球齐射现在按"桥面车道"铺：三条车道（±0.8·roadHalf 和正中）
+  // 里永远留一条空的、且落点必须在桥面内 —— 以前 ±0.93 落在桥外，桥上根本没威胁。
+  // 这里对"留哪一条空"的三种可能各扫一遍，确认玩家总有一条 ≥0.16 宽的落脚区。
+  const fireHit = 0.09; // BOSS 铺桥技能的判定半宽（game.js 里每条 spit 的 hitW）
+  const rw = game.cam.roadHalf;
+  const reach = rw - C.hero.halfWidth; // 玩家能站到 |x| <= reach
+  const lanes = [-rw * 0.8, 0, rw * 0.8];
+  // 每种"留哪一条空"都取最长连续不命中段，取最坏情况
+  let minWidest = Infinity;
+  for (let free = 0; free < lanes.length; free++) {
+    const live = lanes.filter((_, i) => i !== free);
+    let cur = 0;
+    let best = 0;
+    for (let x = -reach; x <= reach + 1e-9; x += 0.005) {
+      const hit = live.some((lx) => Math.abs(lx - x) < fireHit);
+      cur = hit ? 0 : cur + 0.005;
+      if (cur > best) best = cur;
+    }
+    minWidest = Math.min(minWidest, best);
   }
   ok(
-    widest >= 0.3,
-    `火球齐射留下 ${widest.toFixed(2)} 宽的通道（${B2.fireballCount} 颗 × 间距 ${B2.fireballGap}；命中半宽 ${fireHit}）`
+    minWidest >= 0.16 && lanes.every((x) => Math.abs(x) <= rw),
+    `火球齐射落在桥面车道内（车道 ${lanes.map((x) => x.toFixed(2)).join(' / ')}｜半宽 ${rw.toFixed(2)}｜最窄落脚区 ${minWidest.toFixed(2)}）`
   );
   ok(
     C.bossMissile.warn >= 1.9 && C.bossMissile.cooldown >= 3.2,
@@ -1680,8 +1691,8 @@ try {
     b.skillT = 0.01;
     step(50);
     ok(
-      game.spits.length === B2.fireballCount && game.spits.every((s) => s.hot),
-      `技能 3：${B2.fireballCount} 发火球齐射（spits=${game.spits.length}）`
+      game.spits.length === 2 && game.spits.every((s) => s.hot),
+      `技能 3：火球齐射按桥面车道走（${game.spits.length} 发 = 三车道里留一条缝）`
     );
     ok(game.spits[0].vz < 0, '火球是朝玩家这边飞的');
     // 血条：名字跟着形态走，并且标出"第几段血"
@@ -2041,13 +2052,29 @@ try {
   C4.fantasy.boss2.skills = ['fire', 'wind', 'summon'];
   game.hazardCd = 0;
   game.bossSkill2(dragon);
-  const fires = game.spits.filter((s) => s.dragon).length;
-  ok(fires === C4.fantasy.boss2.fireCount, `喷火焰吐息（一口 ${fires} 颗火）`);
+  const fires = game.spits.filter((s) => s.dragon && !s.edge).length;
+  ok(fires === 2, `喷火焰吐息（桥面三车道里放 ${fires} 道、留一条缝）`);
+  // 【用户 m07770】恶龙技能的落点必须在桥面内、不能全落在桥外
+  const drw = game.cam.roadHalf;
+  const dragonXs = game.spits.filter((s) => s.dragon).map((s) => s.x);
+  const offDeck = game.spits.filter((s) => s.dragon && Math.abs(s.x) <= drw && !s.edge).length;
+  ok(
+    offDeck >= 2 && dragonXs.some((x) => Math.abs(x) < 0.1),
+    `喷火落在桥上（车道 ${game.spits.filter((s) => s.dragon && !s.edge).map((s) => s.x.toFixed(2)).join(' / ')}｜桥半宽 ${drw.toFixed(2)}）`
+  );
+  ok(
+    Math.abs(game.spits.find((s) => s.edge).x) > drw,
+    '桥沿那两簇是纯气氛的边火（判定上不会打到人）'
+  );
   game.spits.length = 0;
   game.hazardCd = 0;
   game.bossSkill2(dragon);
   const gusts = game.spits.filter((s) => s.wind).length;
-  ok(gusts === C4.fantasy.boss2.windCount, `挥翅膀打出 ${gusts} 道冲击波`);
+  ok(gusts === 2, `挥翅膀打出 ${gusts} 道冲击波`);
+  ok(
+    game.spits.filter((s) => s.wind).every((s) => Math.abs(s.x) <= drw),
+    `风压也压在桥面车道内（${game.spits.filter((s) => s.wind).map((s) => s.x.toFixed(2)).join(' / ')}｜桥半宽 ${drw.toFixed(2)}）`
+  );
   const beforeAdds = game.enemies.length;
   game.hazardCd = 0;
   game.bossSkill2(dragon);
@@ -2153,6 +2180,15 @@ try {
     ok(/function warmHeroArt\(/.test(main) && /CFG\.level\.skin === 'fantasy'\) warmHeroArt/.test(main),
       '第四关全身立绘改成"进对话时预热"（不占首开时间）');
     ok(!/hero-(knight|fairy)\.png/.test(sw), 'sw.js 的预缓存外壳里没有全身立绘');
+    // 【用户 m07770】"进关卡前先进入加载页面后台加载资源"
+    ok(/const LEVEL_ART = \{/.test(main) && /fantasy: \[/.test(main) && /hero-knight\.png/.test(main),
+      'main.js 有关卡素材表（fantasy 列出了两张全身立绘）');
+    ok(/function preloadAll\(/.test(main) && /function startLevel\(/.test(main),
+      '开局的入口走 startLevel（先 preloadAll 再 beginLevel）');
+    ok(/startLevel\(levelIndexOf\(/.test(main) && !/^\s*game\.beginLevel\(levelIndexOf/gm.test(main.replace(/startLevel\(levelIndexOf\(.*\);/g, '')),
+      '选关 / 下一关两个入口都改走 startLevel（没有再直接 beginLevel）');
+    ok(/function showLoader\(\)/.test(main) && /function hideLoader\(\)/.test(main),
+      '加载页可以在进关卡时复用（showLoader / hideLoader）');
 
     // (i) 第四关 HUD 换皮（用户 m06012「UI 等视觉效果必须全面提升」）
     //   换皮全靠一个 body.skin-fantasy 类 + 若干 CSS 覆盖 + 画布里两处皮肤分支。

@@ -1032,8 +1032,11 @@ CFG.themes = {
       castleWin: '#ffd98a',
       banner: '#c8443f',
       bannerDark: '#8e2b2a',
-      house: '#e6d6b0',
-      roof: '#8b4a6b',
+      house: '#a89272',
+      roof: '#63384d',
+      // 【用户 m07770】远景要更"异世界"：民房压暗成夜里的土墙（原来奶白墙 + 粉顶太像童话村），
+      // 只有窗还亮着暖光 —— 一眼就是"被袭过的村子"。
+      moon2: '#ffd9c6',
       tree: '#2c6b46',
       treeDark: '#1b4730',
       grassA: '#4f8f4a',
