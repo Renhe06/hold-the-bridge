@@ -1026,10 +1026,10 @@ export class Game {
   }
 
   /**
-   * 恶龙的喷火（用户 m04749 加；m11492 改成"两段火墙、缝会跑"）：
-   * 第一段把缝留在玩家对侧 → 逼你横移过去；
-   * 0.62 秒后第二段把缝挪到你刚跑过去的那侧 → 你还得再挪回来或原地贴缝。
-   * 两段都只有一条 0.24 宽的缝，站错就直接吃一记。
+   * 恶龙的喷火（用户 m04749 加；m11492 加强覆盖；m11792 定稿）：
+   * 一整面火墙从左边栏杆铺到右边栏杆，只留一条窄缝；
+   * 两段火墙各自把缝固定在**不同的位置**，但每堵墙自己的缝在飞行途中**不动**
+   * （用户 m11792：之前让缝横向漂移，结果缝会扫到桥外，出现"根本没有缝"的情况）。
    * 桥沿两簇边火仍然纯气氛（|x| > roadHalf*1.06，够不到人）。
    */
   dragonFire(e) {
@@ -1042,7 +1042,6 @@ export class Game {
       speed: B.fireSpeed,
       color: B.fireColor,
       hot: true,
-      drift: B.fireDrift,
       zMul: 0.25,
     };
     // 第一段：缝放对侧，先逼你动
@@ -1053,7 +1052,6 @@ export class Game {
       this._dragonWall(e, {
         ...wall,
         speed: B.fireSpeed * 1.15,
-        drift: -B.fireDrift,
         zMul: 0.18,
         slot: this._slotForSide(cur > 0 ? 1 : -1),
       });
@@ -1082,34 +1080,37 @@ export class Game {
   }
 
   /**
-   * 恶龙挥翅（用户 m04749 加；m11492 同样改成两段）：
-   * 风压的墙更宽更慢，所以缝也留得更宽一点，但同样是"第一段对侧、第二段回身"。
-   * 和喷火的区别：风压不烫（hot=false），而且两段的间隔更长，节奏是"呼——吸"。
+   * 恶龙的振翅（用户 m04749 加；m11792 改回"振翅冲击波"）：
+   * 不再是"铺满桥面的风压墙"（用户要求去掉），而是几道宽大的月牙冲击波并排扫过来，
+   * 观感接近勇者的剑气 —— 区别是它更宽更慢，而且**只会把人推开、不烧血**。
+   * 中间那道的 w 最大、两翼略窄，所以正中间站人最危险，贴边反而好躲。
    */
   dragonGust(e) {
     const B = CFG.fantasy.boss2;
     if (this.hazardCd > 0) return false;
-    const px = this.player ? this.player.x : 0;
-    const wall = {
-      colGap: B.windColGap,
-      hitW: B.windHitW,
-      speed: B.windSpeed,
-      color: B.windColor,
-      wind: true,
-      drift: B.windDrift,
-      zMul: 0.2,
-    };
-    this._dragonWall(e, { ...wall, slot: this._slotForSide(px > 0 ? -1 : 1) });
-    this.scheduleCast(B.windVolleyDelay, () => {
-      const cur = this.player ? this.player.x : 0;
-      this._dragonWall(e, { ...wall, speed: B.windSpeed * 1.12, drift: -B.windDrift, slot: this._slotForSide(cur > 0 ? 1 : -1) });
-      this.shake = Math.max(this.shake, 7);
-      this.sfx.whoosh();
-    });
+    const rw = (this.cam && this.cam.roadHalf) || 0.35;
+    const n = B.windCount || 2;
+    const spread = B.windSpread === undefined ? 0.19 : B.windSpread;
+    for (let i = 0; i < n; i++) {
+      const t = n === 1 ? 0 : i / (n - 1) - 0.5;
+      this.spits.push({
+        x: (this.player ? this.player.x : 0) * 0.35 + t * spread * 2,
+        z: e.z - e.size * 0.2,
+        vz: -B.windSpeed,
+        phase: rand(0, Math.PI * 2),
+        color: B.windColor,
+        hot: false,
+        wind: true,
+        wave: true, // 渲染成月牙冲击波（不是风墙、也不是酸球）
+        hitW: B.windHitW,
+        dragon: true,
+        dead: false,
+      });
+    }
     this.hazardCd = CFG.bossMissile.cooldown;
     this.sfx.whoosh();
     this.shake = Math.max(this.shake, 8);
-    this.spawnParticles(e.x, e.z - e.size * 0.2, 12, 'spark', '#dff2ff');
+    this.spawnParticles(e.x, e.z - e.size * 0.2, 14, 'spark', '#dff2ff');
     this.addPopup(e.x, e.z - 0.6, '振翅冲击波', '#dff2ff', 1.2);
     return true;
   }

@@ -2083,29 +2083,36 @@ try {
     Math.abs(game.spits.find((s) => s.edge).x) > drw,
     '桥沿那两簇是纯气氛的边火（判定上不会打到人）'
   );
-  // 两段式：第一段只发一波，0.62 秒后第二段把缝挪到另一侧
+  // 两段式：第一段只发一波，第二段把缝固定到**另一个**位置（但各自在途中都不动）
   ok(game.warns.length >= 1 || game.spits.length > 0, '火墙分两段排上（第一段立刻发，第二段延迟）');
+  const firstHole = game.spits.find((s) => s.dragon && !s.edge).hole;
   const nBefore2nd = game.spits.length;
   game.updateLaterCasts(0.8);
   ok(game.spits.length > nBefore2nd, `第二段火墙如期补上（${nBefore2nd} → ${game.spits.length} 道）`);
+  const holes = [...new Set(game.spits.filter((s) => s.dragon && !s.edge).map((s) => s.hole.toFixed(2)))];
+  ok(holes.length >= 2, `两堵火墙的缝在不同位置（${holes.join(' / ')}）`);
   ok(
-    game.spits.some((s) => s.vx > 0) && game.spits.some((s) => s.vx < 0),
-    '两段火墙反向漂移（缝会边走边扫，站着等躲不掉）'
+    game.spits.filter((s) => s.wall).every((s) => !s.vx),
+    '每堵火墙的缝固定不动（用户 m11792：漂移会出现"根本没有缝"）'
   );
   game.spits.length = 0;
   game.hazardCd = 0;
   game.bossSkill2(dragon);
   const gusts = game.spits.filter((s) => s.wind).length;
-  ok(gusts >= 2, `挥翅膀打出 ${gusts} 道风压墙`);
+  ok(gusts >= 2, `挥翅膀打出 ${gusts} 道冲击波`);
   ok(
     game.spits.filter((s) => s.wind).every((s) => Math.abs(s.x) <= drw * 1.3),
-    `风压也压在桥面内（${game.spits.filter((s) => s.wind).map((s) => s.x.toFixed(2)).join(' / ')}｜桥半宽 ${drw.toFixed(2)}）`
+    `冲击波落在桥面内（${game.spits.filter((s) => s.wind).map((s) => s.x.toFixed(2)).join(' / ')}｜桥半宽 ${drw.toFixed(2)}）`
   );
-  const windGap = gapOf(
-    game.spits.filter((s) => s.wind).map((s) => s.x),
-    game.spits.find((s) => s.wind).hitW
+  // 【用户 m11792】振翅改回"几道月牙"：它不能再是一面把桥铺满的风墙
+  ok(
+    game.spits.filter((s) => s.wind).every((s) => !s.wall && s.wave),
+    '振翅是月牙冲击波（不再铺风墙）'
   );
-  ok(windGap >= 0.18 && windGap <= 0.4, `风压墙的缝宽 ${windGap.toFixed(2)}（比火墙宽，因为它是推开不是秒杀）`);
+  const wxs = game.spits.filter((s) => s.wind).map((s) => s.x).sort((a, b) => a - b);
+  const wgap = wxs.length > 1 ? Math.min(...wxs.slice(1).map((x, i) => x - wxs[i])) : 9;
+  ok(wgap >= 0.17, `相邻两道冲击波之间留得下一个人（间隔 ${wgap.toFixed(2)}）`);
+
 
   const beforeAdds = game.enemies.length;
   game.hazardCd = 0;
@@ -2205,7 +2212,13 @@ try {
     ok(/charge = clamp\(1 - wp\.cd \/ full, 0, 1\)/.test(src),
       '光按"这一发的冷却进度"蓄力（不是常亮）');
     ok(/_butterfly\(ctx, x, y, r, flap, col, alpha\)/.test(src), '有蝴蝶（_butterfly）');
-    ok(/_drawButterflies\(ctx, game\);\s*\n\s*this\._drawHero\(ctx, game\);/.test(src),
+    // 【用户 m11792】花仙子脚下的花环：绑定花仙子 + 必须真的在第四关用她
+    ok(/_fairyFlowerRing\(ctx, game\)/.test(src), '有花环（_fairyFlowerRing）');
+    ok(/game\.heroId !== 'fairy'\) return;/.test(src), '花环只在花仙子出场时画（换勇者就没了）');
+    ok(/CFG\.level\.skin !== 'fantasy'\) return;/.test(src), '花环只在第四关画（前三关没有）');
+    ok(/this\._fairyFlowerRing\(ctx, game\);\s*\n\s*this\._drawHero\(ctx, game\);/.test(src),
+      '花环画在英雄之前（是脚下装饰，不能盖住人）');
+    ok(/_drawButterflies\(ctx, game\);[\s\S]{0,120}?this\._drawHero\(ctx, game\);/.test(src),
       '蝴蝶画在英雄之前（人物永远是焦点）');
 
     // 行为①：法杖光只在花仙子身上出现

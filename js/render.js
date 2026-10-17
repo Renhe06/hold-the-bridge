@@ -901,6 +901,7 @@ export class Renderer {
     this._drawDragonWalls(ctx, game);
     // 【用户 m09695】桥边时不时飞过几只蝴蝶（画在英雄之前：人物永远是焦点）
     this._drawButterflies(ctx, game);
+    this._fairyFlowerRing(ctx, game);
     this._drawHero(ctx, game);
     this._drawShout(ctx, game);
     this._drawAmbient(ctx, game);
@@ -2161,6 +2162,40 @@ export class Renderer {
       ctx.restore();
       return;
     }
+    if (s.wave) {
+      // 【用户 m11792】振翅改成"冲击波"，不是风墙：一道宽月牙从龙那边扫过来，
+      // 形状和勇者的剑气同族（月牙 + 亮边），区别是它慢、而且只会把人推开。
+      const W = Math.max(7, 0.1 * p.s);
+      const hh = Math.max(6, 0.055 * p.s);
+      const t = this.time * 5.5 + (s.phase || 0);
+      const a = 0.82 + Math.sin(t) * 0.1;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      this._drawGlow(p.x, p.y - hh * 0.4, W * 1.25, 'rgba(198,230,255,0.9)', a * 0.35);
+      const cx = p.x;
+      const cy = p.y - hh * 2.1;
+      // 月牙用"外弧 + 内弧反向"拼，两端自然收成尖 —— 直接 stroke 一段圆弧两端是平的，
+      // 看着像两条白眉毛，不像剑气。
+      const g2 = ctx.createLinearGradient(cx, cy + W * 0.2, cx, cy - W);
+      g2.addColorStop(0, 'rgba(255,255,255,0.95)');
+      g2.addColorStop(0.45, 'rgba(214,238,255,0.75)');
+      g2.addColorStop(1, 'rgba(160,205,255,0)');
+      ctx.fillStyle = g2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, W, Math.PI * 0.14, Math.PI * 0.86);
+      ctx.arc(cx, cy, W * 0.84, Math.PI * 0.74, Math.PI * 0.26, true);
+      ctx.closePath();
+      ctx.fill();
+      // 拖在后面的风痕
+      ctx.globalAlpha = 0.13;
+      ctx.fillStyle = 'rgba(226,242,255,0.9)';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - hh * 1.15, W * 0.52, hh * 0.8, 0, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      return;
+    }
     this._drawGlow(p.x, p.y - r * 0.7, r * 3.4, '#a6ff3d', 0.85);
     ctx.fillStyle = '#d8ff7a';
     ctx.beginPath();
@@ -3191,6 +3226,51 @@ export class Renderer {
   //  v1 是战车，用户反馈"把坦克换成英雄"。改成蓝色队的背影小人：
   //  头盔 + 背包 + 枪，腿按 pl.anim 摆，站姿微微前倾。
   // ---------------------------------------------------------
+
+  /**
+   * 【用户 m11792】花仙子脚下围一圈花。
+   * 门禁和蝴蝶一样是两条：①当前出场的是花仙子 ②在第四关（fantasy 皮肤）——
+   * 只是"选过花仙子"不算，必须真的在场上用她。
+   */
+  _fairyFlowerRing(ctx, game) {
+    if (!game || game.heroId !== 'fairy') return;
+    if (!CFG.level || CFG.level.skin !== 'fantasy') return;
+    const pl = game.player;
+    if (!pl) return;
+    const p = this.cam.project(pl.x, pl.z);
+    const H = Math.max(6, CFG.hero.size * p.s);
+    const rx = H * 0.46;
+    const ry = H * 0.16;
+    const t = this.time;
+    // 地面上的一圈暖粉光
+    this._drawGlow(p.x, p.y + 1, rx * 1.7, 'rgba(255,168,214,0.6)', 0.55);
+    const n = 12;
+    for (let i = 0; i < n; i++) {
+      const ang = (i / n) * TAU + t * 0.35;
+      // 后方的花小、前方的花大（按 sin 分远近）
+      const depth = Math.sin(ang); // -1 后 → +1 前
+      const sc = H * (0.022 + 0.013 * (depth + 1) * 0.5);
+      const x = p.x + Math.cos(ang) * rx;
+      const y = p.y + 2 + depth * ry;
+      const sway = Math.sin(t * 1.7 + i) * 0.25;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(sway);
+      // 花瓣：5 片小椭圆
+      for (let k = 0; k < 5; k++) {
+        const pa = sway + (k / 5) * TAU;
+        ctx.fillStyle = k % 2 ? 'rgba(255,214,240,0.95)' : 'rgba(255,176,220,0.95)';
+        ctx.beginPath();
+        ctx.ellipse(Math.cos(pa) * sc * 0.62, Math.sin(pa) * sc * 0.42, sc * 0.5, sc * 0.34, pa, 0, TAU);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(255,232,160,0.95)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, sc * 0.34, sc * 0.28, 0, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
 
   _drawHero(ctx, game) {
     const cam = this.cam;

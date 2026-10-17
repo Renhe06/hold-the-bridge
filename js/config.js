@@ -474,14 +474,14 @@ export const CFG = {
       fireColGap: 0.13,
       fireHitW: 0.085,
       fireVolleyDelay: 0.62,
-      fireDrift: 0.45, // 火墙整体横向漂移（世界单位/秒）：缝边走边扫，站着等是躲不掉的
+      // 注：火墙的缝**不漂移**（用户 m11792：漂移会让缝扫到桥外，出现"没有缝"）
       fireSpeed: 7.5,
       fireColor: '#ff8a3a',
       // 挥翅冲击波：风压墙更宽更慢，缝 0.28，两段间隔更长
       windColGap: 0.17,
       windHitW: 0.105,
-      windVolleyDelay: 0.75,
-      windDrift: 0.34, // 风压墙漂移慢一点（它本身就很宽）
+      windCount: 2, // 振翅打出几道月牙冲击波
+      windSpread: 0.19, // 相邻两道之间的横向间隔
       windSpeed: 6.2,
       windColor: 'rgba(214,236,255,0.92)',
       summonCount: 3, // 一次召几批哥布林（每批 kinds.boss.spawnCount 只）
