@@ -893,7 +893,7 @@ try {
   game.enemies = [boss];
   boss.addT = 1;
 
-  // (b) 第 15 波清完 = 第一关通关：按得分比例结算金币并写进存档
+  // (b) 第 15 波清完 = 第一关通关：结算面板数据（金币 / 商店模块已下线，用户 m11916）
   game.enemies.length = 0;
   game.spawnQueue.length = 0;
   game.state = STATE.FIGHT;
@@ -902,22 +902,16 @@ try {
   game.kills = 100;
   game.comboBest = 30;
   const scoreAfter = 5000 + C.score.perWave * C.level.waves; // 清波奖励也计入总分
-  const wantCoins = Math.max(1, Math.round(scoreAfter * C.level.coinRatio));
-  const coinsBefore = Number(localStorage.getItem(C.coinKey) || '0');
   game.onWaveClear();
   ok(game.state === STATE.CLEAR, `第 ${C.level.waves} 波清完直接通关（state=${game.state}）`);
   ok(
-    !!game.lastReward && game.lastReward.score === scoreAfter && game.lastReward.coins === wantCoins,
-    `按得分比例结算金币（${scoreAfter} × ${C.level.coinRatio} = ${wantCoins}）`
+    !!game.lastReward && game.lastReward.score === scoreAfter && !('coins' in game.lastReward),
+    `结算数据按得分记账（${scoreAfter}），且已经没有金币字段`
   );
-  ok(
-    Number(localStorage.getItem(C.coinKey)) === coinsBefore + wantCoins,
-    `金币累加进存档（${coinsBefore} → ${localStorage.getItem(C.coinKey)}）`
-  );
+  ok(typeof game.coins === 'undefined', '游戏对象上已经没有 coins（金币模块下线）');
   ok(localStorage.getItem(C.progressKey) === '1', '通关进度已记录');
   step(2);
   ok(ELS.get('clearOverlay').classList.contains('show'), '通关结算面板已弹出');
-  ok(String(ELS.get('clearCoins').textContent) === String(wantCoins), `面板上的金币 = ${ELS.get('clearCoins').textContent}`);
   // 用户 m02264：还有下一关时，主按钮是「下一关 →」，「再玩一次」让位
   ok(game.lastReward.nextLevel === 2, `第 1 关通关后指向第 2 关（nextLevel=${game.lastReward.nextLevel}）`);
   ok(!ELS.get('clearNext').classList.contains('hidden'), '结算面板上「下一关 →」是亮着的');
@@ -931,28 +925,19 @@ try {
   game.backToMenu();
   step(2);
 
-  // (c) 返回主界面：金币要跟着显示出来
+  // (c) 返回主界面：只显示最高分（金币那一行已经删了）
   for (let i = 0; i < 45; i++) step(20); // 等过 600ms 误触保护
   tap('clearMenu');
   step(2);
   ok(game.state === STATE.START, `点「返回主界面」回到主界面（state=${game.state}）`);
   ok(ELS.get('startOverlay').classList.contains('show'), '主界面已显示');
-  ok(
-    String(ELS.get('startCoins').textContent) === String(coinsBefore + wantCoins),
-    `主界面显示金币 ${ELS.get('startCoins').textContent}`
-  );
 
-  // (d) 四个入口：这一版只预留按钮，点了只提示、不实装、也不许误触发开局
+  // (d) 入口：武器 / 商店两个模块整体下线（用户 m11916），主界面只留角色 / 关卡
+  // 注意：DOM 桩的 getElementById 会自动造元素，"元素不存在"只能查 index.html 源码，
+  // 所以真正的位置在下面的 (g) 里（html 字符串检查）。
   const st0 = game.state;
-  for (const id of ['menuRole', 'menuWeapon', 'menuShop']) tap(id);
-  step(2);
-  ok(game.state === st0, `四个入口点了只提示（state 仍是 ${game.state}）`);
-  ok(ELS.get('startOverlay').classList.contains('show'), '点入口没有误触发「开始挑战」');
-  ok(String(ELS.get('gainToast').textContent).includes('该功能未实装'), `入口提示 = ${ELS.get('gainToast').textContent}`);
-  ok(
-    String(ELS.get('menuHint').textContent).includes('该功能未实装') && ELS.get('menuHint').classList.contains('show'),
-    `主界面自己那行提示也亮了（${ELS.get('menuHint').textContent}）`
-  );
+  ok(ELS.get('startOverlay').classList.contains('show'), '主界面仍在');
+  ok(game.state === st0, `还没开局（state=${game.state}）`);
   // 用户 m02264：首页「关卡」入口不再说"未实装"，改成弹出选关面板
   tap('menuLevel');
   step(2);
@@ -2476,17 +2461,25 @@ try {
   ok(dep.includes('id="buildLabel">v') && dep.includes('$m.Groups[3].Value + 1'), '部署脚本会自己把版本号 +1');
   ok(dep.includes("const CACHE = 'hold-the-bridge-v"), '部署脚本顺手升 sw.js 的缓存名');
 
-  // (g) 使用说明只讲通用玩法和僵尸类型，不再按关卡分节（m02534③）
-  // 注意：切片里夹着 HTML 注释（"第二关进场对话…"），注释里提到关卡不算正文
+  // (g) 使用说明（用户 m11916）：只剩五块 —— 僵尸图鉴（按关卡精简，含 BOSS）/
+  //     技能说明 / 装到桌面 / 声音问题 / 更新问题
   const guideText = html
     .slice(html.indexOf('id="guideOverlay"'), html.indexOf('id="talkOverlay"'))
     .replace(/<!--[\s\S]*?-->/g, '');
-  for (const nm of ['小兵', '快跑者', '重装兵', '吐酸者', '铁盾兵', '分裂者', '尸潮首领']) {
-    ok(guideText.includes(nm), `使用说明的僵尸图鉴里有「${nm}」`);
+  for (const nm of ['尸潮首领', '鲨王', '僵王', '恶龙']) {
+    ok(guideText.includes(nm), `僵尸图鉴里有每关 BOSS「${nm}」`);
   }
-  ok(guideText.includes('水雷') && guideText.includes('死的时候会炸开一圈'),
-    '水雷 / 死后炸开写成通用机制，不挂在某一关名下');
-  ok(!/第 [12] 关/.test(guideText), '使用说明正文里没有按关卡分节');
+  for (const sec of ['僵尸图鉴', '技能说明', '装到桌面', '声音问题', '更新问题']) {
+    ok(guideText.includes(sec), `使用说明留着小节「${sec}」`);
+  }
+  for (const sec of ['怎么玩', '奖励门', '连杀与大招', '武器成长', '波次节奏', '战场上的额外情况', '离线也能玩']) {
+    ok(!guideText.includes(sec + '</h3>'), `使用说明已经删掉「${sec}」那一节`);
+  }
+  ok(!guideText.includes('金币'), '使用说明里不再提金币');
+  // 金币 / 商店 / 武器模块整体下线（用户 m11916）
+  for (const id of ['startCoins', 'clearCoins', 'clearTotal', 'menuWeapon', 'menuShop']) {
+    ok(!html.includes('id="' + id + '"'), `index.html 里已经没有 #${id}`);
+  }
   ok(/本游戏完全免费/.test(html), '主页写着「本游戏完全免费」');
   ok(/class="tiny free"[\s\S]{0,120}https:\/\/renhe06\.github\.io/.test(html),
     '免费声明下面用纯文字写着网址（不是链接）');

@@ -1065,6 +1065,16 @@ html, body {
   background: linear-gradient(90deg, rgba(255, 209, 102, 0.42), rgba(255, 209, 102, 0));
 }
 
+/* 用户 m11916：图鉴按关卡分段，小标题用 h4（比 h3 小一号，金色描边不加分隔线） */
+.guide-body h4 {
+  margin: 13px 0 0;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #ffe2ab;
+  text-shadow: 0 0 10px rgba(255, 190, 70, 0.28);
+}
+
 /* 说明里的列表比首页紧凑：这里条目多，得塞得下。
    字体仍是 var(--font) + 舒适行高，长文可读性优先。 */
 .howto {

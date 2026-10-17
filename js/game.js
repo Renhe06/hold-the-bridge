@@ -30,7 +30,6 @@ export class Game {
     this.cam = cam;
     this.sfx = sfx;
     this.best = this._loadBest();
-    this.coins = this._loadCoins();
     this.clearedLevel = this._loadProgress();
     this.reset();
     this.state = STATE.START;
@@ -1338,8 +1337,7 @@ export class Game {
   }
 
   /**
-   * 通关：按得分结算金币（比例见 CFG.level.coinRatio）。
-   * 金币是"跨局"的，存在本地，留给主界面的商店花。
+   * 通关：记进度、备结算面板的数据（金币 / 商店已下线，用户 m11916）。
    * 第二关通关后 clearedLevel 变成 2，主界面的第三关才会"即将开放"。
    */
   levelClear() {
@@ -1348,10 +1346,7 @@ export class Game {
     this.gates = null;
     this.shake = 20;
     this.flash = 0.9;
-    const coins = Math.max(1, Math.round(this.score * L.coinRatio));
-    this.coins += coins;
     this.clearedLevel = Math.max(this.clearedLevel, L.id);
-    this._saveCoins();
     this._saveProgress();
     if (this.score > this.best) {
       this.best = this.score;
@@ -1362,8 +1357,6 @@ export class Game {
     }
     this.lastReward = {
       score: this.score,
-      coins,
-      total: this.coins,
       kills: this.kills,
       combo: this.comboBest,
       wave: this.wave,
@@ -1372,7 +1365,7 @@ export class Game {
       nextLevel: findLevel(L.id + 1) ? L.id + 1 : 0, // 下一关 id（没有就是 0）
     };
     this.sfx.victory();
-    this.addPopup(0, this.player.z + 3, `${L.name}通关！+${coins} 金币`, '#ffd166', 2.0);
+    this.addPopup(0, this.player.z + 3, `${L.name}通关！`, '#ffd166', 2.0);
   }
 
   // ---------------------------------------------------------
@@ -2694,20 +2687,6 @@ export class Game {
     } catch (e) {
       /* iOS 无痕模式下 localStorage 会抛异常，忽略即可 */
     }
-  }
-
-  _loadCoins() {
-    try {
-      return Math.max(0, parseInt(localStorage.getItem(CFG.coinKey) || '0', 10) || 0);
-    } catch (e) {
-      return 0;
-    }
-  }
-
-  _saveCoins() {
-    try {
-      localStorage.setItem(CFG.coinKey, String(this.coins));
-    } catch (e) {}
   }
 
   /** 已通关到第几关（主界面的"关卡"按钮以后用它做进度） */

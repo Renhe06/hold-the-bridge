@@ -138,6 +138,13 @@ const EN = {
   '修复多项问题，优化操作与画面细节': 'Fixed several issues; tightened controls and visuals',
   '第五关为特典关卡，主题「保护世界」':
     'Stage 5 is a special bonus stage — theme: "Protect the World"',
+  // v1.0.53（用户 m11916：条目由用户给定）
+  '新增第三关通关失败彩蛋': 'New game-over easter egg on Stage 3',
+  '新增加载页面': 'New loading screen',
+  '自该版本起，游戏改为联网模式': 'The game now runs in online mode',
+  '整合和修改了部分功能与界面': 'Several features and screens consolidated and reworked',
+  '新增角色花仙子，大量角色专属效果与玩法上线~':
+    'New hero: the Fairy — lots of hero-specific effects and gameplay are live~',
   即将上线: 'COMING SOON',
 
   // ---- HUD / 局内 ----
@@ -575,86 +582,68 @@ const PATTERNS = [
 // 使用说明整段（data-i18n="guide"）的英文版：结构与中文那份一致。
 const HTML = {
   guide: `
-        <h3>How to play</h3>
-        <ul class="howto">
-          <li><b>Drag with one finger</b>: slide left and right, and fine-tune your depth — the closer you stand, the more damage your bullets do, but the easier you get pounced on</li>
-          <li>The gun is <b>automatic</b>, no aiming; zombies crouch and glow before a <b>charge pounce</b> — dodge when you see it</li>
-          <li>One bite costs one heart (top left). When hearts run out the run is over</li>
-        </ul>
+        <h3>Zombie compendium</h3>
+        <p class="tiny">Every stage has its own cast — learn them first; ★ marks the stage boss.</p>
 
-        <h3>Reward gates</h3>
+        <h4>Stage 1 · Blood Bridge</h4>
         <ul class="howto">
-          <li>After each wave two reward cards slide in, left and right — <b>stand on the half you want</b>. Standing dead centre gets you neither</li>
-          <li>Rewards include damage, fire rate, lanes, pierce, crit, shield and healing; while you have fewer than 3 lanes the attack side always offers <b>“+1 lane”</b></li>
-          <li>Some rewards <b>change a lane’s element</b> (turn a lane into ice or fire): that lane then <b>spits two peas</b> per shot (one plain, one elemental — the elemental pea does 30% damage), one lane at a time starting from the middle, and the matching head changes colour. Once every lane has an element these two rewards stop appearing</li>
-          <li>Others are field rewards like <b>“lay mines”</b>: mines are scattered ahead of you at the start of each wave and blow up when zombies step on them</li>
-        </ul>
-
-        <h3>Streak &amp; strike</h3>
-        <ul class="howto">
-          <li>Kills in a row build a <b>streak multiplier</b> (up to ×2.5 score). One bite resets it — do not get greedy</li>
-          <li>Kills charge the <b>strike button</b> bottom right: when it is full, tap it to blast the area in front of you. The button changes with the battlefield</li>
-        </ul>
-
-        <h3>Weapon growth</h3>
-        <ul class="howto">
-          <li>Stack enough attack rewards and the weapon upgrades for real (the small badge top left shows the current tier)</li>
-        </ul>
-
-        <h3>Wave rhythm (groups of three)</h3>
-        <ul class="howto">
-          <li>Zombies arrive in <b>groups of three</b>: <b>mow → mow → elite</b>, each group tougher than the last</li>
-          <li><b>Mow wave</b>: lots of them but flimsy, one shot each — relax and sweep: this is where streaks and score come from (the wave 5 and 10 hordes land on mow waves too)</li>
-          <li><b>Elite wave</b>: fewer, much tougher, announced on screen, plus one extra <b>elite leader</b> (golden ring, bigger, triple score). It is far tankier than the small ones — clear the trash first, then focus it</li>
-          <li>A <b>battlefield modifier</b> lands every <b>3 waves</b>, on the <b>second wave of each group</b> (also a mow wave) — do not assume mow means easy</li>
-          <li>Each stage also has <b>two signature set-pieces</b> (waves 8 and 13): the banner names them, that wave is <b>all one kind of zombie</b>, and you have to change how you play</li>
-        </ul>
-
-        <h3>Zombie codex</h3>
-        <ul class="howto">
-          <li><b>Grunt</b>: the plain zombie, one shot each; a big wave of them is a <b>horde</b> and a great chance to farm score</li>
-          <li><b>Sprinter</b>: small, fast, very low HP — kill it first, do not let it touch you</li>
-          <li><b>Brute</b>: big and slow, very tanky; letting it walk up to you is dangerous</li>
-          <li><b>Spitter</b>: spits acid from far away and leaves a pool that hurts on the ground</li>
-          <li><b>Shielded</b>: carries a steel shield in front, damage halved from the front — break the shield first, then it takes full damage</li>
+          <li><b>Walker</b>: the basic grunt, one shot each; a mass rush is a horde — perfect for farming score</li>
+          <li><b>Runner</b>: small, fast, thin — take it out first</li>
+          <li><b>Brute</b>: slow and very tough, don’t let it crawl up to you</li>
+          <li><b>Shield</b>: holds a shield, half damage from the front — break the shield first</li>
+          <li><b>Spitter</b>: spits acid from afar and leaves a damaging puddle</li>
           <li><b>Splitter</b>: splits into two smaller copies when it dies</li>
-          <li><b>Horde Boss</b>: shows up on the last wave of every stage — huge, cannot reach you, <b>very thick hide</b>, health bar pinned to the top of the screen. It <b>drops a batch of little zombies every 2 s</b> (one shot each — kill a batch and it drops the next, so you always have something to shoot) and <b>never stops casting</b>: one shot on arrival, then a <b>missile array</b> once it drops to half health, then another every few seconds — a red circle lights up first and it <b>lands 2 s later</b>. <b>A hit costs 1 heart</b> (shields and i-frames do not stop it); step out of the circle and you dodge it. Between two casts it <b>always leaves a gap</b>, so you will never have one volley still under you while the next appears; the Doctor’s <b>fireball volley</b> only lays 3 balls and keeps room to stand on both sides. It carries <b>two health bars</b>: when the first one empties it <b>transforms</b> on the spot into a thicker, faster-casting form, and then stops mid-road for good</li>
+          <li><b>★ Horde Chief</b>: can’t reach you but is very tanky; drops a batch of walkers every 2 seconds and calls down red-circle missiles (about 2 seconds of warning, step out to dodge). Its health comes in two bars</li>
         </ul>
 
-        <h3>Battlefield modifiers</h3>
+        <h4>Stage 2 · Crazy Water World</h4>
         <ul class="howto">
-          <li>Every 3 waves a <b>battlefield modifier</b> shows up: frenzied zombies, thicker skin, more of them, heavy fog, faster ones — the banner at the top tells you</li>
-          <li>Some zombies <b>burst when they die</b> — killing them point-blank costs you health, so shoot those from a distance</li>
-          <li>Some battlefields drop <b>supply crates</b>: they fly to you after landing (no need to move), and picking one up gives <b>permanent attack</b> plus strike charge — the longer you last, the stronger you get</li>
-          <li>Some battlefields open with an <b>alarm + 3-2-1 countdown</b> before the fighting starts — use that time to find your spot</li>
+          <li>The whole cast turns aquatic: fish walkers, squid runners, crab brutes, turtle shields, jelly splitters</li>
+          <li><b>Puffer spitter</b>: same ranged acid, and bursts into a ring when it dies</li>
+          <li><b>★ Shark King</b>: the aquatic Horde Chief — same kit (spawns + missile grids)</li>
         </ul>
 
-        <h3>Coins</h3>
+        <h4>Stage 3 · Crazy Dave</h4>
         <ul class="howto">
-          <li>Each stage pays out <b>coins</b> based on your score, and coins are kept (gear shopping comes later)</li>
+          <li>Plants vs. Zombies skin: zombies, pole-vault runners, gargantuar brutes, bucket shields, imp splitters</li>
+          <li><b>★ Zomboss</b>: break its first health bar and it <b>evolves into Dr. Zomboss</b> on the spot — thicker bar, denser kit (missile grids / fireball volleys)</li>
         </ul>
 
-        <h3>Add to Home Screen (recommended)</h3>
+        <h4>Stage 4 · Otherworld</h4>
         <ul class="howto">
-          <li>Open this page in <b>Safari</b> (in WeChat: tap ··· top right → Open in Safari)</li>
-          <li>Tap <b>Share</b> at the bottom → scroll to <b>“Add to Home Screen”</b> → Add</li>
-          <li>From then on the home icon opens it <b>fullscreen with no address bar</b>, just like an app</li>
+          <li><b>Goblin</b> walkers, <b>coyote</b> runners, <b>orc</b> brutes, <b>shield goblins</b> (front damage cut), <b>slimes</b> (split on death)</li>
+          <li><b>Harpy</b>: ranged wing-beat attack, and it dives at you</li>
+          <li><b>★ Dragon</b>: <b>Flame Breath</b> covers the whole bridge and leaves exactly one fixed gap (the two walls place it differently); <b>Wing Beat</b> sends three crescents that only shove you; and it keeps summoning goblins</li>
         </ul>
-        <h3>Play offline</h3>
+
+        <h3>Skills</h3>
         <ul class="howto">
-          <li>The game needs no outside resources: <b>open it once online</b> and every file is stored on your phone</li>
-          <li>Open it once more from the <b>home icon</b> (this step matters), then even airplane mode works</li>
-          <li>Do not use Settings → Safari → Clear History and Website Data — that wipes the game too</li>
+          <li><b>Auto-fire</b>: the gun shoots itself — you only steer. Standing further forward hits harder and gets you pounced more</li>
+          <li><b>Strike</b>: the round button bottom right, charged by kills — tap when full to smash the area in front of you; its look follows the battlefield</li>
+          <li><b>Streak</b>: consecutive kills build a multiplier (up to ×2.5 score); one bite resets it</li>
+          <li><b>Reward gates</b>: after each wave two cards slide in — stand on the half you want; under 3 lanes the attack side always offers “+1 lane”</li>
+          <li>Stage 4 heroes have their own kit: the <b>Knight</b> swings blade waves, the <b>Fairy</b> throws magic butterflies (orcs show hearts while the Fairy is out, harpies while the Knight is)</li>
         </ul>
+
+        <h3>Install to home screen</h3>
+        <ul class="howto">
+          <li><b>iPhone / iPad</b>: open this page in Safari (in WeChat tap ··· → “Open in Safari”) → Share → “Add to Home Screen”</li>
+          <li><b>Android</b>: open in Chrome → menu top right → “Add to Home screen”</li>
+          <li>Launched from the icon it runs full screen with no address bar, like an app; one online visit caches everything for offline play</li>
+        </ul>
+
+        <h3>No sound?</h3>
+        <ul class="howto">
+          <li>Make sure the phone’s mute switch (the side one on iPhone) is off — it silences web games too</li>
+          <li>iOS only allows audio after a touch: <b>tap anywhere once</b>, then check the speaker top left is not muted</li>
+          <li>Still silent? Close the page and open it again</li>
+        </ul>
+
         <h3>Updates</h3>
         <ul class="howto">
-          <li>After a new build ships, <b>open it once online (or pull to refresh)</b> and you are on the new build — no need to re-add it to the home screen</li>
-          <li>If you still see the old build: close the tab and reopen. The <b>build number</b> at the bottom right of the menu changes when the update worked</li>
-        </ul>
-        <h3>No sound? Not loading?</h3>
-        <ul class="howto">
-          <li>No sound: first <b>tap anywhere on the screen</b> (iOS only allows audio after a tap), then check the speaker at the top left is not muted</li>
-          <li>Will not load: check your network, or close this page and open it again</li>
+          <li>After a deploy, <b>open online or pull to refresh once</b> and you are on the new build — no need to re-add to the home screen</li>
+          <li>The <b>version number</b> bottom right shows the current build; tap “Update notes” to see what changed</li>
+          <li>Still the old screen? Close the tab and open it again</li>
         </ul>`,
 };
 

@@ -29,10 +29,7 @@ const el = {
   startOverlay: $('startOverlay'),
   startBtn: $('startBtn'),
   startBest: $('startBest'),
-  startCoins: $('startCoins'),
   menuRole: $('menuRole'),
-  menuWeapon: $('menuWeapon'),
-  menuShop: $('menuShop'),
   menuLevel: $('menuLevel'),
   menuLevelNote: $('menuLevelNote'),
   guideOverlay: $('guideOverlay'),
@@ -54,7 +51,6 @@ const el = {
   overTier: $('overTier'),
   againBtn: $('againBtn'),
   clearOverlay: $('clearOverlay'),
-  clearCoins: $('clearCoins'),
   clearScore: $('clearScore'),
   clearKills: $('clearKills'),
   clearCombo: $('clearCombo'),
@@ -846,8 +842,6 @@ onTap(el.clearNext, () => {
 // ---- 主界面四个入口 ----
 // 「角色」已经接好了（用户 m04749）；武器 / 商店还是占位提示。
 const MENU_ENTRIES = [
-  [el.menuWeapon, '武器'],
-  [el.menuShop, '商店'],
 ];
 for (const [node, name] of MENU_ENTRIES) {
   onTap(node, (e) => {
@@ -1217,13 +1211,11 @@ function showHint(text, color = '#ffd166') {
 
 /** 通关结算面板（第一关 / 第二关共用，按钮按"有没有下一关"变） */
 function showClear() {
-  const r = game.lastReward || { score: game.score, coins: 0, total: game.coins, kills: game.kills, combo: game.comboBest };
+  const r = game.lastReward || { score: game.score, kills: game.kills, combo: game.comboBest };
   setText(el.clearTitle, 'cTi', `${r.levelName || '本 关'} · 通 关`);
-  setText(el.clearCoins, 'cC', String(r.coins));
   setText(el.clearScore, 'cS', String(r.score));
   setText(el.clearKills, 'cK', String(r.kills));
   setText(el.clearCombo, 'cX', String(r.combo || 0));
-  setText(el.clearTotal, 'cT', String(r.total));
   // 有下一关就顶一个主按钮出来（「下一关 →」），没有下一关才给「再玩一次」
   const nl = findLevel(r.nextLevel);
   el.clearNext.classList.toggle('hidden', !nl);
@@ -1260,7 +1252,6 @@ function syncState() {
     }
     if (st === STATE.START) {
       setText(el.startBest, 'sB', String(game.best));
-      setText(el.startCoins, 'sC', String(game.coins));
       // 关卡入口显示进度（通关第一关后主界面能看出来第二关解锁了）
       // 「关卡」那格的角标：点开是选关面板，所以这里只说到"能选几关"
       // 【用户 m04749】第 4 关上线后，四关都能直接进（选关面板里的提示也这么说）

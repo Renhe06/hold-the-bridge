@@ -593,8 +593,7 @@ export const CFG = {
       name: '血色大桥',
       hud: '第 1 关 · 血色大桥',
       waves: 15,
-      coinRatio: 0.08, // 得分 × 8% = 金币（4000 分 → 320 金币）
-      theme: 'city',
+        theme: 'city',
       skin: null, // 城市丧尸 + 蓝衣英雄
       // 【用户 m02807】第一关不要开场对话：点「开始挑战」直接进备战。
       // （原来 m02399 给第一关加过 city 那段三句，用户嫌开局啰嗦，已删。）
@@ -616,8 +615,7 @@ export const CFG = {
       name: '疯狂水世界',
       hud: '第 2 关 · 疯狂水世界',
       waves: 15,
-      coinRatio: 0.1,
-      theme: 'water',
+        theme: 'water',
       skin: 'ocean', // 海洋动物化的丧尸 + 图片人物主角
       intro: 'ocean', // 进来先播一段进场对话（STATE.TALK），点「疯狂水世界 · 启动！」才开打
       // 原来第二关只是"第一关换张皮"：探针里前四波的用时与击杀数和第一关逐字相同、
@@ -640,8 +638,7 @@ export const CFG = {
       name: '疯狂戴夫',
       hud: '第 3 关 · 疯狂戴夫',
       waves: 15,
-      coinRatio: 0.12,
-      theme: 'lawn',
+        theme: 'lawn',
       skin: 'pvz', // 植物大战僵尸的僵尸种类 + 豌豆射手主角
       intro: 'dave', // 戴夫先喊一句「歪比巴布」，点掉之后走"警报 + 321"开场
       // 草坪比桥上宽敞：前后活动范围放到 3.0 / 4.6，阳光掉下来才有得捡。
@@ -689,8 +686,7 @@ export const CFG = {
       name: '穿越异世界',
       hud: '第 4 关 · 穿越异世界',
       waves: 15,
-      coinRatio: 0.14,
-      theme: 'fantasy', // 奇幻古典：荒野草甸 + 远处城堡 + 星空
+        theme: 'fantasy', // 奇幻古典：荒野草甸 + 远处城堡 + 星空
       skin: 'fantasy', // 敌人是哥布林/史莱姆/兽人/郊狼/鹰身女妖，BOSS 是恶龙
       intro: 'fantasy', // 进场对话：哥布林袭击村庄 → 勇者前去清剿
       // 荒野比桥面宽敞一点，但别像草坪那么散（异世界要"贴身砍"的压迫感）
@@ -721,7 +717,6 @@ export const CFG = {
 
   // ---- 存档 ----
   storageKey: 'hold-the-bridge:best',
-  coinKey: 'hold-the-bridge:coins',
   progressKey: 'hold-the-bridge:progress',
 };
 

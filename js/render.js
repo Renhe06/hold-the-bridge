@@ -2093,6 +2093,36 @@ export class Renderer {
           ctx.fill();
         }
       }
+      // 【用户 m11916】"缝后面还有火，让人不敢走"：把缝朝镜头方向延成一条压暗的走廊，
+      // 后面那堵墙即使从缝里透出来也会被走廊盖暗 —— 否则玩家看到缝里有橙色，就不敢钻。
+      ctx.globalCompositeOperation = 'source-over';
+      const hole0 = holes[0];
+      if (hole0) {
+        const a = cam.project(hole0[0] - hole0[1], g.z);
+        const b = cam.project(hole0[0] + hole0[1], g.z);
+        const c = cam.project(hole0[0] + hole0[1] * 1.8, g.z - 3.4);
+        const d = cam.project(hole0[0] - hole0[1] * 1.8, g.z - 3.4);
+        const lane = ctx.createLinearGradient(0, a.y, 0, c.y);
+        lane.addColorStop(0, 'rgba(7,5,4,0.66)');
+        lane.addColorStop(0.5, 'rgba(7,5,4,0.36)');
+        lane.addColorStop(1, 'rgba(7,5,4,0)');
+        ctx.fillStyle = lane;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.lineTo(c.x, c.y);
+        ctx.lineTo(d.x, d.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = g.wind ? 'rgba(214,238,255,0.40)' : 'rgba(255,216,155,0.34)';
+        ctx.lineWidth = Math.max(1, S * 0.0055);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(d.x, d.y);
+        ctx.moveTo(b.x, b.y);
+        ctx.lineTo(c.x, c.y);
+        ctx.stroke();
+      }
       ctx.globalAlpha = 1;
       ctx.restore();
     }
@@ -3239,34 +3269,53 @@ export class Renderer {
     if (!pl) return;
     const p = this.cam.project(pl.x, pl.z);
     const H = Math.max(6, CFG.hero.size * p.s);
-    const rx = H * 0.46;
-    const ry = H * 0.16;
+    const rx = H * 0.44;
+    const ry = H * 0.15;
     const t = this.time;
-    // 地面上的一圈暖粉光
-    this._drawGlow(p.x, p.y + 1, rx * 1.7, 'rgba(255,168,214,0.6)', 0.55);
+    // 地面上的一圈暖粉光（很淡，只是让花有个落点）
+    this._drawGlow(p.x, p.y + 1, rx * 1.5, 'rgba(255,168,214,0.5)', 0.34);
     const n = 12;
+    // 【用户 m11916】"花是一朵一朵的，大概到脚踝高度" —— 改成一支支带茎小花，
+    // 花头抬到脚踝（0.06~0.08H），茎从地面长上来，前后按 sin 分远近。
+    const list = [];
     for (let i = 0; i < n; i++) {
-      const ang = (i / n) * TAU + t * 0.35;
-      // 后方的花小、前方的花大（按 sin 分远近）
+      const ang = (i / n) * TAU + t * 0.28;
       const depth = Math.sin(ang); // -1 后 → +1 前
-      const sc = H * (0.022 + 0.013 * (depth + 1) * 0.5);
-      const x = p.x + Math.cos(ang) * rx;
-      const y = p.y + 2 + depth * ry;
-      const sway = Math.sin(t * 1.7 + i) * 0.25;
+      list.push({ i, ang, depth, x: p.x + Math.cos(ang) * rx, y: p.y + 2 + depth * ry });
+    }
+    list.sort((a, b) => a.depth - b.depth); // 后画的在前面：挡在她腿前的花要压住后面的
+    for (const f of list) {
+      const depth = f.depth;
+      const sc = H * (0.019 + 0.011 * (depth + 1) * 0.5);
+      const stemH = H * (0.062 + 0.016 * (depth + 1) * 0.5); // 脚踝高度
+      const sway = Math.sin(t * 1.6 + f.i * 1.3) * 0.16;
       ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(sway);
-      // 花瓣：5 片小椭圆
+      ctx.translate(f.x, f.y);
+      // 茎：从地面往上，带一点弯
+      ctx.strokeStyle = 'rgba(74,138,74,0.9)';
+      ctx.lineWidth = Math.max(1, sc * 0.26);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(sway * sc * 3, -stemH * 0.55, sway * sc * 5, -stemH);
+      ctx.stroke();
+      // 一片叶子
+      ctx.fillStyle = 'rgba(88,158,86,0.85)';
+      ctx.beginPath();
+      ctx.ellipse(sc * 0.9, -stemH * 0.42, sc * 0.75, sc * 0.34, -0.5 + sway, 0, TAU);
+      ctx.fill();
+      // 花头
+      ctx.translate(sway * sc * 5, -stemH);
+      ctx.rotate(sway * 0.6);
       for (let k = 0; k < 5; k++) {
-        const pa = sway + (k / 5) * TAU;
-        ctx.fillStyle = k % 2 ? 'rgba(255,214,240,0.95)' : 'rgba(255,176,220,0.95)';
+        const pa = (k / 5) * TAU;
+        ctx.fillStyle = k % 2 ? 'rgba(255,214,240,0.96)' : 'rgba(255,176,220,0.96)';
         ctx.beginPath();
-        ctx.ellipse(Math.cos(pa) * sc * 0.62, Math.sin(pa) * sc * 0.42, sc * 0.5, sc * 0.34, pa, 0, TAU);
+        ctx.ellipse(Math.cos(pa) * sc * 0.6, Math.sin(pa) * sc * 0.44, sc * 0.52, sc * 0.36, pa, 0, TAU);
         ctx.fill();
       }
-      ctx.fillStyle = 'rgba(255,232,160,0.95)';
+      ctx.fillStyle = 'rgba(255,232,160,0.98)';
       ctx.beginPath();
-      ctx.ellipse(0, 0, sc * 0.34, sc * 0.28, 0, 0, TAU);
+      ctx.ellipse(0, 0, sc * 0.32, sc * 0.26, 0, 0, TAU);
       ctx.fill();
       ctx.restore();
     }
