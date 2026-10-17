@@ -2168,8 +2168,8 @@ try {
   {
     const src = fs.readFileSync(path.join(ROOT, 'js', 'render.js'), 'utf8');
     ok(/_heroWandGlow\(ctx, h, swing, charge\)/.test(src), '有法杖光（_heroWandGlow）');
-    ok(/\(0\.105 - 0\.5\)/.test(src) && /0\.175 - 0\.955/.test(src),
-      '法杖头的坐标是从 639×960 的立绘里量出来的（归一化 0.105 / 0.175）');
+    ok(/\(0\.100 - 0\.5\)/.test(src) && /0\.145 - 0\.955/.test(src),
+      '法杖头的坐标是从 1024×1536 的立绘里量出来的（归一化 0.100 / 0.145，用户 m10551 换图后重量）');
     ok(/charge = clamp\(1 - wp\.cd \/ full, 0, 1\)/.test(src),
       '光按"这一发的冷却进度"蓄力（不是常亮）');
     ok(/_butterfly\(ctx, x, y, r, flap, col, alpha\)/.test(src), '有蝴蝶（_butterfly）');

@@ -3401,13 +3401,14 @@ export class Renderer {
       ctx.drawImage(art, -w / 2, -h * ANCHOR, w, h);
     }
     if (wingArt) {
-      const pivotY = -h * ANCHOR + h * 0.245;
+      // 翅根归一化位置跟着 m10551 的新立绘（1024×1536）重新量的：左 (0.420,0.235) / 右 (0.630,0.235)
+      const pivotY = -h * ANCHOR + h * 0.235;
       const flap = Math.sin(this.time * 5.6);
       // ±6.3°：翅膀很大，角度再大就会露出手背那条"让开的缝"（缝里是身体层的粉色残影，
       // 幅度小的时候它读作运动模糊，幅度大就读作糊了）
       const ang = flap * 0.11;
       for (const side of [0, 1]) {
-        const fx = side ? 0.586 : 0.450;
+        const fx = side ? 0.630 : 0.420;
         const pieceX = -w / 2 + fx * w;
         const pieceLeft = -w / 2 + (side ? 0.5 : 0) * w;
         const bakedW = this._heroBake(`fairy:wing${side}`, wingArt, hBase,
@@ -3422,9 +3423,9 @@ export class Renderer {
         // 拖影：同一片翅膀按"上一时刻的角度"再贴一次，把让开的那条缝用翅膀自己的像素补上
         // （比露粉色残影更像真扇动，代价只是多一次小 blit）
         ctx.save();
-        ctx.globalAlpha = 0.42;
+        ctx.globalAlpha = 0.32;
         ctx.translate(pieceX, pivotY);
-        ctx.rotate(rot * 1.55);
+        ctx.rotate(rot * 1.40);
         ctx.translate(-pieceX, -pivotY);
         ctx.drawImage(bakedW.cv, dx, dy, pw, ph);
         ctx.restore();
@@ -3505,9 +3506,9 @@ export class Renderer {
    * 全程只有加色贴图 + 小圆点，每帧 5~7 次 drawImage，不新建渐变。
    */
   _heroWandGlow(ctx, h, swing, charge) {
-    const RATIO = 639 / 960; // 立绘宽高比
-    const wx = (0.105 - 0.5) * h * RATIO;
-    const wy = h * (0.175 - 0.955);
+    const RATIO = 1024 / 1536; // 立绘宽高比（用户 m10551 换的 1024×1536 新图）
+    const wx = (0.100 - 0.5) * h * RATIO;   // 新图杖头中心 ≈ (0.100, 0.145)
+    const wy = h * (0.145 - 0.955);
     // 蓄力和出手都推亮度；再加一条 6.4Hz 的微弱脉动，看起来像"活着的光"
     const lvl = Math.min(1, Math.max(charge, swing));
     const pulse = 0.5 + 0.5 * Math.sin(this.time * 6.4);

@@ -430,9 +430,9 @@ function fontTask() {
 const PACK_BYTES = {
   './fonts/smiley-sans.woff2': 187392,
   './img/hero-knight.webp': 162058,
-  './img/hero-fairy.webp': 267780,
-  './img/hero-fairy-body.webp': 250302,
-  './img/hero-fairy-wings.webp': 51406,
+  './img/hero-fairy.webp': 476636,
+  './img/hero-fairy-body.webp': 334940,
+  './img/hero-fairy-wings.webp': 53746,
   './img/portrait-hero.png': 41261,
   './img/portrait-cmd.png': 37167,
   './img/portrait-dave.png': 47723,
@@ -1431,6 +1431,18 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   if (!isLocal) {
     window.addEventListener('load', () => {
+      // 【用户 m10551】"换成勇者还是有蝴蝶 / 这不还是糊吗" —— 查下来是**浏览器还在跑旧代码**：
+      // 部署时 sw 换了 CACHE 名、也 skipWaiting 了，但已经打开的页面不会自己换，
+      // 用户看到的仍是上一版。这里监听 controllerchange，新版一接管就自动刷一次。
+      // 只在"本来就有 sw 在管"的时候刷（首次注册也会触发 controllerchange，
+      // 那时候刷会白闪一下，所以用 hadController 卡住）。
+      const hadController = !!navigator.serviceWorker.controller;
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadController || reloaded) return;
+        reloaded = true;
+        location.reload();
+      });
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     });
   }
