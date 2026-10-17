@@ -26,9 +26,13 @@
 const KEY = 'hold-the-bridge:quality';
 
 export const LEVELS = [
-  { name: 'high', dpr: 2, haze: true, fog: true, vignette: true, motes: 1, marks: 1, particles: 420 },
-  { name: 'mid', dpr: 1.5, haze: true, fog: false, vignette: true, motes: 0.5, marks: 0.5, particles: 300 },
-  { name: 'low', dpr: 1.25, haze: false, fog: false, vignette: false, motes: 0, marks: 0.25, particles: 200 },
+  // 【用户 m10372】"勇者和花仙子在游戏里都很模糊，角色界面不是很清晰吗"
+  // 角色界面是浏览器直接画 640×960 的图，而 canvas 的物理分辨率被 high 档的 dpr 封顶了：
+  // 3x 屏手机只画 2x，整张画面被拉大 1.5 倍 → 立绘边缘发虚。
+  // high 档放到 3x（= 跟屏幕 1:1），真的慢的话自适应照样会降到 mid/low。
+  { name: 'high', dpr: 3, haze: true, fog: true, vignette: true, motes: 1, marks: 1, particles: 420 },
+  { name: 'mid', dpr: 2, haze: true, fog: false, vignette: true, motes: 0.5, marks: 0.5, particles: 300 },
+  { name: 'low', dpr: 1.5, haze: false, fog: false, vignette: false, motes: 0, marks: 0.25, particles: 200 },
 ];
 
 function load() {

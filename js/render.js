@@ -3563,6 +3563,9 @@ export class Renderer {
    * 三只各有 11~16 秒的出场周期，每次横穿桥面 6 秒左右，其余时间不画。
    */
   _drawButterflies(ctx, game) {
+    // 【用户 m10372】"蝴蝶是和花仙子绑定的，换英雄了就没有"
+    // 蝴蝶是花仙子的伴飞生物，不是关卡装饰 —— 勇者上场时一只都不该有。
+    if (!game || game.heroId !== 'fairy') return;
     const cam = this.cam;
     const t = this.time;
     const fantasy = CFG.level.skin === 'fantasy';
@@ -6412,27 +6415,12 @@ export class Renderer {
       ctx.strokeText(txt, w / 2, yy);
       ctx.fillStyle = bossWave ? '#ff5a4a' : hordeWave ? '#8bf58b' : '#ffe9a8';
       ctx.fillText(txt, w / 2, yy);
-      // 【第四关观感】异世界的横幅加一条金色饰线 + 两枚菱角，和幻想皮肤的金绿描边呼应
-      if (fskin) {
-        const ry = yy + w * 0.046;
-        ctx.strokeStyle = 'rgba(255,223,138,0.5)';
-        ctx.lineWidth = 1.6;
-        ctx.fillStyle = 'rgba(255,223,138,0.72)';
-        for (const s of [-1, 1]) {
-          const x0 = w / 2 + s * w * 0.13;
-          const x1 = w / 2 + s * w * 0.4;
-          ctx.beginPath();
-          ctx.moveTo(x0, ry);
-          ctx.lineTo(x1, ry);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(x1, ry - 4.5);
-          ctx.lineTo(x1 + s * 6.5, ry);
-          ctx.lineTo(x1, ry + 4.5);
-          ctx.closePath();
-          ctx.fill();
-        }
-      }
+      // 【用户 m10372】"第四关波次说明的文字金色边框太丑了还看不清"
+      // 原来这里给异世界皮肤加了一条金色饰线 + 两枚菱角，而且它把 strokeStyle/lineWidth
+      // 改成了"金 1.6px"，后面所有副标题的描边就全变成金线 —— 又丑又看不清。
+      // 现在饰线整段删掉，描边回到"深色粗描边"，任何背景上都读得清。
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = 'rgba(0,0,0,0.72)';
       let subY = yy + w * 0.08;
       // 副标题直接读 game.waveTag（在 startWave 里按"这一波是什么"算好的）：
       // BOSS / 专属大场面（带名字和说明）/ 人海 / 精英波 / 割草波。

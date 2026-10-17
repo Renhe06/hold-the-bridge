@@ -139,7 +139,7 @@ try {
   for (let i = 0; i < 30; i++) step();
   ok(game.state === STATE.START, '初始状态是 START');
   ok(renderer.w === 390 && renderer.h === 844, `渲染尺寸 = ${renderer.w}x${renderer.h}（CSS 像素）`);
-  ok(renderer.canvas.width === 780, `canvas 物理宽 = ${renderer.canvas.width}（dpr 封顶 2）`);
+  ok(renderer.canvas.width === 1170, `canvas 物理宽 = ${renderer.canvas.width}（high 档 dpr 3，用户 m10372 要清晰）`);
   ok(renderer.safeTop > 0, `safeTop 已由顶部 HUD 量出 = ${renderer.safeTop}`);
 } catch (err) {
   failures++;
@@ -2206,6 +2206,17 @@ try {
     ok(seen >= 1 && hidden === 0,
       `蝴蝶时不时才飞出来（t=2.5 时 ${seen} 只 / t=6.6 时 ${hidden} 只）`);
 
+    // 行为②b：蝴蝶和花仙子绑定（用户 m10372）—— 勇者上场时一只都不该有
+    n = 0;
+    renderer._butterfly = (...a) => { n++; return origB.apply(renderer, a); };
+    renderer.time = 2.5;
+    game.heroId = 'knight';
+    renderer._drawButterflies(renderer.ctx, game);
+    const knightBf = n;
+    game.heroId = 'fairy';
+    renderer._butterfly = origB;
+    ok(knightBf === 0, `勇者不飞蝴蝶（knight ${knightBf} 只）`);
+
     // 行为③：挥剑刀光只给勇者画（A 档纯 VFX），花仙子不会被叠刀光
     ok(/_heroSlash\(ctx, h, swing\)/.test(src), '有挥剑刀光（_heroSlash）');
     ok(/_heroSlashTrail\(ctx, h, swing,/.test(src), '刀光是"沿剑身的速度拖尾"，不是绕手转的圆环');
@@ -2278,7 +2289,13 @@ try {
       'styles.css 有第四关 HUD 覆盖（小药丸与返回/暂停钮换暖金玻璃）');
     ok(/const fskin = CFG\.level\.skin === 'fantasy'/.test(rend) && /fskin \? 'rgba\(255,215,138,0\.62\)'/.test(rend),
       '画布 HUD 也有皮肤分支（BOSS 血条金边）');
-    ok(/异世界的横幅加一条金色饰线/.test(rend), '波次横幅在第四关加金色饰线');
+    // 【用户 m10372】"金色边框太丑了还看不清" —— 饰线删掉，副标题必须回到深色粗描边
+    ok(!/异世界的横幅加一条金色饰线/.test(rend), '波次横幅不再加金色饰线（用户 m10372）');
+    ok(/ctx\.lineWidth = 5;[^]*?ctx\.strokeStyle = 'rgba\(0,0,0,0\.72\)'/.test(rend),
+      '波次副标题用深色粗描边（任何背景上都读得清）');
+    // 【用户 m10372】花仙子未选中时框框是粉色（选中态仍是金色，靠 :not(.sel) 躲开）
+    ok(/#heroFairy:not\(\.sel\)\s*\{[^}]*border-color: rgba\(255, 158, 208/.test(css),
+      'styles.css 里花仙子未选中卡是粉色边框');
   }
 
   // 收尾：回到第一关的开局状态，别影响后面的段
@@ -2598,7 +2615,7 @@ try {
 
   Q.reset();
   Q.auto = false;
-  ok(Q.level === 0 && Q.prop.dpr === 2, `画质默认最高档（dpr ${Q.prop.dpr}）`);
+  ok(Q.level === 0 && Q.prop.dpr === 3, `画质默认最高档（dpr ${Q.prop.dpr}）`);
 
   // auto 关着时怎么喂都不动 —— 离线渲染工具（bench/shot）靠这条保证基准可比
   for (let i = 0; i < 200; i++) Q.sample(40);
@@ -2610,13 +2627,13 @@ try {
   for (let i = 0; i < 10; i++) Q.sample(40);
   ok(Q.level === 0, '热身期（前 10 帧）里再慢也不降档');
   for (let i = 0; i < 40; i++) Q.sample(30);
-  ok(Q.level === 1 && Q.prop.dpr === 1.5, `连续 40 帧偏慢就降一档（dpr 2 → ${Q.prop.dpr}）`);
+  ok(Q.level === 1 && Q.prop.dpr === 2, `连续 40 帧偏慢就降一档（dpr 3 → ${Q.prop.dpr}）`);
   ok(Q.dirty === true, '降档后标记需要重新 fit（DPR 变了要重建画布）');
   Q.dirty = false;
   // 每次切档后都有一小段热身期（避免降档本身造成的卡顿又触发下一次降档），
   // 所以这里要多喂 60 帧热身 + 40 帧慢帧
   for (let i = 0; i < 100; i++) Q.sample(30);
-  ok(Q.level === 2 && Q.prop.dpr === 1.25, `再连续 40 帧偏慢降到最低档（dpr ${Q.prop.dpr}）`);
+  ok(Q.level === 2 && Q.prop.dpr === 1.5, `再连续 40 帧偏慢降到最低档（dpr ${Q.prop.dpr}）`);
   for (let i = 0; i < 200; i++) Q.sample(30);
   ok(Q.level === 2, '已经最低档就不再往下掉（不会把自己关死）');
 
@@ -2625,7 +2642,7 @@ try {
   for (let i = 0; i < 200; i++) Q.sample(8);
   ok(Q.level === 2, '只流畅 200 帧还不升档（避免画质来回跳）');
   for (let i = 0; i < 300; i++) Q.sample(8);
-  ok(Q.level === 1 && Q.prop.dpr === 1.5, '连续流畅够久才升回一档');
+  ok(Q.level === 1 && Q.prop.dpr === 2, '连续流畅够久才升回一档');
   for (let i = 0; i < 300; i++) Q.sample(8);
   ok(Q.level === 0, '一直流畅就升回最高档');
 

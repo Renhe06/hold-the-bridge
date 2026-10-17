@@ -1631,6 +1631,29 @@ html, body {
 }
 .lv.hero.sel span { color: #ffe6ad; }
 
+/* 【用户 m10372】花仙子未选中时框框用粉色：换英雄前一眼就能认出这是那个粉色角色。
+   选中态仍是金色（.sel 在上面已定义，这里用 :not(.sel) 精确躲开）。 */
+#heroFairy:not(.sel) {
+  border-color: rgba(255, 158, 208, 0.62);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(150, 62, 108, 0.58) 0%, rgba(84, 32, 62, 0.70) 58%, rgba(44, 16, 32, 0.78) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.34),
+    0 3px 0 rgba(0, 0, 0, 0.45),
+    0 8px 20px rgba(0, 0, 0, 0.4),
+    0 0 18px rgba(255, 140, 200, 0.20);
+}
+#heroFairy:not(.sel) b {
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7), 0 0 12px rgba(255, 158, 208, 0.45);
+}
+#heroFairy:not(.sel) span { color: #ffc6e4; }
+#heroFairy:not(.sel) .hero-art {
+  background:
+    radial-gradient(72% 62% at 50% 88%, rgba(255, 158, 208, 0.20), rgba(20, 10, 18, 0) 70%),
+    linear-gradient(180deg, rgba(40, 16, 30, 0.55), rgba(18, 8, 14, 0.75));
+}
+
 .level-hint {
   margin: 0 0 14px;
   font-size: 12px;
