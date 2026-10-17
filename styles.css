@@ -1029,6 +1029,9 @@ html, body {
   padding: 24px 18px 18px;
 }
 
+/* 结算面板只剩 3 项（金币那格删了，用户 m11916）：最后一项横跨整行，别留半格空位 */
+.stats .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
 .guide-body { text-align: left; }
 
 .guide-body h3 {
