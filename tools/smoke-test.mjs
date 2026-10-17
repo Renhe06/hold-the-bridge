@@ -2068,14 +2068,12 @@ try {
     Math.abs(game.spits.find((s) => s.edge).x) > drw,
     '桥沿那两簇是纯气氛的边火（判定上不会打到人）'
   );
-  // 两段式：第一段只发一波，第二段把缝固定到**另一个**位置（但各自在途中都不动）
-  ok(game.warns.length >= 1 || game.spits.length > 0, '火墙分两段排上（第一段立刻发，第二段延迟）');
-  const firstHole = game.spits.find((s) => s.dragon && !s.edge).hole;
-  const nBefore2nd = game.spits.length;
-  game.updateLaterCasts(0.8);
-  ok(game.spits.length > nBefore2nd, `第二段火墙如期补上（${nBefore2nd} → ${game.spits.length} 道）`);
+  // 【用户 m12738】"火墙一段不要两段"：排程里不再有第二段，缝也只由这一堵墙决定
+  const nBefore = game.spits.length;
+  game.updateLaterCasts(1.2);
+  ok(game.spits.length === nBefore, `火墙只放一段，不再延时补第二段（一直 ${nBefore} 道）`);
   const holes = [...new Set(game.spits.filter((s) => s.dragon && !s.edge).map((s) => s.hole.toFixed(2)))];
-  ok(holes.length >= 2, `两堵火墙的缝在不同位置（${holes.join(' / ')}）`);
+  ok(holes.length === 1, `一堵火墙只有一条缝（${holes.join(' / ')}）`);
   ok(
     game.spits.filter((s) => s.wall).every((s) => !s.vx),
     '每堵火墙的缝固定不动（用户 m11792：漂移会出现"根本没有缝"）'
@@ -2097,13 +2095,35 @@ try {
   const wxs = game.spits.filter((s) => s.wind).map((s) => s.x).sort((a, b) => a - b);
   const wgap = wxs.length > 1 ? Math.min(...wxs.slice(1).map((x, i) => x - wxs[i])) : 9;
   ok(wgap >= 0.17, `相邻两道冲击波之间留得下一个人（间隔 ${wgap.toFixed(2)}）`);
+  // 【用户 m12738】"振翅要伤害"：月牙擦到英雄就是一口血（以前只是把人推开）
+  game.spits.length = 0;
+  const hpBeforeGust = game.player.hp;
+  game.player.iframe = 0;
+  game.spits.push({
+    x: game.player.x,
+    z: game.player.z + 2,
+    vz: -4,
+    hitW: C4.fantasy.boss2.windHitW,
+    wave: true,
+    wind: true,
+    color: '#dff2ff',
+    phase: 0,
+    hot: false,
+    dragon: true,
+    dead: false,
+  });
+  for (let i = 0; i < 60 && game.spits.length; i++) game.updateSpits(0.05);
+  ok(
+    game.player.hp < hpBeforeGust,
+    `振翅的月牙擦到会掉血（${hpBeforeGust} → ${game.player.hp}）`
+  );
 
 
   const beforeAdds = game.enemies.length;
   game.hazardCd = 0;
   game.bossSkill2(dragon);
   ok(game.enemies.length > beforeAdds, `持续召唤哥布林（怪 ${beforeAdds} → ${game.enemies.length}）`);
-  ok(game.spits.filter((s) => s.wind).every((s) => s.hot === false), '风压不烫人（是推开不是烧血）');
+  ok(game.spits.filter((s) => s.wind).every((s) => s.hot === false), '振翅是风不是火（hot=false，伤害走碰撞不走燃烧）');
 
   // (e) 角色系统：默认勇者、可换花仙子、选择会存进 localStorage，且只在第 4 关生效
   ok(HEROES4.length === 2 && HEROES4[0].id === 'knight', '两个角色：勇者（默认）+ 花仙子');
@@ -2462,15 +2482,22 @@ try {
   ok(dep.includes("const CACHE = 'hold-the-bridge-v"), '部署脚本顺手升 sw.js 的缓存名');
 
   // (g) 使用说明（用户 m11916）：只剩五块 —— 僵尸图鉴（按关卡精简，含 BOSS）/
-  //     技能说明 / 装到桌面 / 声音问题 / 更新问题
+  //     每关技能 / 装到桌面 / 声音问题 / 更新问题
   const guideText = html
     .slice(html.indexOf('id="guideOverlay"'), html.indexOf('id="talkOverlay"'))
     .replace(/<!--[\s\S]*?-->/g, '');
   for (const nm of ['尸潮首领', '鲨王', '僵王', '恶龙']) {
     ok(guideText.includes(nm), `僵尸图鉴里有每关 BOSS「${nm}」`);
   }
-  for (const sec of ['僵尸图鉴', '技能说明', '装到桌面', '声音问题', '更新问题']) {
+  for (const sec of ['僵尸图鉴', '每关技能', '装到桌面', '声音问题', '更新问题']) {
     ok(guideText.includes(sec), `使用说明留着小节「${sec}」`);
+  }
+  // 【用户 m12738】"使用说明的技能说明全部清除，写每关的技能，比如第一关空袭"
+  for (const sk of ['空袭', '樱桃炸弹', '独角兽冲锋']) {
+    ok(guideText.includes(sk), `每关技能里写了「${sk}」`);
+  }
+  for (const gone of ['自动射击</b>', '连杀</b>', '奖励门</b>']) {
+    ok(!guideText.includes(gone), `旧的通用技能说明「${gone}」已经删掉`);
   }
   for (const sec of ['怎么玩', '奖励门', '连杀与大招', '武器成长', '波次节奏', '战场上的额外情况', '离线也能玩']) {
     ok(!guideText.includes(sec + '</h3>'), `使用说明已经删掉「${sec}」那一节`);

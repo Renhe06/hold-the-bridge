@@ -145,6 +145,11 @@ const EN = {
   '整合和修改了部分功能与界面': 'Several features and screens consolidated and reworked',
   '新增角色花仙子，大量角色专属效果与玩法上线~':
     'New hero: the Fairy — lots of hero-specific effects and gameplay are live~',
+  // v1.0.54（用户 m12738：在上面那几条的基础上新增，旧条目一条没删）
+  '第四关「异世界」主题关卡上线，全新场景与敌人，玩法升级':
+    'Stage 4 "Otherworld" is live — new scenery, new enemies, deeper play',
+  '新增角色界面，可自由更换出战角色': 'New hero screen — switch your fighter freely',
+  '修复大量 bug': 'Fixed a pile of bugs',
   即将上线: 'COMING SOON',
 
   // ---- HUD / 局内 ----
@@ -613,16 +618,15 @@ const HTML = {
         <ul class="howto">
           <li><b>Goblin</b> walkers, <b>coyote</b> runners, <b>orc</b> brutes, <b>shield goblins</b> (front damage cut), <b>slimes</b> (split on death)</li>
           <li><b>Harpy</b>: ranged wing-beat attack, and it dives at you</li>
-          <li><b>★ Dragon</b>: <b>Flame Breath</b> covers the whole bridge and leaves exactly one fixed gap (the two walls place it differently); <b>Wing Beat</b> sends three crescents that only shove you; and it keeps summoning goblins</li>
+          <li><b>★ Dragon</b>: <b>Flame Breath</b> covers the whole bridge and leaves exactly one fixed gap (a single wall); <b>Wing Beat</b> sends two crescents that take a heart if they clip you; and it keeps summoning goblins</li>
         </ul>
 
-        <h3>Skills</h3>
+        <h3>Stage skills</h3>
         <ul class="howto">
-          <li><b>Auto-fire</b>: the gun shoots itself — you only steer. Standing further forward hits harder and gets you pounced more</li>
-          <li><b>Strike</b>: the round button bottom right, charged by kills — tap when full to smash the area in front of you; its look follows the battlefield</li>
-          <li><b>Streak</b>: consecutive kills build a multiplier (up to ×2.5 score); one bite resets it</li>
-          <li><b>Reward gates</b>: after each wave two cards slide in — stand on the half you want; under 3 lanes the attack side always offers “+1 lane”</li>
-          <li>Stage 4 heroes have their own kit: the <b>Knight</b> swings blade waves, the <b>Fairy</b> throws magic butterflies (orcs show hearts while the Fairy is out, harpies while the Knight is)</li>
+          <li><b>Stage 1</b>: <b>Airstrike</b> — tap the bridge and a line of bombs lands there</li>
+          <li><b>Stage 2</b>: <b>Airstrike</b> — same, but the bombs are torpedoes</li>
+          <li><b>Stage 3</b>: <b>Cherry Bomb</b> — one huge bomb, the widest blast of all</li>
+          <li><b>Stage 4</b>: <b>Unicorn Charge</b> — a unicorn sweeps one whole lane clear</li>
         </ul>
 
         <h3>Install to home screen</h3>

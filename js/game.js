@@ -1025,10 +1025,9 @@ export class Game {
   }
 
   /**
-   * 恶龙的喷火（用户 m04749 加；m11492 加强覆盖；m11792 定稿）：
-   * 一整面火墙从左边栏杆铺到右边栏杆，只留一条窄缝；
-   * 两段火墙各自把缝固定在**不同的位置**，但每堵墙自己的缝在飞行途中**不动**
-   * （用户 m11792：之前让缝横向漂移，结果缝会扫到桥外，出现"根本没有缝"的情况）。
+   * 恶龙的喷火（用户 m04749 加；m11492 加强覆盖；m11792/m12738 定稿）：
+   * 一整面火墙从左边栏杆铺到右边栏杆，只留一条窄缝，缝在飞行途中**不动**；
+   * 【用户 m12738】"火墙一段不要两段" —— 一次技能只放一堵墙（不再排第二段）。
    * 桥沿两簇边火仍然纯气氛（|x| > roadHalf*1.06，够不到人）。
    */
   dragonFire(e) {
@@ -1043,20 +1042,8 @@ export class Game {
       hot: true,
       zMul: 0.25,
     };
-    // 第一段：缝放对侧，先逼你动
+    // 只有一段：缝放你不在的那侧，逼你挪过去
     this._dragonWall(e, { ...wall, slot: this._slotForSide(px > 0 ? -1 : 1) });
-    // 第二段：缝换到你"跑过去的那侧"，读的是这一刻的位置
-    this.scheduleCast(B.fireVolleyDelay, () => {
-      const cur = this.player ? this.player.x : 0;
-      this._dragonWall(e, {
-        ...wall,
-        speed: B.fireSpeed * 1.15,
-        zMul: 0.18,
-        slot: this._slotForSide(cur > 0 ? 1 : -1),
-      });
-      this.spawnParticles(e.x, e.z - e.size * 0.45, 14, 'spark', '#ffd08a');
-      this.sfx.fireball();
-    });
     const rw = (this.cam && this.cam.roadHalf) || 0.35;
     for (const s of [-1, 1]) {
       this.spits.push({
@@ -1079,21 +1066,24 @@ export class Game {
   }
 
   /**
-   * 恶龙的振翅（用户 m04749 加；m11792 改回"振翅冲击波"）：
-   * 不再是"铺满桥面的风压墙"（用户要求去掉），而是几道宽大的月牙冲击波并排扫过来，
-   * 观感接近勇者的剑气 —— 区别是它更宽更慢，而且**只会把人推开、不烧血**。
-   * 中间那道的 w 最大、两翼略窄，所以正中间站人最危险，贴边反而好躲。
+   * 恶龙的振翅（用户 m04749 加；m11792 改回"振翅冲击波"；m12738 要伤害）：
+   * 不再是"铺满桥面的风压墙"，而是两道宽大的月牙冲击波并排扫过来，
+   * 观感接近勇者的剑气 —— 区别是它更宽更慢。
+   * 【用户 m12738】"振翅要伤害"：月牙的判定宽度 = 画面上的月牙宽度（windHitW），
+   * 扫到人就是一口血，不再只是把人推开。
    */
   dragonGust(e) {
     const B = CFG.fantasy.boss2;
     if (this.hazardCd > 0) return false;
-    const rw = (this.cam && this.cam.roadHalf) || 0.35;
     const n = B.windCount || 2;
-    const spread = B.windSpread === undefined ? 0.19 : B.windSpread;
+    const spread = B.windSpread === undefined ? 0.26 : B.windSpread;
+    const rw = (this.cam && this.cam.roadHalf) || 0.35;
     for (let i = 0; i < n; i++) {
       const t = n === 1 ? 0 : i / (n - 1) - 0.5;
+      // 簇在英雄附近（0.35 的跟随，留一点预判空间），但不能跑到桥外去
+      const x = clamp((this.player ? this.player.x : 0) * 0.35 + t * spread * 2, -rw * 0.92, rw * 0.92);
       this.spits.push({
-        x: (this.player ? this.player.x : 0) * 0.35 + t * spread * 2,
+        x,
         z: e.z - e.size * 0.2,
         vz: -B.windSpeed,
         phase: rand(0, Math.PI * 2),
@@ -2306,7 +2296,8 @@ export class Game {
       const hi = Math.max(z0, s.z);
       if (inX && pl.z + 0.45 >= lo && pl.z - 0.45 <= hi) {
         s.dead = true;
-        this.spawnParticles(s.x, pl.z, 10, 'spark', '#b6ff5a');
+        // 【m12738】振翅的月牙是风不是酸：溅的是冷白火花，不是绿的
+        this.spawnParticles(s.x, pl.z, 10, 'spark', s.wind ? '#dff2ff' : '#b6ff5a');
         this.bite({ x: s.x, z: pl.z });
         continue;
       }

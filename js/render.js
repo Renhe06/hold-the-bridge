@@ -2194,8 +2194,10 @@ export class Renderer {
     }
     if (s.wave) {
       // 【用户 m11792】振翅改成"冲击波"，不是风墙：一道宽月牙从龙那边扫过来，
-      // 形状和勇者的剑气同族（月牙 + 亮边），区别是它慢、而且只会把人推开。
-      const W = Math.max(7, 0.1 * p.s);
+      // 形状和勇者的剑气同族（月牙 + 亮边），区别是它慢。
+      // 【用户 m12738】"振翅要伤害" —— 画面上的月牙宽度直接跟着判定宽度（hitW）走，
+      // 看见多宽就是多宽的伤害范围，不再"看着擦到了其实没掉血"。
+      const W = Math.max(7, (s.hitW || 0.1) * 1.35 * p.s);
       const hh = Math.max(6, 0.055 * p.s);
       const t = this.time * 5.5 + (s.phase || 0);
       const a = 0.82 + Math.sin(t) * 0.1;
@@ -3275,19 +3277,22 @@ export class Renderer {
     // 地面上的一圈暖粉光（很淡，只是让花有个落点）
     this._drawGlow(p.x, p.y + 1, rx * 1.5, 'rgba(255,168,214,0.5)', 0.34);
     const n = 12;
-    // 【用户 m11916】"花是一朵一朵的，大概到脚踝高度" —— 改成一支支带茎小花，
-    // 花头抬到脚踝（0.06~0.08H），茎从地面长上来，前后按 sin 分远近。
+    // 【用户 m11916】"花是一朵一朵的"；【用户 m12738】"高度再高，每朵花高度不一样，最高到膝盖"。
+    // 所以每朵单独定高：0.10~0.28H（膝盖约在 0.28H 上下），用序号做个稳定的伪随机，
+    // 不随帧跳。茎长什么样、花头多大都跟着这把高度走。
     const list = [];
     for (let i = 0; i < n; i++) {
       const ang = (i / n) * TAU + t * 0.28;
       const depth = Math.sin(ang); // -1 后 → +1 前
-      list.push({ i, ang, depth, x: p.x + Math.cos(ang) * rx, y: p.y + 2 + depth * ry });
+      const rnd = (Math.sin(i * 12.9898) * 43758.5453) % 1;
+      const hMul = 0.10 + Math.abs(rnd) * 0.18; // 0.10H ~ 0.28H，各朵不同
+      list.push({ i, ang, depth, hMul, x: p.x + Math.cos(ang) * rx, y: p.y + 2 + depth * ry });
     }
     list.sort((a, b) => a.depth - b.depth); // 后画的在前面：挡在她腿前的花要压住后面的
     for (const f of list) {
       const depth = f.depth;
-      const sc = H * (0.019 + 0.011 * (depth + 1) * 0.5);
-      const stemH = H * (0.062 + 0.016 * (depth + 1) * 0.5); // 脚踝高度
+      const sc = H * (0.019 + 0.011 * (depth + 1) * 0.5) * (0.9 + f.hMul * 2.2);
+      const stemH = H * f.hMul; // 每朵自己的高度（最高到膝盖）
       const sway = Math.sin(t * 1.6 + f.i * 1.3) * 0.16;
       ctx.save();
       ctx.translate(f.x, f.y);
