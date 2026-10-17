@@ -5065,7 +5065,7 @@ export class Renderer {
     const wingA = '#c2a887';
     const wingB = '#8a7358';
     const wingC = '#43362a';
-    const hairC = '#c9a86a';
+    const hairC = '#9d7a42';
 
     ctx.save();
     ctx.lineJoin = 'round';
@@ -5117,8 +5117,8 @@ export class Renderer {
       ctx.translate(0, 0);
       ctx.translate(s * 0.02 * H, 0);
       ctx.rotate(s * flap * 0.3);
-      drawWing(s, 0.43 * H, wingB);
-      drawWing(s, 0.3 * H, wingA);
+      drawWing(s, 0.36 * H, wingB);
+      drawWing(s, 0.25 * H, wingA);
       // 翼前缘亮线
       ctx.strokeStyle = 'rgba(246,238,220,0.28)';
       ctx.lineWidth = 0.012 * H;
@@ -5247,8 +5247,8 @@ export class Renderer {
 
     // —— 头：长发 + 羽耳 + 人相
     const hcx = 0;
-    const hcy = -0.8 * H;
-    const hr = 0.075 * H;
+    const hcy = -0.79 * H;
+    const hr = 0.062 * H;
     // 长发（脑后一团 + 两侧垂到肩的发束）：只有脑后一团时，远看是个"圆脑袋鸡蛋"
     ctx.fillStyle = hairC;
     ctx.beginPath();
