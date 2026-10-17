@@ -3369,6 +3369,9 @@ export class Renderer {
 
     ctx.save();
     ctx.rotate(lean);
+    // 【用户 m09695 挥剑 A 档】出手瞬间整体往前"送"一点（往下沉 + 上移），
+    // 动作的读感来自重心与刀光，不靠改原画。
+    if (swing > 0.02) ctx.translate(0, -h * 0.028 * swing);
     // 开火瞬间补一层暖辉（比逐帧重采样两张全身图便宜得多）
     if (swing > 0.02) {
       ctx.save();
@@ -3436,6 +3439,62 @@ export class Renderer {
     // 【用户 m09695】花仙子的法杖光压在立绘之上（加色），蓄力时杖头一点点亮起来，
     // 出手瞬间爆一下 —— 立绘本身一个像素都不用改。
     if (id === 'fairy') this._heroWandGlow(ctx, h, swing, charge);
+    else if (swing > 0.02) this._heroSlash(ctx, h, swing);
+    ctx.restore();
+  }
+
+  /**
+   * 【用户 m09695 挥剑 · A 档】纯 VFX 的"挥剑"：立绘一张图都不动，
+   * 靠剑尖沿剑身甩出的速度拖尾 + 重心前送，把"挥了"读出来。
+   *
+   * 几何量自 hero-knight.webp（640×960）：
+   *   柄 (0.31, 0.49)、尖 (0.72, 0.925) → 换算到"脚踏原点、上为负"的局部坐标：
+   *   柄 (-0.127h, -0.465h)、尖 (+0.147h, -0.030h) → 半径 0.514h、起始角 ≈ 57.8°。
+   */
+  _heroSlash(ctx, h, swing) {
+    // 两层：前一层贴着剑身（当前这一挥），后一层往回摆一截（刚划过的路径）——
+    // 只看一层像一根白线，两层叠起来才是"挥"的读感。
+    this._heroSlashTrail(ctx, h, swing, (swing - 0.5) * 0.22, 1);
+    this._heroSlashTrail(ctx, h, swing, -0.20 * swing - 0.04, 0.38);
+  }
+
+  _heroSlashTrail(ctx, h, swing, rot, k) {
+    const hx = -0.127 * h;
+    const hy = -0.465 * h;
+    const r = 0.514 * h;
+    const a0 = (57.8 * Math.PI) / 180; // 立绘里那把剑自己指的方向
+    const dx = Math.cos(a0);
+    const dy = Math.sin(a0);
+    const pxs = -dy; // 垂直方向
+    const pys = dx;
+    const reach = 1.02 + 0.34 * swing; // 剑尖再往外甩一点
+    const x0 = hx + dx * r * 0.18;
+    const y0 = hy + dy * r * 0.18;
+    const x1 = hx + dx * r * reach;
+    const y1 = hy + dy * r * reach;
+    const mx = (x0 + x1) / 2;
+    const my = (y0 + y1) / 2;
+    const wide = h * (0.046 + 0.078 * swing) * (k > 0.6 ? 1 : 1.3); // 月牙最宽处
+    const a = Math.min(1, swing * 1.2) * k;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.translate(hx, hy);
+    ctx.rotate(rot);
+    ctx.translate(-hx, -hy);
+    const g2 = ctx.createLinearGradient(x0, y0, x1, y1);
+    g2.addColorStop(0, 'rgba(150,200,255,0)');
+    g2.addColorStop(0.42, `rgba(190,226,255,${(a * 0.34).toFixed(3)})`);
+    g2.addColorStop(0.82, `rgba(238,248,255,${(a * 0.8).toFixed(3)})`);
+    g2.addColorStop(1, `rgba(255,255,255,${Math.min(1, a * 1.05).toFixed(3)})`);
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.quadraticCurveTo(mx + pxs * wide, my + pys * wide, x1, y1);
+    ctx.quadraticCurveTo(mx + pxs * wide * 0.22, my + pys * wide * 0.22, x0, y0);
+    ctx.closePath();
+    ctx.fill();
+    // 刀尖那一下最亮，另加一团光晕
+    if (k > 0.6) this._drawGlow(x1, y1, h * 0.2, '#eaf6ff', a * 0.75);
     ctx.restore();
   }
 

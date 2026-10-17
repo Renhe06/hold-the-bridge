@@ -2205,6 +2205,33 @@ try {
     renderer._butterfly = origB;
     ok(seen >= 1 && hidden === 0,
       `蝴蝶时不时才飞出来（t=2.5 时 ${seen} 只 / t=6.6 时 ${hidden} 只）`);
+
+    // 行为③：挥剑刀光只给勇者画（A 档纯 VFX），花仙子不会被叠刀光
+    ok(/_heroSlash\(ctx, h, swing\)/.test(src), '有挥剑刀光（_heroSlash）');
+    ok(/_heroSlashTrail\(ctx, h, swing,/.test(src), '刀光是"沿剑身的速度拖尾"，不是绕手转的圆环');
+    ok(/柄 \(0\.31, 0\.49\)/.test(src) && /0\.514/.test(src),
+      '剑的柄/尖坐标与半径都写在注释里（0.514h = 剑长），以后好核对');
+    let slash = 0;
+    const origSlash = renderer._heroSlash;
+    renderer._heroSlash = function (...a) { slash++; return origSlash.apply(this, a); };
+    game.player.muzzle = 1;
+    renderer._heroSprite(renderer.ctx, game, 120, game.player, fakeArt, 'knight');
+    const slashKnight = slash;
+    slash = 0;
+    renderer._heroSprite(renderer.ctx, game, 120, game.player, fakeArt, 'fairy');
+    const slashFairy = slash;
+    renderer._heroSlash = origSlash;
+    game.player.muzzle = 0;
+    ok(slashKnight === 1 && slashFairy === 0,
+      `挥剑刀光只给勇者画（knight ${slashKnight} 次 / fairy ${slashFairy} 次）`);
+
+    // 行为④：翅膀分层 —— 花仙子身体/翅膀两张图各烘一次，且画序是"身体先、翅膀后"
+    const iBody = src.indexOf('const baked = this._heroBake(bodyArt ?');
+    const iWing = src.indexOf('if (wingArt) {', iBody);
+    ok(iBody > 0 && iWing > iBody,
+      '画序是 身体 → 翅膀（反过来身体那层的粉色填充会把翅膀整个盖住）');
+    ok(/hero-fairy-body/.test(src) && /hero-fairy-wings/.test(src),
+      '分层图名字写在代码里（hero-fairy-body / hero-fairy-wings）');
   }
 
   // (h) 启动加载页 + "不用执着离线，先保证体验"（用户 m06896）
