@@ -2565,6 +2565,54 @@ try {
   AUDIO_SESSION.fire('statechange');
   ok(sfx.ctx.state === 'running', '音频会话 statechange（打断结束）会自动唤醒');
 
+  // 【用户 m10795】"切回来没声，点屏幕也不恢复，只有刷新才好"：
+  //   根因是原来允许在手势外重建 AudioContext —— iOS 上手势外建出来必然 suspended，
+  //   Chrome 每页只给 6 个额度，反复重建烧光之后 new 一次抛一次，点屏幕也建不回来。
+  //   现在：判定叫不醒只挂 _needRebuild，等下一次手势一次性换掉。
+  {
+    // 造一个"resume 永远 pending"的死上下文（iOS 被打断之后的真实状态）
+    sfx.ctx.state = 'suspended';
+    sfx.ctx.resume = () => ({ catch() {} });
+    const dead = sfx.ctx;
+    sfx.diag.rebuilds = 0;
+    sfx._needRebuild = false;
+    sfx._inGesture = false;
+    sfx._stuckSince = -1e9;
+    sfx._rebuildAt = -1e9;
+    const n0 = AUDIO_CTXS.length;
+    sfx._watchStuck();
+    ok(AUDIO_CTXS.length === n0 && sfx._needRebuild === true && sfx.ctx === dead,
+      '手势外发现上下文叫不醒时，不新建上下文（只挂"等手势重建"）');
+
+    sfx._inGesture = true;
+    sfx.unlock();
+    sfx._inGesture = false;
+    ok(sfx.ctx !== dead && sfx.ctx.state === 'running' && sfx._needRebuild === false,
+      '下一次用户手势把死掉的上下文整个换掉（这就是"点一下就能恢复声音"）');
+
+    // 连续三次重建都救不回来：别再烧上下文额度，直接把话说明白
+    const keep = sfx.ctx;
+    sfx.diag.rebuilds = 3;
+    sfx._inGesture = true;
+    const n1 = AUDIO_CTXS.length;
+    sfx._rebuild();
+    sfx._inGesture = false;
+    ok(AUDIO_CTXS.length === n1 && sfx.ctx === keep && sfx.status === '声音卡死 · 请刷新页面',
+      '连续三次救不回来就停止重建，并给出"请刷新页面"的明确提示（不再静悄悄没声）');
+
+    // 复位，别影响后面的音效普查
+    sfx.diag.rebuilds = 0;
+    sfx._deadReason = '';
+    sfx._createCount = 0;
+    sfx._needRebuild = false;
+    sfx._inGesture = false;
+    if (!sfx.ctx || sfx.ctx.state !== 'running') {
+      sfx._inGesture = true;
+      sfx.unlock();
+      sfx._inGesture = false;
+    }
+  }
+
   // 真的在响：把每一个音效都排一遍。
   // 这一条既证明"上下文跑起来了真会出声"（不是看着 running 其实静悄悄），
   // 也顺手把 audio.js 的音效方法全过一遍桩 —— 谁写了桩里没有的 WebAudio 方法，

@@ -38,7 +38,11 @@ const ALLOW = new Set([
 ]);
 
 function stripComments(src) {
+  // 先统一换行：`.*$` 里的 `$` 只在“行尾”成立，行尾若带 \r（CRLF 文件）就永远匹配不上，
+  // 于是整行注释原样留下、被当成“面向玩家的中文”报缺翻译（踩过：render.js 变成 CRLF 后
+  // 冒烟里突然冒出 100 条“缺英文”，其实全是我自己写的中文注释）。
   return src
+    .replace(/\r\n?/g, '\n')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n')
     .map((l) => l.replace(/(^|[^:'"\\])\/\/.*$/, '$1'))

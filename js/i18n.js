@@ -157,6 +157,8 @@ const EN = {
   '已静音（点右上角 🔊 打开）': 'Muted (tap 🔊 top right)',
   '音效已关，点一下打开': 'SFX off · tap to enable',
   '音效已开，点一下关闭': 'SFX on · tap to mute',
+  // 【用户 m10795】切后台回来没声、重建也救不回来时的兜底提示
+  '声音卡死 · 请刷新页面': 'Sound blocked · please reload',
   '未启动（在画面上点一下）': 'Not started (tap the screen)',
   '被挂起 · 点一下画面': 'Suspended · tap the screen',
   '被系统打断 · 点一下画面': 'Interrupted · tap the screen',

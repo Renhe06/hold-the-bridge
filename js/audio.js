@@ -29,6 +29,13 @@ export class Sound {
     this._stuckSince = 0;
     this._rebuildAt = 0;
     this._gesturesHooked = false;
+    // 【用户 m10795】"切回来没声，点屏幕也不恢复，只有刷新才好" 的两个开关：
+    //   _inGesture  —— 当前这次调用是不是发生在用户手势里（重建只在手势里做）
+    //   _needRebuild—— 已经判定这个上下文叫不醒了，等下一次手势把它整个换掉
+    this._inGesture = false;
+    this._needRebuild = false;
+    this._createCount = 0;
+    this._deadReason = '';
     this._hookGestures();
   }
 
@@ -41,7 +48,13 @@ export class Sound {
     this._gesturesHooked = true;
     const kick = () => {
       this.diag.gestures++;
-      this.unlock();
+      // 手势窗口：只有在这段里允许"重建 AudioContext"（原因见 _rebuild）
+      this._inGesture = true;
+      try {
+        this.unlock();
+      } finally {
+        this._inGesture = false;
+      }
     };
     // pointerdown/touchstart 是"最早"的手势；touchend/click 才是 iOS 认的解锁手势。
     // 两类都收 —— unlock() 幂等，重复调用只是顺手 wake 一下。
@@ -83,6 +96,11 @@ export class Sound {
         if (p && typeof p.catch === 'function') p.catch(() => {});
       }
     } catch (_) {}
+    // 真的跑起来就把"连着失败了几次"清零：这是连续失败的预算，不是终身额度
+    if (c.state === 'running') {
+      this.diag.rebuilds = 0;
+      this._deadReason = '';
+    }
     this._watchStuck();
   }
 
@@ -100,22 +118,45 @@ export class Sound {
       return;
     }
     if (typeof document !== 'undefined' && document.hidden) return;
+    // 已经判定叫不醒、正在等下一次手势：不再计时，也别去建上下文
+    if (this._needRebuild) return;
     const t = nowMs();
     if (!this._stuckSince) {
       this._stuckSince = t;
       return;
     }
-    if (t - this._stuckSince < 2500) return;
-    if (t - this._rebuildAt < 2000 || this.diag.rebuilds >= 8) return;
+    // 1.2s 就想办法；原来 2.5s 对玩家来说已经是一整波怪没声音了
+    if (t - this._stuckSince < 1200) return;
+    if (t - this._rebuildAt < 2000 || this.diag.rebuilds >= 3) return;
     this._rebuildAt = t;
     this._stuckSince = 0;
     this._rebuild();
   }
 
-  /** 丢掉被系统关死/叫不醒的上下文，原地重建一个（不用刷新页面） */
+  /**
+   * 丢掉被系统关死/叫不醒的上下文，原地重建一个（不用刷新页面）。
+   *
+   * 【用户 m10795】"浏览器里切回来没声、点屏幕也不恢复、只有刷新才有声"——
+   * 根因是原来允许在**手势之外**重建：
+   *   1) iOS：手势外 new AudioContext() 建出来必然 suspended，等于白建；
+   *   2) Chrome/Edge：每个页面只允许 6 个 AudioContext，反复重建会把额度烧光，
+   *      之后 new 一次抛一次（unlock 里 catch 掉、静默返回）——
+   *      于是点屏幕也再建不回来，只能刷新，症状和用户报的一模一样。
+   * 现在：判定叫不醒就挂个 _needRebuild，等下一次用户手势再一次性换掉。
+   */
   _rebuild() {
-    this.diag.rebuilds++;
     const old = this.ctx;
+    if (!this._inGesture) {
+      this._needRebuild = true;
+      return;
+    }
+    if (this.diag.rebuilds >= 3) {
+      // 连续三次重建都没救回来：别再烧上下文额度了，把话说明白交给玩家
+      this._deadReason = 'create';
+      return;
+    }
+    this._needRebuild = false;
+    this.diag.rebuilds++;
     try {
       if (old && typeof old.close === 'function') old.close();
     } catch (_) {}
@@ -124,9 +165,23 @@ export class Sound {
     this.noiseBuf = null;
     this.ready = false;
     this.unlock();
+    if (!this.ctx) this._deadReason = 'create';
   }
 
   unlock() {
+    // 已经判定叫不醒（_needRebuild）→ 这次手势就把它整个换掉，不再尝试 resume
+    // 那份"resume 永远 pending"的上下文（WebKit 上再调多少次都没用）。
+    if (this._needRebuild) {
+      const dead = this.ctx;
+      this._needRebuild = false;
+      try {
+        if (dead && typeof dead.close === 'function') dead.close();
+      } catch (_) {}
+      this.ctx = null;
+      this.master = null;
+      this.noiseBuf = null;
+      this.ready = false;
+    }
     // 上下文被系统关掉（内存吃紧时 WebKit 会这么干）→ 丢掉重来。
     // 不重来的话 ready 一直是 true，却永远不出声，而且再也修不回来。
     if (this.ctx && this.ctx.state === 'closed') {
@@ -140,9 +195,18 @@ export class Sound {
     }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
+    // 每个页面能建的 AudioContext 数量有限（Chrome 是 6 个），烧光之后
+    // new 一次抛一次。到这里就别再试了，让 status 直接告诉玩家刷新。
+    if (this._createCount >= 4) {
+      this._deadReason = 'create';
+      return;
+    }
     try {
       this.ctx = new AC();
+      this._createCount++;
+      this._deadReason = '';
     } catch (e) {
+      this._deadReason = 'create';
       return;
     }
     this.master = this.ctx.createGain();
@@ -189,6 +253,7 @@ export class Sound {
    */
   get status() {
     if (this.muted) return '已静音（点右上角 🔊 打开）';
+    if (this._deadReason === 'create') return '声音卡死 · 请刷新页面';
     if (!this.ctx || !this.ready) return '未启动（在画面上点一下）';
     const st = this.ctx.state;
     if (st === 'running') return '正常';
