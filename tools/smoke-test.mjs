@@ -2234,8 +2234,14 @@ try {
     const src = fs.readFileSync(path.join(ROOT, 'js', 'render.js'), 'utf8');
     ok(/game\.heroId === 'knight' \|\| game\.heroId === 'fairy'/.test(src),
       '_drawBullet 先看玩家选了谁（不再只认关卡皮肤）');
-    ok(/_drawKnightSwords\(ctx, game, H, pl\)/.test(src) && /if \(picked === 'knight'\) this\._drawKnightSwords/.test(src),
-      '勇者身边那圈金色小剑只在勇者出场时画');
+    ok(/_drawKnightSwords\(ctx, game, H, pl, 'back'\)/.test(src) && /_drawKnightSwords\(ctx, game, H, pl, 'front'\)/.test(src),
+      '小剑分前后两趟画（绕到身后的会被角色挡住，用户 m13363）');
+    ok((src.match(/this\._drawKnightSwords\(ctx, game, H, pl/g) || []).length === 4,
+      '只有勇者出场的两处（选人分支 + 第四关默认）会画小剑，各前后两趟');
+    ok(/sc = H \* \(0\.030 \+ depth \* 0\.016\)/.test(src) && /const alpha = fade \* \(0\.26 \+ depth \* 0\.30\)/.test(src),
+      '小剑是淡金色半透明、比原来更小');
+    ok(/if \(layer === 'back' \? depth >= 0\.5 : depth < 0\.5\) continue;/.test(src),
+      '按 depth 分前后，天然挡住背后那半圈');
     ok(/const picked = \(game\.heroId === 'fairy' \|\| game\.heroId === 'knight'\) \? game\.heroId : ''/.test(src),
       '主角按"玩家选的那个"画，默认才回落到各关原本的主角');
     ok(!/_drawBoomerang/.test(src), '子弹不再是回旋镖（_drawFantasyShot 里换成了月牙）');
@@ -2255,7 +2261,8 @@ try {
     // 【用户 m11792】花仙子脚下的花环：绑定花仙子 + 必须真的在第四关用她
     ok(/_fairyFlowerRing\(ctx, game\)/.test(src), '有花环（_fairyFlowerRing）');
     ok(/game\.heroId !== 'fairy'\) return;/.test(src), '花环只在花仙子出场时画（换勇者就没了）');
-    ok(/CFG\.level\.skin !== 'fantasy'\) return;/.test(src), '花环只在第四关画（前三关没有）');
+    ok(!/_fairyFlowerRing[\s\S]{0,400}?CFG\.level\.skin !== 'fantasy'\) return;/.test(src),
+      '花环不再限定第四关：选花仙子哪一关都围（用户 m13500）');
     ok(/this\._fairyFlowerRing\(ctx, game\);\s*\n\s*this\._drawHero\(ctx, game\);/.test(src),
       '花环画在英雄之前（是脚下装饰，不能盖住人）');
     ok(/_drawButterflies\(ctx, game\);[\s\S]{0,120}?this\._drawHero\(ctx, game\);/.test(src),
@@ -2302,14 +2309,13 @@ try {
     renderer._butterfly = origB;
     ok(knightBf === 0, `勇者不飞蝴蝶（knight ${knightBf} 只）`);
 
-    // 行为②c：选了花仙子但前三关她根本没上场（用户 m11011）—— 也不该有蝴蝶。
-    // 判定必须跟 _drawHero 的皮肤分支一致：只有 fantasy 关才轮到她出场。
+    // 行为②c：花仙子四关都能出场（用户 m13500）—— 只要是她，任何皮肤都飞蝴蝶
     {
       // render.js 里读的是同一个 config 模块实例，所以改这里就等于改关卡皮肤
       const { CFG: Cf } = await import(pathToFileURL(path.join(ROOT, 'js', 'config.js')).href);
       const skin = Cf.level.skin;
       try {
-        Cf.level.skin = null; // 前三关：原版主角
+        Cf.level.skin = null; // 前三关
         n = 0;
         renderer._butterfly = (...a) => { n++; return origB.apply(renderer, a); };
         renderer.time = 2.5;
@@ -2320,8 +2326,8 @@ try {
         n = 0;
         renderer._drawButterflies(renderer.ctx, game);
         const onStage = n;
-        ok(offStage === 0 && onStage >= 1,
-          `花仙子只有真上场才有蝴蝶（前三关 ${offStage} 只 / 第四关 ${onStage} 只）`);
+        ok(offStage >= 1 && onStage >= 1,
+          `花仙子在哪一关都飞蝴蝶（前三关 ${offStage} 只 / 第四关 ${onStage} 只）`);
       } finally {
         Cf.level.skin = skin;
         renderer._butterfly = origB;

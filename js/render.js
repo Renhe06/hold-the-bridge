@@ -2484,30 +2484,35 @@ export class Renderer {
 
   /**
    * 【用户 m12944】勇者身边那圈金色小剑：绕着人转，并且螺旋往上走。
-   * 画在 _drawHero 里（贴图之后），所以是"浮在人身上"的一层。
+   * 画在 _drawHero 里，分两趟：绕到人身后（back）的先画、贴图压在上面，
+   * 绕到身前的（front）后画 —— 这样剑飞到背后就被角色挡住（用户 m13363）。
    * N 把剑均分一圈，每把的高度按 (i/N + t) 取模推进 —— 转一圈正好升一轮，
    * 升到顶淡出、从底再起，看起来连绵不断。
    */
-  _drawKnightSwords(ctx, game, H, pl) {
+  _drawKnightSwords(ctx, game, H, pl, layer) {
     const N = 6;
     const t = this.time;
     const orbit = H * (0.52 + 0.06 * Math.sin(t * 1.7));
     for (let i = 0; i < N; i++) {
       const ph = (i / N + t * 0.16) % 1;            // 0..1 螺旋进度
       const a = t * 1.5 + (i / N) * TAU;            // 绕人转的角度
+      const depth = (Math.sin(a) + 1) / 2;          // 0 远 1 近
+      // 前后分趟：远的先画（会被角色挡住），近的后画
+      if (layer === 'back' ? depth >= 0.5 : depth < 0.5) continue;
       const sx = Math.cos(a) * orbit;
       const sy = -H * (0.22 + ph * 0.62);           // 从腰升到头顶以上
-      const depth = (Math.sin(a) + 1) / 2;          // 0 远 1 近
-      const sc = H * (0.055 + depth * 0.03);
+      const sc = H * (0.030 + depth * 0.016);       // 比原来小一截
       // 升到顶/刚起步时淡入淡出，避免"突然出现"
       const fade = Math.sin(Math.min(1, Math.max(0, ph)) * Math.PI);
       if (fade <= 0.04) continue;
       ctx.save();
       ctx.translate(sx, sy);
-      ctx.globalAlpha = fade * (0.5 + depth * 0.5);
+      // 淡金半透明：整体透明度压在 0.5 上下，远侧更淡
+      const alpha = fade * (0.26 + depth * 0.30);
+      ctx.globalAlpha = alpha;
       ctx.rotate(-0.5 + Math.sin(a) * 0.25 + ph * 0.8);
-      // 剑光
-      this._drawGlow(0, 0, sc * 2.6, '#ffd67a', 0.5 * fade);
+      // 剑光（也跟着变淡，不能糊成一坨黄）
+      this._drawGlow(0, 0, sc * 2.2, '#ffe6b0', 0.26 * fade * (0.5 + depth * 0.5));
       // 刃身：细长梭形
       ctx.beginPath();
       ctx.moveTo(0, -sc * 2.2);
@@ -2515,17 +2520,17 @@ export class Renderer {
       ctx.quadraticCurveTo(-sc * 0.62, -sc * 0.2, 0, -sc * 2.2);
       ctx.closePath();
       const g = ctx.createLinearGradient(0, -sc * 2.2, 0, sc * 1.5);
-      g.addColorStop(0, '#fffdf2');
-      g.addColorStop(0.55, '#ffdc8c');
-      g.addColorStop(1, '#e8a335');
+      g.addColorStop(0, 'rgba(255,251,235,0.92)');
+      g.addColorStop(0.55, 'rgba(255,232,178,0.72)');
+      g.addColorStop(1, 'rgba(238,196,120,0.55)');
       ctx.fillStyle = g;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(255,248,214,0.85)';
+      ctx.strokeStyle = 'rgba(255,246,214,0.55)';
       ctx.lineWidth = Math.max(0.4, sc * 0.16);
       ctx.stroke();
       // 护手（一道横杠）
-      ctx.strokeStyle = '#ffe6a8';
-      ctx.lineWidth = Math.max(0.5, sc * 0.28);
+      ctx.strokeStyle = 'rgba(255,238,190,0.62)';
+      ctx.lineWidth = Math.max(0.5, sc * 0.26);
       ctx.beginPath();
       ctx.moveTo(-sc * 0.72, sc * 1.16);
       ctx.lineTo(sc * 0.72, sc * 1.16);
@@ -3329,12 +3334,11 @@ export class Renderer {
 
   /**
    * 【用户 m11792】花仙子脚下围一圈花。
-   * 门禁和蝴蝶一样是两条：①当前出场的是花仙子 ②在第四关（fantasy 皮肤）——
+   * 【用户 m13500】这圈花跟着**花仙子本人**走：只要出场的是她，哪一关都围；
    * 只是"选过花仙子"不算，必须真的在场上用她。
    */
   _fairyFlowerRing(ctx, game) {
     if (!game || game.heroId !== 'fairy') return;
-    if (!CFG.level || CFG.level.skin !== 'fantasy') return;
     const pl = game.player;
     if (!pl) return;
     const p = this.cam.project(pl.x, pl.z);
@@ -3437,11 +3441,13 @@ export class Renderer {
     const picked = (game.heroId === 'fairy' || game.heroId === 'knight') ? game.heroId : '';
     if (picked) {
       const art = this._heroArt(picked);
+      // 绕到身后的剑先画，贴图压上去就看不见被挡住的部分（用户 m13363）
+      if (picked === 'knight') this._drawKnightSwords(ctx, game, H, pl, 'back');
       if (art) this._heroSprite(ctx, game, H, pl, art, picked);
       else if (picked === 'fairy') this._heroFairy(ctx, H, sw, pl);
       else this._heroKnight(ctx, H, sw, pl);
-      // 勇者身边那圈金色小剑（螺旋上升）
-      if (picked === 'knight') this._drawKnightSwords(ctx, game, H, pl);
+      // 绕到身前的剑最后画（螺旋上升）
+      if (picked === 'knight') this._drawKnightSwords(ctx, game, H, pl, 'front');
       ctx.restore();
       this._heroShieldAndFlash(ctx, game, p, feet, H);
       return;
@@ -3470,11 +3476,12 @@ export class Renderer {
     if (CFG.level.skin === 'fantasy') {
       const id = game.heroId === 'fairy' ? 'fairy' : 'knight';
       const art = this._heroArt(id);
+      // 「默认」在第 4 关也是勇者：小剑同样分前后两趟（用户 m13363）
+      if (id === 'knight') this._drawKnightSwords(ctx, game, H, pl, 'back');
       if (art) this._heroSprite(ctx, game, H, pl, art, id);
       else if (id === 'fairy') this._heroFairy(ctx, H, sw, pl);
       else this._heroKnight(ctx, H, sw, pl);
-      // 「默认」在第 4 关也是勇者，那圈金色小剑跟着一起画（用户 m12944）
-      if (id === 'knight') this._drawKnightSwords(ctx, game, H, pl);
+      if (id === 'knight') this._drawKnightSwords(ctx, game, H, pl, 'front');
       ctx.restore();
       this._heroShieldAndFlash(ctx, game, p, feet, H);
       return;
@@ -3995,13 +4002,10 @@ export class Renderer {
   _drawButterflies(ctx, game) {
     // 【用户 m10372】"蝴蝶是和花仙子绑定的，换英雄了就没有"
     // 【用户 m11011】补一条：光是"选了花仙子"不够，**必须她真在场上**。
-    // 前三关用的是原版主角（蓝衣英雄/戴夫），花仙子只在第四关（fantasy 皮肤）登场，
-    // 所以判定要跟 _drawHero 的分支条件一模一样，否则前三关会凭空飘蝴蝶。
+    // 【用户 m13500】花仙子现在四关都能出场，所以只看"她是不是当前主角"，不再限定第四关。
     if (!game || game.heroId !== 'fairy') return;
-    if (!CFG.level || CFG.level.skin !== 'fantasy') return;
     const cam = this.cam;
     const t = this.time;
-    const fantasy = CFG.level.skin === 'fantasy';
     for (let i = 0; i < 3; i++) {
       const period = 11 + i * 2.6;
       const u = (t + i * 3.9) % period;
@@ -4018,9 +4022,8 @@ export class Renderer {
       const r = Math.max(2.4, 0.024 * p.s);
       const flap = 0.16 + 0.84 * Math.abs(Math.sin(t * 9.5 + i * 2.3));
       const fade = Math.min(1, Math.min(k, 1 - k) * 5); // 出场淡入、走远淡出
-      const col = fantasy
-        ? (i % 2 ? '#ffc2e2' : '#ffe9a8')
-        : (i % 2 ? '#cfe6ff' : '#ffd9a8');
+      // 只有花仙子会招蝴蝶，所以配色固定粉/暖金（不再跟着关卡皮肤走，用户 m13500）
+      const col = i % 2 ? '#ffc2e2' : '#ffe9a8';
       this._butterfly(ctx, p.x, y, r, flap, col, 0.82 * fade);
     }
   }

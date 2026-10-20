@@ -323,6 +323,15 @@ const EN = {
   '只在第 4 关「穿越异世界」生效 · 前三关沿用原主角': 'Stage 4 only · stages 1-3 keep the original hero',
   '当前就在第 4 关 · 换完立刻生效': 'You are on stage 4 · the swap applies right away',
 
+  // 加载页小字（用户 m13363）
+  '首次加载需要较长时间，请耐心等待~': 'First load can take a while — thanks for waiting~',
+
+  // v1.0.56 更新说明（用户 m13363 给的条目）
+  '修复微信打开偶发技能错位bug': 'Fixed the occasional skill-button misalignment when opening in WeChat',
+  '勇者和花仙子现在适配全部关卡了': 'Hero and Flower Fairy now work on every stage',
+  '勇者角色的视觉效果增强': 'Polished visuals for the Hero character',
+  '修复了其他伴生bug和部分细节优化': 'Fixed assorted related bugs and polished the details',
+
   // ---- 介绍对话 ----
   司令: 'Commander',
   '司 令': 'Commander',
