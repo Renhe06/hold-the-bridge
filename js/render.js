@@ -63,6 +63,9 @@ export class Renderer {
     this._pool = [];   // 实体排序用的复用对象池（见 _drawEntities）
     this._active = [];
     this.time = 0;
+    // 由 main.js 量出来后写入：顶部 HUD 底边 / iPhone 底部安全区（用户 m12944）
+    this.safeTop = 0;
+    this.safeBottom = 0;
   }
 
   // ---------------------------------------------------------
@@ -2313,12 +2316,18 @@ export class Renderer {
   }
 
   _drawBullet(ctx, game, b) {
+    // 【用户 m12944】勇者 / 花仙子四关都能用：选了谁，子弹就是谁的样式
+    // （勇者金色月牙剑气 / 花仙子粉色蝴蝶），「默认」才看关卡皮肤。
+    if (game.heroId === 'knight' || game.heroId === 'fairy') {
+      this._drawFantasyShot(ctx, game, b);
+      return;
+    }
     // 第三关：子弹是豌豆 —— 每条弹道的属性决定颜色（绿 / 冰蓝 / 火橙）
     if (CFG.level.skin === 'pvz') {
       this._drawPea(ctx, game, b);
       return;
     }
-    // 第四关：勇者的子弹是"剑气月牙"，花仙子的是"魔法粒子"（用户 m04749）
+    // 第四关（默认角色时）：勇者的子弹是"剑气月牙"，花仙子的是"魔法粒子"
     if (CFG.level.skin === 'fantasy') {
       this._drawFantasyShot(ctx, game, b);
       return;
@@ -2370,7 +2379,8 @@ export class Renderer {
         const jit = Math.sin(this.time * 26 + i * 2.1) * r * 0.6;
         this._drawGlow(tx + jit, ty, r * (1.5 - k), i % 2 ? '#ff9ed4' : '#ffd6ec', (1 - k) * 0.55);
       } else {
-        this._drawGlow(tx, ty, r * (1.2 - k * 0.4), K.spark, (1 - k) * 0.4);
+        // 【用户 m12944】勇者走金色：尾迹也统一成暖金，别在草地上泛绿光
+        this._drawGlow(tx, ty, r * (1.3 - k * 0.4), '#ffd98a', (1 - k) * 0.42);
       }
     }
 
@@ -2424,46 +2434,104 @@ export class Renderer {
       return;
     }
 
-    // 勇者的子弹 = 回旋镖（用户 m11097：不要圆形/月牙，要"扔出去会转的镖"）
-    this._drawGlow(p.x, p.y, r * 2.8, K.edge, 0.7);
-    const arm = r * (3.6 + tier.radiusMul * 0.4);
-    const thick = r * 1.15;
+    // 勇者的子弹 = 金色月牙剑气（用户 m12944：不要回旋镖，要"金色月牙状的剑气"）
+    // 形状：两头带尖上翘的月牙（笑口朝上），中间厚、两端收成尖。
+    const wS = r * 4.8;                 // 半宽
+    const tS = r * 3.4;                 // 弧顶高度（决定"弯"多少）
+    const gold = b.crit ? '#fff6cf' : '#ffcd4e';
+    const goldDeep = b.crit ? '#ffd98f' : '#dd8414';
+    // 光晕收一点：太亮会把金色糊成一团白，月牙就看不出形状了
+    this._drawGlow(p.x, p.y - tS * 0.2, r * 3.4, b.crit ? '#ffeaa8' : '#ffb43c', 0.5);
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.rotate(this.time * 11 + b.x * 0.6);
-    for (const s of [-1, 1]) {
+    ctx.rotate(Math.sin(this.time * 5 + b.z * 0.4) * 0.05);
+    // 落在后面的一道残影，飞起来才有"扫过去"的感觉
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = goldDeep;
+    ctx.beginPath();
+    ctx.moveTo(-wS, tS * 0.42);
+    ctx.quadraticCurveTo(-wS * 0.5, -tS * 0.14, 0, -tS * 0.2);
+    ctx.quadraticCurveTo(wS * 0.5, -tS * 0.14, wS, tS * 0.42);
+    ctx.quadraticCurveTo(wS * 0.4, tS * 0.5, 0, tS * 0.28);
+    ctx.quadraticCurveTo(-wS * 0.4, tS * 0.5, -wS, tS * 0.42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // 月牙本体（薄镰刀：外弧高、内弧贴着它走，两端收成翘起的尖）
+    ctx.beginPath();
+    ctx.moveTo(-wS, tS * 0.20);
+    ctx.quadraticCurveTo(-wS * 0.52, -tS * 0.92, 0, -tS * 1.00);
+    ctx.quadraticCurveTo(wS * 0.52, -tS * 0.92, wS, tS * 0.20);
+    ctx.quadraticCurveTo(wS * 0.34, -tS * 0.44, 0, -tS * 0.70);
+    ctx.quadraticCurveTo(-wS * 0.34, -tS * 0.44, -wS, tS * 0.20);
+    ctx.closePath();
+    const cg = ctx.createLinearGradient(0, -tS, 0, tS * 0.2);
+    cg.addColorStop(0, b.crit ? '#fff8dd' : '#fff0b8');
+    cg.addColorStop(0.38, gold);
+    cg.addColorStop(1, goldDeep);
+    ctx.fillStyle = cg;
+    ctx.fill();
+    // 外缘的锋利亮边
+    ctx.strokeStyle = b.crit ? 'rgba(255,255,255,0.92)' : 'rgba(255,241,186,0.86)';
+    ctx.lineWidth = Math.max(0.6, r * 0.20);
+    ctx.beginPath();
+    ctx.moveTo(-wS * 0.96, tS * 0.12);
+    ctx.quadraticCurveTo(-wS * 0.50, -tS * 0.90, 0, -tS * 0.97);
+    ctx.quadraticCurveTo(wS * 0.50, -tS * 0.90, wS * 0.96, tS * 0.12);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * 【用户 m12944】勇者身边那圈金色小剑：绕着人转，并且螺旋往上走。
+   * 画在 _drawHero 里（贴图之后），所以是"浮在人身上"的一层。
+   * N 把剑均分一圈，每把的高度按 (i/N + t) 取模推进 —— 转一圈正好升一轮，
+   * 升到顶淡出、从底再起，看起来连绵不断。
+   */
+  _drawKnightSwords(ctx, game, H, pl) {
+    const N = 6;
+    const t = this.time;
+    const orbit = H * (0.52 + 0.06 * Math.sin(t * 1.7));
+    for (let i = 0; i < N; i++) {
+      const ph = (i / N + t * 0.16) % 1;            // 0..1 螺旋进度
+      const a = t * 1.5 + (i / N) * TAU;            // 绕人转的角度
+      const sx = Math.cos(a) * orbit;
+      const sy = -H * (0.22 + ph * 0.62);           // 从腰升到头顶以上
+      const depth = (Math.sin(a) + 1) / 2;          // 0 远 1 近
+      const sc = H * (0.055 + depth * 0.03);
+      // 升到顶/刚起步时淡入淡出，避免"突然出现"
+      const fade = Math.sin(Math.min(1, Math.max(0, ph)) * Math.PI);
+      if (fade <= 0.04) continue;
       ctx.save();
-      ctx.rotate(s * 0.92);
+      ctx.translate(sx, sy);
+      ctx.globalAlpha = fade * (0.5 + depth * 0.5);
+      ctx.rotate(-0.5 + Math.sin(a) * 0.25 + ph * 0.8);
+      // 剑光
+      this._drawGlow(0, 0, sc * 2.6, '#ffd67a', 0.5 * fade);
+      // 刃身：细长梭形
       ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.quadraticCurveTo(arm * 0.55, -thick * 0.95, arm * 0.94, -thick * 0.3);
-      ctx.quadraticCurveTo(arm * 0.62, thick * 0.5, 0, thick * 0.38);
+      ctx.moveTo(0, -sc * 2.2);
+      ctx.quadraticCurveTo(sc * 0.62, -sc * 0.2, 0, sc * 1.5);
+      ctx.quadraticCurveTo(-sc * 0.62, -sc * 0.2, 0, -sc * 2.2);
       ctx.closePath();
-      ctx.globalAlpha = 0.95;
-      ctx.fillStyle = b.crit ? '#ffffff' : '#a8e4ff';
+      const g = ctx.createLinearGradient(0, -sc * 2.2, 0, sc * 1.5);
+      g.addColorStop(0, '#fffdf2');
+      g.addColorStop(0.55, '#ffdc8c');
+      g.addColorStop(1, '#e8a335');
+      ctx.fillStyle = g;
       ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = b.crit ? '#4aa8d8' : 'rgba(26,74,106,0.75)';
-      ctx.lineWidth = Math.max(0.8, r * 0.3);
+      ctx.strokeStyle = 'rgba(255,248,214,0.85)';
+      ctx.lineWidth = Math.max(0.4, sc * 0.16);
       ctx.stroke();
-      ctx.strokeStyle = K.edge;
-      ctx.lineWidth = Math.max(0.5, r * 0.14);
-      ctx.stroke();
-      // 刃口那道亮线（"钢口"）
-      ctx.strokeStyle = 'rgba(235,250,255,0.8)';
-      ctx.lineWidth = Math.max(0.5, r * 0.12);
+      // 护手（一道横杠）
+      ctx.strokeStyle = '#ffe6a8';
+      ctx.lineWidth = Math.max(0.5, sc * 0.28);
       ctx.beginPath();
-      ctx.moveTo(arm * 0.16, -thick * 0.16);
-      ctx.quadraticCurveTo(arm * 0.6, -thick * 0.72, arm * 0.9, -thick * 0.26);
+      ctx.moveTo(-sc * 0.72, sc * 1.16);
+      ctx.lineTo(sc * 0.72, sc * 1.16);
       ctx.stroke();
       ctx.restore();
     }
-    // 中心轴（转起来才有个"镖心"）
-    ctx.fillStyle = K.edge;
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.3, 0, TAU);
-    ctx.fill();
-    ctx.restore();
   }
 
   // ---------------------------------------------------------
@@ -3364,6 +3432,21 @@ export class Renderer {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
+    // 【用户 m12944】勇者 / 花仙子从这一版起四关都能用：选了谁就画谁，
+    // 只有「默认」（heroId === 'auto'）才走下面各关原本的主角。
+    const picked = (game.heroId === 'fairy' || game.heroId === 'knight') ? game.heroId : '';
+    if (picked) {
+      const art = this._heroArt(picked);
+      if (art) this._heroSprite(ctx, game, H, pl, art, picked);
+      else if (picked === 'fairy') this._heroFairy(ctx, H, sw, pl);
+      else this._heroKnight(ctx, H, sw, pl);
+      // 勇者身边那圈金色小剑（螺旋上升）
+      if (picked === 'knight') this._drawKnightSwords(ctx, game, H, pl);
+      ctx.restore();
+      this._heroShieldAndFlash(ctx, game, p, feet, H);
+      return;
+    }
+
     // 第二关（疯狂水世界）换成图片人物主角：照着参考图画的扁平大叔
     if (CFG.level.skin === 'ocean') {
       this._heroWater(ctx, H, sw, pl);
@@ -3390,6 +3473,8 @@ export class Renderer {
       if (art) this._heroSprite(ctx, game, H, pl, art, id);
       else if (id === 'fairy') this._heroFairy(ctx, H, sw, pl);
       else this._heroKnight(ctx, H, sw, pl);
+      // 「默认」在第 4 关也是勇者，那圈金色小剑跟着一起画（用户 m12944）
+      if (id === 'knight') this._drawKnightSwords(ctx, game, H, pl);
       ctx.restore();
       this._heroShieldAndFlash(ctx, game, p, feet, H);
       return;
@@ -7960,8 +8045,11 @@ export class Renderer {
    */
   _drawStrikeButton(ctx, game, w, h) {
     const R = Math.max(27, Math.min(40, w * 0.092));
+    // 【用户 m12944】微信 iPhone 上这个按钮被屏幕底边切掉一半，点了也没反应：
+    // 除了 main.js 把视口高度校准过，这里再让出 iPhone 的 Home 条安全区。
+    const sab = Math.max(0, this.safeBottom || 0);
     const cx = w - R - 20;
-    const cy = h - R - 26;
+    const cy = h - R - 26 - sab;
     this.strikeBtn = { x: cx, y: cy, r: R + 12 };
 
     // 第三关这个大招不是空袭，是【樱桃炸弹】（用户 m02771）：按钮换成樱桃图标 + 暖红配色

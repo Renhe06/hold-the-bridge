@@ -2125,8 +2125,9 @@ try {
   ok(game.enemies.length > beforeAdds, `持续召唤哥布林（怪 ${beforeAdds} → ${game.enemies.length}）`);
   ok(game.spits.filter((s) => s.wind).every((s) => s.hot === false), '振翅是风不是火（hot=false，伤害走碰撞不走燃烧）');
 
-  // (e) 角色系统：默认勇者、可换花仙子、选择会存进 localStorage，且只在第 4 关生效
-  ok(HEROES4.length === 2 && HEROES4[0].id === 'knight', '两个角色：勇者（默认）+ 花仙子');
+  // (e) 角色系统：默认（每关原本的主角）、勇者、花仙子三选一，选择会存进 localStorage
+  //     【用户 m12944】勇者/花仙子改成四关都能用，所以多了个 'auto' = 每关原本的主角
+  ok(HEROES4.length === 3 && HEROES4[0].id === 'auto', '三个角色：默认（每关原本的主角）+ 勇者 + 花仙子');
   ok(C4.level.hero === 'knight', '第四关默认角色是勇者');
   game.heroId = 'fairy';
   game.newRun(0);
@@ -2186,7 +2187,8 @@ try {
     ok(html.includes('class="hero-art"') && !html.includes('class="hero-pic"'),
       '角色卡片改成展示全身立绘（.hero-art），不再是圆形头像');
     for (const who of ['knight', 'fairy']) {
-      ok(html.includes(`data-src="./img/hero-${who}.webp"`), `角色面板里挂了 ${who} 的全身图（webp）`);
+      // 【用户 m12944】面板换成缩小卡图（原图 1.7MB 太大，微信里点开要等解码）
+      ok(html.includes(`data-src="./img/hero-${who}-card.webp"`), `角色面板里挂了 ${who} 的卡片图（缩小版 webp）`);
       // 【用户 m06896】「不用完全追求离线游玩，先保证游戏体验」
       //   两张全身立绘一共 ~800KB，放进预缓存清单 = 每次改版本都要先下完才装好 SW，
       //   首开会明显卡。所以现在的规矩反过来：**外壳预缓存、图片交给浏览器缓存**，
@@ -2206,6 +2208,39 @@ try {
     ok(!html.includes('img/portrait-elder.png') && !sw.includes('./img/portrait-elder.png'),
       '手绘的村长头像已经退役（不再引用）');
     ok(html.includes('class="lv hero"'), '角色卡片复用了关卡卡片的样式');
+
+    // 【用户 m12944】角色面板的四个新规矩
+    ok(html.includes('id="heroAuto"'), '角色面板多了一张「默认」卡（每关原本的主角）');
+    const mainSrc = fs.readFileSync(path.join(ROOT, 'js', 'main.js'), 'utf8');
+    ok(/pickHero\('auto'\)/.test(mainSrc), '点「默认」会真的把 heroId 写成 auto');
+    ok(/if \(!HEROES\.some\(\(h\) => h\.id === id\)\) id = 'auto'/.test(mainSrc),
+      '没选过 / 存了个不认识的 id 时落到 auto');
+    for (const who of ['knight', 'fairy']) {
+      let card = 0;
+      try { card = fs.statSync(path.join(ROOT, 'img', `hero-${who}-card.webp`)).size; } catch (_) { card = 0; }
+      ok(card > 8000 && card < 140000, `${who} 的卡片图又小又清楚（${card} 字节）`);
+    }
+    // 【用户 m12944】微信 iPhone 的空袭按钮下沉：视口高度改用 visualViewport 校准
+    ok(/function syncViewportHeight\(/.test(mainSrc) && /--app-h/.test(mainSrc),
+      '视口高度用 visualViewport 写进 --app-h（微信不认 dvh）');
+    const cssSrc = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+    ok(/height: var\(--app-h, 100dvh\)/.test(cssSrc), '#app 的高度吃 --app-h');
+    ok(/id="sabProbe"/.test(html) && /safeBottom/.test(fs.readFileSync(path.join(ROOT, 'js', 'render.js'), 'utf8')),
+      '底部安全区（iPhone Home 条）会让大招按钮往上让');
+  }
+
+  // (g1b) 【用户 m12944】勇者/花仙子四关都能用 + 金色月牙剑气 + 环绕小剑
+  {
+    const src = fs.readFileSync(path.join(ROOT, 'js', 'render.js'), 'utf8');
+    ok(/game\.heroId === 'knight' \|\| game\.heroId === 'fairy'/.test(src),
+      '_drawBullet 先看玩家选了谁（不再只认关卡皮肤）');
+    ok(/_drawKnightSwords\(ctx, game, H, pl\)/.test(src) && /if \(picked === 'knight'\) this\._drawKnightSwords/.test(src),
+      '勇者身边那圈金色小剑只在勇者出场时画');
+    ok(/const picked = \(game\.heroId === 'fairy' \|\| game\.heroId === 'knight'\) \? game\.heroId : ''/.test(src),
+      '主角按"玩家选的那个"画，默认才回落到各关原本的主角');
+    ok(!/_drawBoomerang/.test(src), '子弹不再是回旋镖（_drawFantasyShot 里换成了月牙）');
+    ok(/ctx\.moveTo\(-wS, tS \* 0\.20\)/.test(src) && /wS = r \* 4\.8/.test(src),
+      '剑气是两头带尖的月牙（外弧 + 内弧收口）');
   }
 
   // (g2) 英雄动画（用户 m09695）：法杖光 + 蝴蝶 —— 都是纯程序化叠加，立绘一个像素都没改

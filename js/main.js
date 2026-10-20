@@ -89,6 +89,7 @@ const el = {
   heroClose: $('heroClose'),
   heroKnight: $('heroKnight'),
   heroFairy: $('heroFairy'),
+  heroAuto: $('heroAuto'),
   // 局内左下角：返回主界面 / 暂停；以及暂停面板
   ingameBtns: $('ingameBtns'),
   backBtn: $('backBtn'),
@@ -143,9 +144,33 @@ function measureTopHud() {
   // canvas 上画的心形血量要排在 DOM 顶部 HUD 的正下方，所以量出来交给渲染器
   const r = el.hudTop.getBoundingClientRect();
   renderer.safeTop = Math.round(r.bottom) + 4;
+  // 【用户 m12944】iPhone 刘海屏底部还有一条安全区，大招按钮要跟着往上让
+  const probe = document.getElementById('sabProbe');
+  renderer.safeBottom = probe ? Math.round(probe.getBoundingClientRect().height) : 0;
 }
 
+/**
+ * 【用户 m12944】微信 iPhone：空袭/大招按钮"下沉错位"，点了没反应。
+ * 原因是微信内置浏览器不认 dvh，退回 100vh 时拿到的是地址栏收起后的大视口，
+ * 画布比肉眼可见的区域高一截，右下角那个圈就被顶到底边外面去了。
+ * 这里把 visualViewport（真正的可视高度）写进 --app-h，CSS 直接用它。
+ */
+function syncViewportHeight() {
+  if (typeof document === 'undefined') return;
+  const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+  const base = (vv && vv.height) || (typeof window !== 'undefined' ? window.innerHeight : 0);
+  let h = Math.round(base || 0);
+  if (!(h > 0)) return;
+  // 微信里地址栏弹出/收起时 visualViewport 会先报一个中间值，抖动一两帧再稳定；
+  // 差 1~2px 不必重排（省一次 resize 引发的 canvas 重设）。
+  if (Math.abs(h - syncViewportHeight.last) < 2) return;
+  syncViewportHeight.last = h;
+  document.documentElement.style.setProperty('--app-h', `${h}px`);
+}
+syncViewportHeight.last = 0;
+
 function fit() {
+  syncViewportHeight();
   const w = Math.max(1, el.app.clientWidth || window.innerWidth);
   const h = Math.max(1, el.app.clientHeight || window.innerHeight);
   // 【用户 m02901】DPR 上限跟画质档走：真机上"全屏半透明叠好几层"是填充率大头，
@@ -425,6 +450,9 @@ function fontTask() {
  */
 const PACK_BYTES = {
   './fonts/smiley-sans.woff2': 187392,
+  // 角色面板用的缩小卡图（用户 m12944：1.7MB 的大图拖慢了面板）
+  './img/hero-knight-card.webp': 43418,
+  './img/hero-fairy-card.webp': 92460,
   './img/hero-knight.webp': 162058,
   './img/hero-fairy.webp': 476636,
   './img/hero-fairy-body.webp': 334940,
@@ -863,16 +891,17 @@ for (const [node, name] of MENU_ENTRIES) {
 function loadHero() {
   let id = '';
   try { id = localStorage.getItem(HERO_KEY) || ''; } catch (_) {}
-  if (!HEROES.some((h) => h.id === id)) id = HEROES[0].id;
+  // 【用户 m12944】不合法（含"从来没选过"）就落到「默认」：每关原本的主角
+  if (!HEROES.some((h) => h.id === id)) id = 'auto';
   game.heroId = id;
 }
 
 const HERO_PANEL_ART = [
-  './img/hero-knight.webp',
-  './img/hero-fairy.webp',
-  // 面板也要这两张：点「角色」→ 进关卡之间不用再等（它们是同一次 bootPack 里的）
-  './img/hero-fairy-body.webp',
-  './img/hero-fairy-wings.webp',
+  // 【用户 m12944】面板只放**小卡片图**（330/360 宽的 webp，共 130KB）：
+  // 原来这里挂的是 640×960 和 1024×1536 的原图（1.7MB，花仙子那张解码要 4.7MB 内存），
+  // 微信里点开角色面板要等它解码，花仙子最明显。大图仍然留给第四关的战场立绘。
+  './img/hero-knight-card.webp',
+  './img/hero-fairy-card.webp',
   './img/portrait-knight.webp',
   './img/portrait-fairy.webp',
 ];
@@ -950,9 +979,7 @@ function heroPanelShow() {
     const img = node.querySelector && node.querySelector('img[data-src]');
     if (img && !img.getAttribute('src')) img.setAttribute('src', img.getAttribute('data-src'));
   }
-  setText(el.heroHint, 'heroHint', CFG.level && CFG.level.skin === 'fantasy'
-    ? '当前就在第 4 关 · 换完立刻生效'
-    : '只在第 4 关「穿越异世界」生效 · 前三关沿用原主角');
+  setText(el.heroHint, 'heroHint', '勇者 / 花仙子四关都能用 · 默认 = 每关原本的主角');
   el.heroOverlay.classList.add('show');
 }
 
@@ -975,6 +1002,7 @@ onTap(el.menuRole, (e) => {
 });
 onTap(el.heroKnight, (e) => { sfx.uiClick(); pickHero('knight'); e.stopPropagation(); });
 onTap(el.heroFairy, (e) => { sfx.uiClick(); pickHero('fairy'); e.stopPropagation(); });
+onTap(el.heroAuto, (e) => { sfx.uiClick(); pickHero('auto'); e.stopPropagation(); });
 onTap(el.heroClose, (e) => { sfx.uiClick(); hideHeroes(); guardClick(); e.stopPropagation(); });
 
 // ---- 选关面板（首页「关卡」入口）----
@@ -1411,7 +1439,10 @@ window.addEventListener('resize', scheduleFit);
 window.addEventListener('orientationchange', scheduleFit);
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', scheduleFit);
+  // 微信里"地址栏伸缩"只发 visualViewport 的 scroll，不发 resize
+  window.visualViewport.addEventListener('scroll', scheduleFit);
 }
+window.addEventListener('pageshow', scheduleFit);
 document.addEventListener('visibilitychange', () => {
   // 回到前台时重置计时基准，避免一帧跳掉一大段时间；
   // 顺便把音频叫醒：切后台 / 锁屏回来 AudioContext 是被系统挂起的

@@ -308,6 +308,13 @@ const EN = {
   勇者: 'Hero',
   '勇 者': 'Hero',
   花仙子: 'Flower Fairy',
+  // 【用户 m12944】第三项「默认」：每关原本的主角
+  默认: 'Default',
+  '默 认': 'Default',
+  '每关原本的主角': "Each stage's own hero",
+  随关卡: 'Per stage',
+  '勇者 / 花仙子四关都能用 · 默认 = 每关原本的主角':
+    'Hero and Flower Fairy work on all 4 stages · Default keeps each stage’s own hero',
   '挥剑 · 剑气冲击波': 'Sword · blade shockwave',
   '魔法棒 · 魔法粒子': 'Wand · magic particles',
   近战: 'Melee',

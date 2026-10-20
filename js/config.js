@@ -791,6 +791,9 @@ export function isFantasy() {
  * 所以角色是"存档里的一个字符串"，由 main.js 的「角色」面板写、渲染器读。
  */
 export const HEROES = [
+  // 【用户 m12944】'auto' = 每关原本的主角（第 1 关士兵 / 第 2 关大叔 / 第 3 关豌豆射手 /
+  // 第 4 关勇者）。勇者和花仙子从这一版起四关都能用，所以"默认"要单独作为一个选项。
+  { id: 'auto', name: '默认', desc: '每关原本的主角', tag: '随关卡', free: true },
   { id: 'knight', name: '勇者', desc: '挥剑 · 剑气冲击波', tag: '近战', free: true },
   { id: 'fairy', name: '花仙子', desc: '魔法棒 · 魔法粒子', tag: '远程', free: true },
 ];

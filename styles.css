@@ -77,7 +77,10 @@ html, body {
   inset: 0;
   width: 100%;
   height: 100vh; /* 老 Safari 不认 dvh 时的兜底；其实 inset:0 已经撑满了 */
-  height: 100dvh;
+  /* 【用户 m12944】微信内置浏览器（iOS）不认 dvh，退回 100vh 拿到的是"地址栏收起后"
+     的大视口 —— 画布比可视区高一截，右下角的大招按钮就被顶到看不见的地方。
+     main.js 的 syncViewportHeight() 把 visualViewport 的真实高度写进 --app-h。 */
+  height: var(--app-h, 100dvh);
   overflow: hidden;
   /* 极深的底 + 两团远处霓虹 + 四周压暗的暗角：
      画布还没画第一帧时，这层就已经是"末世夜晚"而不是一片纯黑 */
@@ -1029,6 +1032,16 @@ html, body {
   padding: 24px 18px 18px;
 }
 
+/* 底部安全区探针：只为了让 JS 量出 env(safe-area-inset-bottom) */#sabProbe {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: env(safe-area-inset-bottom, 0px);
+  pointer-events: none;
+  opacity: 0;
+}
+
 /* 结算面板只剩 3 项（金币那格删了，用户 m11916）：最后一项横跨整行，别留半格空位 */
 .stats .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
@@ -1697,6 +1710,37 @@ html, body {
     radial-gradient(72% 62% at 50% 88%, rgba(255, 158, 208, 0.20), rgba(20, 10, 18, 0) 70%),
     linear-gradient(180deg, rgba(40, 16, 30, 0.55), rgba(18, 8, 14, 0.75));
 }
+
+/* 【用户 m12944】第三张卡「默认」：整行铺开，左边一个问号圆盘，右边两行字。
+   选它就是"每关原本的主角"，所以不需要立绘。 */
+.lv.hero.auto {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  text-align: left;
+}
+.lv.hero.auto .hero-art {
+  width: 62px;
+  height: 62px;
+  flex: 0 0 62px;
+  margin-bottom: 0;
+  align-items: center;
+  justify-content: center;
+}
+.lv.hero.auto .hero-art::after { display: none; }
+.lv.hero.auto .hero-auto-art {
+  position: relative;
+  z-index: 1;
+  font-size: 30px;
+  font-weight: 700;
+  color: rgba(190, 224, 255, 0.72);
+  text-shadow: 0 0 14px rgba(120, 200, 255, 0.55);
+}
+.lv.hero.auto b { font-size: 16px; letter-spacing: 3px; }
+.lv.hero.auto .auto-txt { display: flex; flex-direction: column; gap: 2px; }
+.lv.hero.auto .auto-txt > span { font-size: 12px; }
 
 .level-hint {
   margin: 0 0 14px;
