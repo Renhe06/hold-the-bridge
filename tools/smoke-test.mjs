@@ -953,6 +953,12 @@ try {
   ok(!/id="lv(?:[6-9]|10)"/.test(gridHtml), '第 6~10 关的按钮已删（用户 m14093）');
   ok(/id="modeEndless"/.test(gridHtml) && /id="modeWord"/.test(gridHtml), '下面有无尽 / 单词两个模式按钮（用户 m14093）');
   ok(/id="lv5a"/.test(gridHtml) && /id="lv5b"/.test(gridHtml), '第 5 关拆成上 / 下两块（用户 m14093）');
+  // 【用户 m15802】大招按钮改用图标：第一关的轰炸机、第二关的鱼雷，无尽模式四个键也同样走图标
+  const rsrc = fs.readFileSync(path.join(ROOT, 'js', 'render.js'), 'utf8');
+  ok(/ _drawSkillIcon\(ctx, id, cx, cy, R, lit, accent\)/.test(rsrc), '有统一的图标绘制器 _drawSkillIcon（用户 m15802）');
+  ok(/_drawSkillIcon\(ctx, ocean \? 'torpedo' : 'air'/.test(rsrc), '第一关画轰炸机、第二关画鱼雷图标，不再写字（用户 m15802）');
+  ok(/_drawSkillIcon\(ctx, s\.id, cx, cy, R \* 0\.62, lit, s\.accent\)/.test(rsrc), '无尽模式四个技能键也换成图标（用户 m15802）');
+  ok(!/fillText\(ocean \? '鱼雷' : '空袭'/.test(rsrc), '按钮上不再写「空袭 / 鱼雷」文字');
   // 第 4 关现在是真关卡：点了要进第四关的开场对话
   tap('lv4');
   step(2);
@@ -967,6 +973,9 @@ try {
   step(2);
   ok(C.level.id === 2, `选关选中第 2 关（${C.level.name}）`);
   ok(game.state === STATE.TALK, `第 2 关进来先停在对话（state=${game.state}）`);
+  // 【用户 m15802】无尽模式抽到寒冰/炎火要真的"一发吐两颗"（原来只在第三关生效）
+  ok(/this\.lanes = \['', '', '', '', '', '', '', ''\]/.test(fs.readFileSync(path.join(ROOT, 'js', 'game.js'), 'utf8')),
+    '弹道属性槽位给到 8 条（无尽模式弹道上限 8，用户 m15802）');
   ok(ELS.get('talkOverlay').classList.contains('show'), '对话弹窗弹出来了');
   ok(!ELS.get('levelOverlay').classList.contains('show'), '选关面板自己收起来了');
   // 第 1 关没有开场对话（用户 m02807 删掉了第一关那段）。

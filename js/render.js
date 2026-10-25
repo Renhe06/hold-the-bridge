@@ -2411,6 +2411,11 @@ export class Renderer {
     const tier = WEAPON_TIERS[game.weapon.tierIdx];
     const p = cam.project(b.x, b.z);
     const r = Math.max(1.1, CFG.weapon.bulletRadius * tier.radiusMul * p.s);
+    // 【用户 m15802】无尽模式吃到寒冰/炎火奖励：带属性的那颗子弹换成冰蓝 / 火橙，
+    // 不然"一发吐两颗"在屏幕上看着还是两颗一样的弹，以为奖励没生效。
+    const laneTint = b.lane === 'ice' ? CFG.pvz.ice : b.lane === 'fire' ? CFG.pvz.fire : null;
+    const glowC = laneTint ? laneTint.glow : tier.glow;
+    const coreC = laneTint ? laneTint.color : tier.color;
 
     // 拖尾
     const back = cam.project(b.x, Math.max(game.player.z, b.z - 0.55 * tier.trail));
@@ -2419,14 +2424,22 @@ export class Renderer {
       const t = i / 3;
       const tx = p.x + (back.x - p.x) * t;
       const ty = p.y + (back.y - p.y) * t;
-      this._drawGlow(tx, ty, trailR * (1.4 - t * 0.5), tier.glow, (1 - t) * 0.5);
+      this._drawGlow(tx, ty, trailR * (1.4 - t * 0.5), glowC, (1 - t) * 0.5);
     }
 
-    this._drawGlow(p.x, p.y, r * 2.6, tier.glow, 0.95);
-    ctx.fillStyle = b.crit ? '#fff6d8' : tier.color;
+    this._drawGlow(p.x, p.y, r * 2.6, glowC, 0.95);
+    ctx.fillStyle = b.crit ? '#fff6d8' : coreC;
     ctx.beginPath();
     ctx.arc(p.x, p.y, r * 0.55, 0, TAU);
     ctx.fill();
+    // 带属性的那颗再加一圈同色硬边：远处一串子弹里，冰蓝/火红一眼能认出来
+    if (laneTint) {
+      ctx.strokeStyle = laneTint.color;
+      ctx.lineWidth = Math.max(0.8, r * 0.3);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * 0.92, 0, TAU);
+      ctx.stroke();
+    }
   }
 
   /**
@@ -2442,6 +2455,8 @@ export class Renderer {
     const K = fairy ? H2.fairy : H2.knight;
     const tier = WEAPON_TIERS[game.weapon.tierIdx];
     const r = Math.max(1.1, CFG.weapon.bulletRadius * tier.radiusMul * p.s);
+    // 【用户 m15802】勇者/花仙子在无尽模式吃到寒冰/炎火时，子弹也要看得见属性
+    const laneTint = b.lane === 'ice' ? CFG.pvz.ice : b.lane === 'fire' ? CFG.pvz.fire : null;
 
     const back = cam.project(b.x, Math.max(game.player.z, b.z - 0.6 * tier.trail));
     const n = fairy ? 5 : 3;
@@ -2457,6 +2472,16 @@ export class Renderer {
         // 【用户 m12944】勇者走金色：尾迹也统一成暖金，别在草地上泛绿光
         this._drawGlow(tx, ty, r * (1.3 - k * 0.4), '#ffd98a', (1 - k) * 0.42);
       }
+    }
+    // 带属性的那颗：整颗子弹（含尾巴）压上冰/火的颜色，盖住原配色
+    if (laneTint) {
+      for (let i = 1; i <= n; i++) {
+        const k = i / n;
+        const tx = p.x + (back.x - p.x) * k;
+        const ty = p.y + (back.y - p.y) * k;
+        this._drawGlow(tx, ty, r * (1.35 - k * 0.45), laneTint.glow, (1 - k) * 0.5);
+      }
+      this._drawGlow(p.x, p.y, r * 3.0, laneTint.glow, 0.62);
     }
 
     if (fairy) {
@@ -8239,10 +8264,9 @@ export class Renderer {
       ctx.arc(cx - cr * 0.86 - cr * 0.3, cy - R * 0.08 - cr * 0.3, cr * 0.28, 0, TAU);
       ctx.fill();
     } else {
-      // 第二关写"鱼雷"，其它无关卡专属招式的写"空袭"（用户 m14093）
-      ctx.font = `800 ${Math.round(R * (ocean ? 0.44 : 0.52))}px ${FONT}`;
-      ctx.fillStyle = full ? '#eaffe6' : 'rgba(233,236,240,0.72)';
-      ctx.fillText(ocean ? '鱼雷' : '空袭', cx, cy - R * 0.06);
+      // 【用户 m15802】第一关/第二关的大招按钮改成图标：空袭 = 轰炸机，鱼雷 = 鱼雷本体。
+      // 原来写"空袭/鱼雷"两个字，在这么小的圆里既挤又糊。
+      this._drawSkillIcon(ctx, ocean ? 'torpedo' : 'air', cx, cy - R * 0.16, R * 0.5, full, '#eaffe6');
     }
     ctx.font = `700 ${Math.round(R * 0.3)}px ${FONT}`;
     ctx.fillStyle = full ? accent : spent ? 'rgba(150,150,160,0.65)' : 'rgba(200,208,220,0.7)';
@@ -8267,6 +8291,110 @@ export class Renderer {
   }
 
   /**
+   * 【用户 m15802】大招按钮统一走图标：空袭 = 轰炸机、鱼雷 = 鱼雷、樱桃、独角兽。
+   * 第一关原来写"空袭"两个字、第二关写"鱼雷"、无尽模式写"袭/鱼/樱/兽"，
+   * 圆钮里的字太小，玩家得凑近才认得出，图标一眼就懂。
+   * 坐标 (cx,cy)，尺寸 R（这里之后一律按 1 = R 来画）。
+   */
+  _drawSkillIcon(ctx, id, cx, cy, R, lit, accent) {
+    const col = lit ? accent || '#eaffe6' : 'rgba(206,214,226,0.66)';
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(R, R);
+    ctx.fillStyle = col;
+
+    if (id === 'air') {
+      // 俯视的轰炸机：机身 + 后掠翼 + 尾翼
+      ctx.beginPath();
+      ctx.moveTo(0, -0.78);
+      ctx.lineTo(0.1, -0.3);
+      ctx.quadraticCurveTo(0.62, -0.06, 0.78, 0.16);
+      ctx.quadraticCurveTo(0.42, 0.08, 0.12, 0.14);
+      ctx.lineTo(0.12, 0.44);
+      ctx.quadraticCurveTo(0.34, 0.54, 0.42, 0.68);
+      ctx.quadraticCurveTo(0.18, 0.6, 0, 0.62);
+      ctx.quadraticCurveTo(-0.18, 0.6, -0.42, 0.68);
+      ctx.quadraticCurveTo(-0.34, 0.54, -0.12, 0.44);
+      ctx.lineTo(-0.12, 0.14);
+      ctx.quadraticCurveTo(-0.42, 0.08, -0.78, 0.16);
+      ctx.quadraticCurveTo(-0.62, -0.06, -0.1, -0.3);
+      ctx.closePath();
+      ctx.fill();
+      // 座舱玻璃
+      ctx.fillStyle = lit ? 'rgba(8,26,16,0.82)' : 'rgba(10,14,20,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(0, -0.3, 0.075, 0.16, 0, 0, TAU);
+      ctx.fill();
+    } else if (id === 'torpedo') {
+      // 鱼雷：细长弹体 + 两片尾舵 + 往上冒的气泡 + 弹头高光
+      ctx.beginPath();
+      ctx.moveTo(0, -0.72);
+      ctx.quadraticCurveTo(0.16, -0.52, 0.16, -0.06);
+      ctx.lineTo(0.16, 0.34);
+      ctx.lineTo(-0.16, 0.34);
+      ctx.lineTo(-0.16, -0.06);
+      ctx.quadraticCurveTo(-0.16, -0.52, 0, -0.72);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-0.16, 0.3); ctx.lineTo(-0.44, 0.6); ctx.lineTo(-0.16, 0.52);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0.16, 0.3); ctx.lineTo(0.44, 0.6); ctx.lineTo(0.16, 0.52);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 0.72;
+      ctx.beginPath(); ctx.arc(0.3, -0.52, 0.085, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(-0.3, -0.3, 0.065, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = lit ? 'rgba(255,255,255,0.78)' : 'rgba(255,255,255,0.42)';
+      ctx.beginPath();
+      ctx.ellipse(0, -0.46, 0.055, 0.13, 0, 0, TAU);
+      ctx.fill();
+    } else if (id === 'cherry') {
+      // 两颗樱桃 + 梗
+      ctx.strokeStyle = lit ? '#2f7a1c' : 'rgba(130,158,130,0.62)';
+      ctx.lineWidth = 0.11;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-0.24, 0.06);
+      ctx.quadraticCurveTo(0.2, -0.44, 0.1, -0.7);
+      ctx.stroke();
+      ctx.fillStyle = lit ? '#ff5a4a' : 'rgba(198,120,110,0.62)';
+      ctx.beginPath(); ctx.arc(-0.28, 0.16, 0.3, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(0.26, 0.2, 0.28, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.arc(-0.38, 0.05, 0.07, 0, TAU); ctx.fill();
+    } else {
+      // 独角兽：白马侧脸 + 金角 + 粉鬃（和第四关大按钮同一造型，缩下来）
+      ctx.fillStyle = lit ? '#fdf8ff' : 'rgba(214,220,230,0.66)';
+      ctx.beginPath();
+      ctx.moveTo(-0.5, 0.55);
+      ctx.quadraticCurveTo(-0.62, -0.55, 0.08, -0.5);
+      ctx.quadraticCurveTo(0.78, -0.34, 0.6, 0.14);
+      ctx.quadraticCurveTo(0.34, 0.26, 0.22, 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = lit ? '#ffd76a' : 'rgba(196,186,150,0.62)';
+      ctx.lineWidth = 0.13;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(0.14, -0.42);
+      ctx.lineTo(0.56, -1.06);
+      ctx.stroke();
+      ctx.fillStyle = lit ? '#3a2c46' : 'rgba(40,44,52,0.62)';
+      ctx.beginPath(); ctx.arc(0.2, -0.04, 0.06, 0, TAU); ctx.fill();
+      ctx.fillStyle = lit ? '#ffb6e6' : 'rgba(214,190,205,0.6)';
+      ctx.beginPath();
+      ctx.moveTo(-0.3, -0.44);
+      ctx.quadraticCurveTo(-0.72, -0.2, -0.5, 0.3);
+      ctx.quadraticCurveTo(-0.34, -0.1, -0.16, -0.34);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /**
    * 【用户 m14093】无尽模式的四个大招：右下角竖着一排小圆钮。
    * 四个共享同一圈充能（game.energy）—— 用掉任意一个，四个一起进冷却；
    * 独角兽在这关没有次数上限（无尽模式不设 strikeCap）。
@@ -8274,10 +8402,10 @@ export class Renderer {
    */
   _drawSkillButtons(ctx, game, w, h) {
     const skills = [
-      { id: 'air', glyph: '袭', accent: '#8bf58b' },
-      { id: 'torpedo', glyph: '鱼', accent: '#7df9ff' },
-      { id: 'cherry', glyph: '樱', accent: '#ff6a4a' },
-      { id: 'unicorn', glyph: '兽', accent: '#ffb6e6' },
+      { id: 'air', accent: '#8bf58b' },
+      { id: 'torpedo', accent: '#7df9ff' },
+      { id: 'cherry', accent: '#ff6a4a' },
+      { id: 'unicorn', accent: '#ffb6e6' },
     ];
     const R = Math.max(19, Math.min(27, w * 0.058));
     const gap = R * 0.36;
@@ -8315,9 +8443,8 @@ export class Renderer {
 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `800 ${Math.round(R * 0.86)}px ${FONT}`;
-      ctx.fillStyle = lit ? s.accent : 'rgba(214,222,232,0.66)';
-      ctx.fillText(s.glyph, cx, cy + R * 0.02);
+      // 【用户 m15802】四个技能键也换成图标（原来写的是"袭 / 鱼 / 樱 / 兽"）
+      this._drawSkillIcon(ctx, s.id, cx, cy, R * 0.62, lit, s.accent);
     }
 
     // 充能百分比挂在最下面那个按钮的左侧，不占地方

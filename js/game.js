@@ -115,7 +115,9 @@ export class Game {
     // lanes：**每一"条"弹道自己的属性**（'' / 'ice' / 'fire'）。
     // 用户 m02771 要求奖励墙的寒冰/炎火"只改变一条弹道"，所以属性必须存在
     // 弹道这一层，而不是像液氮弹/燃烧弹那样挂在武器全局 w.ice/w.burn 上。
-    this.lanes = ['', '', '', '', '', ''];
+    // 【用户 m15802】无尽模式弹道上限是 8 条，槽位就得给够 8 个 ——
+    // 否则抽到第 7/8 条弹道时寒冰/炎火铺不上去（表现为"奖励没用、没有一分为二"）。
+    this.lanes = ['', '', '', '', '', '', '', ''];
     this.suns = []; // 天上掉下来的阳光（走过去自动捡）
     this.sunT = 0; // 下一个阳光还有多久掉下来
     this.sunSeq = 0; // 掉过多少个了（每 N 个来一个大的）
@@ -733,7 +735,7 @@ export class Game {
     // 【m02503】第三关带寒冰/炎火的那几条弹道会多发一颗效果弹；
     // 【m02633】这颗效果弹只有 30% 伤害（CFG.pvz.laneDmgMul），估算 DPS 按它算 ——
     // 不然 BOSS 血量校准会把冰火当成"火力翻倍"，血量虚高。
-    const extra = isPvz() ? Math.min(this._flavoredLanes(), nb) * CFG.pvz.laneDmgMul : 0;
+    const extra = (isPvz() || isEndless()) ? Math.min(this._flavoredLanes(), nb) * CFG.pvz.laneDmgMul : 0;
     const perShot = w.damage * crit * (nb + extra) * this.atkMul();
     const shots = 1 / Math.max(0.05, w.interval / w.rateMul);
     let dps = perShot * shots * 0.75; // 折算：BOSS 很大，但散开的弹道不会发发命中
@@ -1396,7 +1398,7 @@ export class Game {
     // 第一关的奖励池保持原样，免得一关里突然冒出没见过的水雷/阳光。
     // 【m02503】寒冰/炎火在"所有弹道都带上属性"之后就不再出现 ——
     // 再给也没地方铺（_noteLane 只能去改中间那条），属于白给一次升级。
-    const lanesFull = isPvz() && this._flavoredLanes() >= this._laneCount();
+    const lanesFull = (isPvz() || isEndless()) && this._flavoredLanes() >= this._laneCount();
     const sk = CFG.level.skin;
     // 【用户 m14093】无尽模式："四关的奖励墙也全部随机出现"——
     // 各关专属条目（l2 水雷鱼雷 / l3 寒冰炎火阳光 / l4 剑气星尘）全进池子。
@@ -1650,10 +1652,13 @@ export class Game {
     // 第三关的豌豆：**每条弹道的属性各自决定**（寒冰/炎火/普通绿豌豆）。
     // 其他关卡走原来的全局 w.ice / w.burn（液氮弹、燃烧弹）。
     const pvz = isPvz();
+    // 【用户 m15802】无尽模式也能吃寒冰/炎火奖励：同样是"这条弹道一发吐两颗"，
+    // 只是子弹造型不是豌豆（谁出场就画谁的子弹），所以这里按"有无弹道属性"走。
+    const laneGame = pvz || isEndless();
 
     for (let i = 0; i < n; i++) {
       const off = (i - (n - 1) / 2) * CFG.weapon.spread;
-      const lane = pvz ? this.lanes[i] || '' : '';
+      const lane = laneGame ? this.lanes[i] || '' : '';
       // 【m02503】带属性的那条弹道"一发吐两颗"（用户：寒冰/炎火改成每次多吐一颗
       // 效果子弹，等于一次吐两颗）：第一颗还是普通豌豆，第二颗才是寒冰/炎火豌豆。
       // 第二颗往旁边错开一点，不然两颗完全重叠、屏幕上看不出多了一颗。
@@ -1673,8 +1678,8 @@ export class Game {
           crit: isCrit,
           pierceLeft: w.pierce,
           splash: Math.max(CFG.weapon.splash, w.splash, tier.splash),
-          ice: pvz ? (eff === 'ice' ? 1 : 0) : w.ice,
-          burn: pvz ? (eff === 'fire' ? 1 : 0) : w.burn,
+          ice: laneGame ? (eff === 'ice' ? 1 : 0) : w.ice,
+          burn: laneGame ? (eff === 'fire' ? 1 : 0) : w.burn,
           lane: eff, // 渲染器按它决定这颗豌豆的颜色（'' = 绿豌豆）
           hitSet: new Set(),
           dead: false,
