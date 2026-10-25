@@ -8,7 +8,7 @@
 //   - 径向渐变只在上面那两种烘焙里创建，主循环里不新建渐变对象
 // ============================================================
 
-import { CFG, WEAPON_TIERS, isHordeWave, isBossWave, pvzPlant } from './config.js';
+import { CFG, WEAPON_TIERS, isHordeWave, isBossWave, isEndless, pvzPlant } from './config.js';
 import { STATE } from './game.js';
 import { clamp, mulberry32, mix, rgba } from './util.js';
 import { QUALITY } from './quality.js';
@@ -66,6 +66,10 @@ export class Renderer {
     // 由 main.js 量出来后写入：顶部 HUD 底边 / iPhone 底部安全区（用户 m12944）
     this.safeTop = 0;
     this.safeBottom = 0;
+    // 大招按钮的命中盒：普通关卡只有一个大圆钮（strikeBtn），
+    // 无尽模式是右下角四个小键（strikeBtns，见 _drawSkillButtons）
+    this.strikeBtn = null;
+    this.strikeBtns = null;
   }
 
   // ---------------------------------------------------------
@@ -1678,13 +1682,25 @@ export class Renderer {
       const p = cam.project(s.x, s.z);
       const left = s.delay + s.dur - s.t;
       const k = clamp(1 - left / 0.9, 0.12, 1);
-      const r = CFG.strike.radius * p.s * (0.35 + k * 0.65);
-      this._drawGlow(p.x, p.y, r * 0.9, '#ff9f45', 0.35 + k * 0.4);
-      ctx.strokeStyle = `rgba(255,220,150,${0.35 + k * 0.5})`;
+      // 【用户 m14093】第二关的鱼雷落点是水面：预警圈走青蓝，不是爆炸的橙。
+      // 而且水面圈要收着画 —— 原来按世界半径×透视算，贴到镜头前会糊成一个占满桥面的白椭圆。
+      const wat = !!s.torp;
+      const rRaw = CFG.strike.radius * p.s * (0.35 + k * 0.65);
+      const r = wat ? Math.min(rRaw, this.w * 0.115) : rRaw;
+      this._drawGlow(p.x, p.y, r * 0.9, wat ? '#7df9ff' : '#ff9f45', 0.32 + k * 0.38);
+      ctx.strokeStyle = wat ? `rgba(190,248,255,${0.28 + k * 0.4})` : `rgba(255,220,150,${0.35 + k * 0.5})`;
       ctx.lineWidth = Math.max(1, 1.2 + k * 2.2);
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, r, r * 0.38, 0, 0, TAU);
       ctx.stroke();
+      if (wat) {
+        // 水面被压出的同心小涟漪：一看就知道"这东西是钻进水里的"
+        ctx.strokeStyle = `rgba(230,254,255,${0.2 + k * 0.3})`;
+        ctx.lineWidth = Math.max(0.8, k * 1.3);
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, r * 0.52, r * 0.2, 0, 0, TAU);
+        ctx.stroke();
+      }
     }
 
     // 水雷（第二关升级项"布设水雷"）：一颗浮在桥面上的红色浮球，带触角和呼吸光
@@ -1876,6 +1892,65 @@ export class Renderer {
       const y = -40 + (p.y + 40) * easeIn;
       const x = p.x + m.lean * this.w * 0.1 * (1 - k);
       const len = 24 + 44 * k;
+
+      // 【用户 m14093】第二关的大招是鱼雷：细长身 + 尾舵 + 身后一串气泡，
+      // 不从夜空下来（没有尾焰），而是斜着扎进水里。
+      if (m.torp) {
+        const slim = len * 0.62;
+        ctx.save();
+        ctx.translate(x, y);
+        // 弹头朝下（冲着镜头扎过来）：弹体本来就画在本地 +Y 方向，
+        // 这里只加一点入射倾角。原来多转了 90°，看着像一根横躺在水面上的胶囊。
+        ctx.rotate(m.lean * 0.9 * (1 - k));
+        // 气泡尾迹（在身后 = 屏幕上方）
+        for (let i = 0; i < 4; i++) {
+          const bt = (this.time * 2.6 + i * 0.26 + m.z) % 1;
+          const by = -slim * (0.5 + bt * 2.2);
+          ctx.fillStyle = `rgba(214,246,255,${(1 - bt) * 0.5})`;
+          ctx.beginPath();
+          ctx.arc(Math.sin(bt * 9 + i) * slim * 0.16, by, Math.max(0.9, slim * (0.1 + bt * 0.12)), 0, TAU);
+          ctx.fill();
+        }
+        // 弹体（钢灰，头部略圆）
+        const bodyG = ctx.createLinearGradient(-slim * 0.14, 0, slim * 0.14, 0);
+        bodyG.addColorStop(0, '#8fa6b8');
+        bodyG.addColorStop(0.45, '#e7f2fb');
+        bodyG.addColorStop(1, '#7f96a8');
+        ctx.fillStyle = bodyG;
+        roundRect(ctx, -slim * 0.14, -slim * 0.62, slim * 0.28, slim * 1.24, slim * 0.14);
+        ctx.fill();
+        // 尾舵（三片）
+        ctx.fillStyle = '#5d7688';
+        ctx.beginPath();
+        ctx.moveTo(0, -slim * 0.6);
+        ctx.lineTo(-slim * 0.34, -slim * 0.86);
+        ctx.lineTo(slim * 0.34, -slim * 0.86);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-slim * 0.12, -slim * 0.1);
+        ctx.lineTo(-slim * 0.44, slim * 0.06);
+        ctx.lineTo(-slim * 0.12, slim * 0.22);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(slim * 0.12, -slim * 0.1);
+        ctx.lineTo(slim * 0.44, slim * 0.06);
+        ctx.lineTo(slim * 0.12, slim * 0.22);
+        ctx.closePath();
+        ctx.fill();
+        // 弹头高光 + 一点水压光
+        this._drawGlow(0, slim * 0.5, slim * 0.55, '#7df9ff', 0.28 + k * 0.34);
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.beginPath();
+        ctx.moveTo(0, slim * 0.7);
+        ctx.lineTo(-slim * 0.1, slim * 0.42);
+        ctx.lineTo(slim * 0.1, slim * 0.42);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        continue;
+      }
 
       ctx.save();
       ctx.translate(x, y);
@@ -2636,9 +2711,13 @@ export class Renderer {
       ctx.scale(1 + 0.3 * ek, 1 + 0.3 * ek);
     }
 
+    // 【用户 m14093】无尽模式同屏混四种画风：每只怪带着自己的皮肤（e.skinTag），
+    // 没带的（其它四个关卡）回落到关卡皮肤 —— 行为与之前逐字一致。
+    const eSkin = e.skinTag || CFG.level.skin;
+
     // 第四关的四只怪是整只独立重绘的（用户 m11097）：哥布林 / 兽人 / 鹰身女妖 / 郊狼
     // 连骨架都不再沿用僵尸人形，画完就不用再叠 _zombieBody 了。
-    const fgOwn = lod > 0 && e.animal && CFG.level.skin === 'fantasy' && this._fantasyBody(ctx, H, e, col, dark);
+    const fgOwn = lod > 0 && e.animal && eSkin === 'fantasy' && this._fantasyBody(ctx, H, e, col, dark);
     if (lod === 0) this._zombieSimple(ctx, H, col, dark, e.phase, e.kind, isWind);
     else if (!fgOwn) this._zombieBody(ctx, H, col, dark, e.phase, e.kind, isWind, e.id || 0, lod);
 
@@ -2646,8 +2725,8 @@ export class Renderer {
     // 第三关：换成植物大战僵尸那几种僵尸的招牌部件（桶 / 电线杆 / 撑杆 / 投石机…）
     // 第四关：换成异世界那几种怪（哥布林 / 郊狼 / 兽人 / 鹰身女妖 / 史莱姆 / 恶龙）
     if (e.animal && lod > 0) {
-      if (CFG.level.skin === 'pvz') this._pvzBits(ctx, H, e, col, dark);
-      else if (CFG.level.skin === 'fantasy') this._fantasyBits(ctx, H, e, col, dark);
+      if (eSkin === 'pvz') this._pvzBits(ctx, H, e, col, dark);
+      else if (eSkin === 'fantasy') this._fantasyBits(ctx, H, e, col, dark);
       else this._oceanBits(ctx, H, e, col, dark);
     }
 
@@ -7786,13 +7865,9 @@ export class Renderer {
       ctx.globalAlpha = 1;
     }
 
-    // 枪口照亮全场的一点点提升
-    if (game.player.muzzle > 0.05) {
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = `rgba(255,200,120,${game.player.muzzle * 0.045})`;
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalCompositeOperation = 'source-over';
-    }
+    // 【用户 m14093】"每次攻击时屏幕都会闪烁，不要闪烁"：
+    // 原来这里在枪口火光（pl.muzzle）期间给**整个画面**加一层加色白，每打一发就闪一下。
+    // 现在整屏那层删掉，只在枪口/角色身上留光（_heroSprite / _heroWater 里已有的局部辉光）。
   }
 
   _drawPopups(ctx, game) {
@@ -7876,7 +7951,8 @@ export class Renderer {
       ctx.font = `800 ${Math.round(Math.min(46, w * 0.115))}px ${FONT}`;
       ctx.lineWidth = 6;
       ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-      const txt = `第 ${game.wave} / ${CFG.level.waves} 波`;
+      // 【用户 m14093】无尽模式没有总波数，横幅只报"第 N 波"
+      const txt = isEndless() ? `第 ${game.wave} 波` : `第 ${game.wave} / ${CFG.level.waves} 波`;
       const yy = h * 0.3;
       ctx.strokeText(txt, w / 2, yy);
       ctx.fillStyle = bossWave ? '#ff5a4a' : hordeWave ? '#8bf58b' : '#ffe9a8';
@@ -8047,6 +8123,12 @@ export class Renderer {
    * （判定半径比画的圆大一圈，手指好按）。
    */
   _drawStrikeButton(ctx, game, w, h) {
+    // 【用户 m14093】无尽模式不画那个大圆钮，改成右下角竖着一排的四个小技能键
+    // （要求"缩小按钮，纵向排列，保证界面观感不受影响"）。
+    if (isEndless()) { this._drawSkillButtons(ctx, game, w, h); return; }
+    // 从无尽模式退回普通关卡时，把上一局留下的四个技能键清掉，
+    // 否则 main.js 还会拿旧坐标去判命中（点了没反应、还挡住走位）。
+    this.strikeBtns = null;
     const R = Math.max(27, Math.min(40, w * 0.092));
     // 【用户 m12944】微信 iPhone 上这个按钮被屏幕底边切掉一半，点了也没反应：
     // 除了 main.js 把视口高度校准过，这里再让出 iPhone 的 Home 条安全区。
@@ -8057,13 +8139,15 @@ export class Renderer {
 
     // 第三关这个大招不是空袭，是【樱桃炸弹】（用户 m02771）：按钮换成樱桃图标 + 暖红配色
     const pvz = CFG.level.skin === 'pvz';
+    // 【用户 m14093】第二关的大招是【鱼雷】：青蓝配色，字也换成"鱼雷"
+    const ocean = CFG.level.skin === 'ocean';
     // 第四关是【独角兽冲锋】（用户 m04749）：粉色 + 金色，还要显示"这一局还剩几次"
     const fantasy = CFG.level.skin === 'fantasy';
     const cap = (fantasy && CFG.level.strikeCap) ? CFG.level.strikeCap + (game.strikeCapBonus || 0) : 0;
     const left = cap ? Math.max(0, cap - (game.strikeUses || 0)) : 0;
     const spent = cap > 0 && left <= 0;
-    const accent = fantasy ? '#ffb6e6' : pvz ? '#ff6a4a' : '#8bf58b';
-    const accentSoft = fantasy ? 'rgba(255,182,230,' : pvz ? 'rgba(255,150,120,' : 'rgba(160,255,170,';
+    const accent = fantasy ? '#ffb6e6' : pvz ? '#ff6a4a' : ocean ? '#7df9ff' : '#8bf58b';
+    const accentSoft = fantasy ? 'rgba(255,182,230,' : pvz ? 'rgba(255,150,120,' : ocean ? 'rgba(125,249,255,' : 'rgba(160,255,170,';
 
     const charge = clamp(game.energy / CFG.charge.max, 0, 1);
     const full = charge >= 1 && !spent;
@@ -8073,7 +8157,9 @@ export class Renderer {
       this._drawGlow(cx, cy, R * 2.5, accent, 0.28 + pulse * 0.22);
     }
 
-    ctx.fillStyle = full ? (fantasy ? 'rgba(52,24,44,0.86)' : pvz ? 'rgba(56,20,14,0.86)' : 'rgba(24,52,30,0.86)') : 'rgba(10,16,22,0.7)';
+    ctx.fillStyle = full
+      ? (fantasy ? 'rgba(52,24,44,0.86)' : pvz ? 'rgba(56,20,14,0.86)' : ocean ? 'rgba(12,38,50,0.86)' : 'rgba(24,52,30,0.86)')
+      : 'rgba(10,16,22,0.7)';
     ctx.beginPath();
     ctx.arc(cx, cy, R, 0, TAU);
     ctx.fill();
@@ -8153,9 +8239,10 @@ export class Renderer {
       ctx.arc(cx - cr * 0.86 - cr * 0.3, cy - R * 0.08 - cr * 0.3, cr * 0.28, 0, TAU);
       ctx.fill();
     } else {
-      ctx.font = `800 ${Math.round(R * 0.52)}px ${FONT}`;
+      // 第二关写"鱼雷"，其它无关卡专属招式的写"空袭"（用户 m14093）
+      ctx.font = `800 ${Math.round(R * (ocean ? 0.44 : 0.52))}px ${FONT}`;
       ctx.fillStyle = full ? '#eaffe6' : 'rgba(233,236,240,0.72)';
-      ctx.fillText('空袭', cx, cy - R * 0.06);
+      ctx.fillText(ocean ? '鱼雷' : '空袭', cx, cy - R * 0.06);
     }
     ctx.font = `700 ${Math.round(R * 0.3)}px ${FONT}`;
     ctx.fillStyle = full ? accent : spent ? 'rgba(150,150,160,0.65)' : 'rgba(200,208,220,0.7)';
@@ -8177,6 +8264,72 @@ export class Renderer {
       ctx.fillText(String(left), bx, by + R * 0.01);
     }
     ctx.textBaseline = 'alphabetic';
+  }
+
+  /**
+   * 【用户 m14093】无尽模式的四个大招：右下角竖着一排小圆钮。
+   * 四个共享同一圈充能（game.energy）—— 用掉任意一个，四个一起进冷却；
+   * 独角兽在这关没有次数上限（无尽模式不设 strikeCap）。
+   * 位置写到 this.strikeBtns 上，main.js 拿它做点击判定。
+   */
+  _drawSkillButtons(ctx, game, w, h) {
+    const skills = [
+      { id: 'air', glyph: '袭', accent: '#8bf58b' },
+      { id: 'torpedo', glyph: '鱼', accent: '#7df9ff' },
+      { id: 'cherry', glyph: '樱', accent: '#ff6a4a' },
+      { id: 'unicorn', glyph: '兽', accent: '#ffb6e6' },
+    ];
+    const R = Math.max(19, Math.min(27, w * 0.058));
+    const gap = R * 0.36;
+    const sab = Math.max(0, this.safeBottom || 0);
+    const cx = w - R - 16;
+    const cyBase = h - R - 24 - sab;
+    const charge = clamp(game.energy / CFG.charge.max, 0, 1);
+    const full = charge >= 1;
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 5.2);
+    const out = [];
+
+    for (let i = 0; i < skills.length; i++) {
+      const s = skills[i];
+      const cy = cyBase - i * (R * 2 + gap);
+      out.push({ id: s.id, x: cx, y: cy, r: R + 8 });
+      const lit = full;
+      if (lit) this._drawGlow(cx, cy, R * 2.2, s.accent, 0.22 + pulse * 0.18);
+
+      ctx.beginPath();
+      ctx.fillStyle = lit ? 'rgba(16,26,20,0.86)' : 'rgba(10,14,20,0.72)';
+      ctx.arc(cx, cy, R, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = lit ? s.accent : 'rgba(150,160,175,0.42)';
+      ctx.lineWidth = lit ? 2 : 1.5;
+      ctx.stroke();
+
+      // 充能进度：四个按钮共用一圈（每个都画一截，越满越长）
+      if (charge > 0.01 && charge < 1) {
+        ctx.strokeStyle = 'rgba(255,209,102,0.85)';
+        ctx.lineWidth = Math.max(2, R * 0.13);
+        ctx.beginPath();
+        ctx.arc(cx, cy, R - ctx.lineWidth * 0.5, -Math.PI / 2, -Math.PI / 2 + TAU * charge);
+        ctx.stroke();
+      }
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `800 ${Math.round(R * 0.86)}px ${FONT}`;
+      ctx.fillStyle = lit ? s.accent : 'rgba(214,222,232,0.66)';
+      ctx.fillText(s.glyph, cx, cy + R * 0.02);
+    }
+
+    // 充能百分比挂在最下面那个按钮的左侧，不占地方
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${Math.round(R * 0.5)}px ${FONT}`;
+    ctx.fillStyle = full ? '#8bf58b' : 'rgba(200,208,220,0.66)';
+    ctx.fillText(full ? '点我' : `${Math.floor(charge * 100)}%`, cx - R - 6, cyBase);
+    ctx.textBaseline = 'alphabetic';
+
+    this.strikeBtns = out;
+    this.strikeBtn = null;
   }
 
   _drawHeart(ctx, cx, cy, r, filled, alarm = false) {

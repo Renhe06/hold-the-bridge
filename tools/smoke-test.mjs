@@ -943,11 +943,16 @@ try {
   step(2);
   ok(ELS.get('levelOverlay').classList.contains('show'), '点「关卡」弹出选关面板');
   ok(game.state === st0, `选关面板弹出时不改变游戏状态（state=${game.state}）`);
-  // 第 5~10 关是灰按钮，点了只提示"该关卡未实装"（第 4 关这一版已经实装了）
-  tap('lv5');
+  // 【用户 m14093】第 5 关是特典关卡（上下两半），第 6~10 关的按钮已删；点特典只提示"敬请期待~"
+  tap('lv5a');
   step(2);
-  ok(String(ELS.get('levelHint').textContent).includes('未实装'), `点灰关卡只提示（${ELS.get('levelHint').textContent}）`);
-  ok(ELS.get('levelOverlay').classList.contains('show'), '点了未实装的关卡，面板留着不走');
+  ok(String(ELS.get('levelHint').textContent).includes('敬请期待'), `点特典关卡只提示（${ELS.get('levelHint').textContent}）`);
+  ok(ELS.get('levelOverlay').classList.contains('show'), '点了没实装的特典关卡，面板留着不走');
+  // 第 6~10 关的按钮必须真的没了（DOM 桩会自动造元素，只能查源码）
+  const gridHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  ok(!/id="lv(?:[6-9]|10)"/.test(gridHtml), '第 6~10 关的按钮已删（用户 m14093）');
+  ok(/id="modeEndless"/.test(gridHtml) && /id="modeWord"/.test(gridHtml), '下面有无尽 / 单词两个模式按钮（用户 m14093）');
+  ok(/id="lv5a"/.test(gridHtml) && /id="lv5b"/.test(gridHtml), '第 5 关拆成上 / 下两块（用户 m14093）');
   // 第 4 关现在是真关卡：点了要进第四关的开场对话
   tap('lv4');
   step(2);

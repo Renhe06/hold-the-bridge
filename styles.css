@@ -1633,6 +1633,62 @@ html, body {
 .lv.locked span { color: #6b7784; }
 .lv.locked:active { transform: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 3px 0 rgba(0, 0, 0, 0.45); }
 
+/* 【用户 m14093】第 5 关是特典关卡，上下两半分开放，走淡金色：
+   和上面四关的蓝色卡明确区分开，但因为还没实装，整体明度压住（不抢眼）。 */
+.lv.gold {
+  border-color: rgba(246, 226, 168, 0.34);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(150, 126, 74, 0.52) 0%, rgba(84, 69, 40, 0.62) 58%, rgba(44, 36, 22, 0.70) 100%);
+  color: #f6ecd2;
+}
+.lv.gold b { text-shadow: 0 1px 0 rgba(0, 0, 0, 0.65), 0 0 12px rgba(246, 226, 168, 0.26); }
+.lv.gold span { color: #cbb98c; }
+/* 淡金 + 未实装：再压一档，别让人以为能点进去 */
+.lv.gold.locked {
+  border-color: rgba(246, 226, 168, 0.20);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(120, 104, 66, 0.34) 0%, rgba(58, 50, 32, 0.50) 100%);
+  color: #c9bb98;
+}
+.lv.gold.locked b { font-weight: 600; }
+.lv.gold.locked span { color: #97865f; }
+
+/* 【用户 m14093】两个模式按钮各占一整行（两关的长度），深紫黑 */
+.lv.mode {
+  grid-column: 1 / -1;
+  align-items: center;
+  text-align: center;
+  padding: 13px 14px;
+  gap: 2px;
+  border-color: rgba(168, 130, 255, 0.34);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(58, 34, 92, 0.82) 0%, rgba(30, 18, 50, 0.90) 60%, rgba(16, 10, 28, 0.94) 100%);
+  color: #efe4ff;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.42),
+    0 3px 0 rgba(0, 0, 0, 0.5),
+    0 8px 20px rgba(0, 0, 0, 0.42);
+}
+.lv.mode b {
+  font-size: 17px;
+  letter-spacing: 5px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7), 0 0 14px rgba(178, 140, 255, 0.42);
+}
+.lv.mode span { font-size: 11px; letter-spacing: 0.6px; color: #b9a4dd; }
+/* 未实装那个模式：压暗但保持紫黑底色，界面还是整齐两行 */
+.lv.mode.locked {
+  border-color: rgba(150, 130, 190, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(44, 30, 68, 0.56) 0%, rgba(22, 15, 34, 0.72) 100%);
+  color: #b9aecb;
+}
+.lv.mode.locked b { font-weight: 600; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6); }
+.lv.mode.locked span { color: #8b7fa0; }
+
 /* 角色面板（用户 m04749 / m06012）：两张卡（勇者 / 花仙子）展示**全身立绘**，
    选中的那张打亮 + 右上角一个 ✓。立绘来自用户给的图（img/hero-*.png）。 */
 .lv.hero { padding: 11px 10px 13px; align-items: center; text-align: center; gap: 3px; }

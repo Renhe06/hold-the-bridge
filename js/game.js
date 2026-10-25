@@ -12,7 +12,7 @@
 //   3. 僵尸体型整体放大一档
 // ============================================================
 
-import { CFG, UPGRADES, WEAPON_TIERS, WEAPON_TIERS_FANTASY, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, isFantasy, pvzPlant, heroDef, heroZRange } from './config.js';
+import { CFG, UPGRADES, WEAPON_TIERS, WEAPON_TIERS_FANTASY, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, isFantasy, isEndless, pvzPlant, heroDef, heroZRange } from './config.js';
 import { clamp, rand, pickWeighted } from './util.js';
 import { QUALITY } from './quality.js';
 
@@ -24,6 +24,14 @@ export const STATE = {
   OVER: 'over', // 桥头失守
   CLEAR: 'clear', // 通关（结算金币）
 };
+
+// 【用户 m14093】无尽模式的怪从四套皮肤里随机抽一套。
+// 城市（skin=null）留两份权重：无尽模式的场景本来就是城市桥，街坊丧尸是"主味"，
+// 另外三套各一份，混在一起才不会一屏全是奇形怪状的。
+const ENDLESS_SKINS = [null, null, 'ocean', 'pvz', 'fantasy'];
+function endlessSkin() {
+  return ENDLESS_SKINS[(Math.random() * ENDLESS_SKINS.length) | 0];
+}
 
 export class Game {
   constructor(cam, sfx) {
@@ -124,6 +132,10 @@ export class Game {
     this.unicorns = [];
     this.strikeUses = 0;
     this.strikeCapBonus = 0; // 第四关「独角兽加能」攒出来的额外次数
+    // 【用户 m14093】无尽模式四个大招：skillCast = 这一次点的是哪个按钮，
+    // skillUsing = 刚才实际放的是哪个（渲染器拿它决定按钮上那圈光怎么亮）。
+    this.skillCast = null;
+    this.skillUsing = null;
     this.blessMul = 1; // 第四关「精灵祝福」的攻击倍率
     // 角色（用户 m04749）：玩家在主界面「角色」里选过就用他的选择，
     // 没选过（第一次进游戏、this.heroId 还没有）才用关卡自带的默认值。
@@ -693,7 +705,6 @@ export class Game {
     const M = CFG.mine;
     this.rings.push({ x: m.x, z: m.z, t: 0, life: 0.45, maxR: M.blastR * 1.5, color: '#7df9ff' });
     this.spawnParticles(m.x, m.z, 18, 'spark', '#7df9ff');
-    this.flash = Math.max(this.flash, 0.22);
     this.shake = Math.max(this.shake, 9);
     this.sfx.bomb();
     this.addPopup(m.x, m.z, '水雷命中！', '#7df9ff', 1.15);
@@ -718,7 +729,7 @@ export class Game {
   estimateDps() {
     const w = this.weapon;
     const crit = 1 + w.crit * (w.critMul - 1);
-    const nb = Math.min(w.bullets, 6);
+    const nb = Math.min(w.bullets, this._bulletMax());
     // 【m02503】第三关带寒冰/炎火的那几条弹道会多发一颗效果弹；
     // 【m02633】这颗效果弹只有 30% 伤害（CFG.pvz.laneDmgMul），估算 DPS 按它算 ——
     // 不然 BOSS 血量校准会把冰火当成"火力翻倍"，血量虚高。
@@ -1238,7 +1249,12 @@ export class Game {
     // 第四关（穿越异世界，用户 m04749）：同一套 kind 换成异世界五种怪 ——
     // 哥布林/郊狼/兽人/鹰身女妖/史莱姆，BOSS 换成恶龙；render 的 _fantasyBits
     // 按 animal 画尖耳木棒、狼吻尾巴、獠牙肩甲、羽翼利爪、黏液和龙翼龙尾。
-    const SK = CFG.level.skin;
+    // 【用户 m14093】无尽模式：怪物"集齐前面所有关卡的，随机出现"——
+    // 每只怪单独抽一套皮肤（城市 / 海洋 / 草坪 / 异世界），所以 e.skinTag 要跟着怪走，
+    // 渲染器那边用 e.skinTag 而不是全局 CFG.level.skin，同一屏里四种画风能并存。
+    // 其它关卡还是原来的"整关一套皮"，endless 为假时这段等于没写。
+    const endless = isEndless();
+    const SK = endless ? endlessSkin() : CFG.level.skin;
     const skin = SK === 'ocean' ? K.ocean || null
       : SK === 'pvz' ? K.pvz || null
         : SK === 'fantasy' ? K.fantasy || null
@@ -1257,6 +1273,9 @@ export class Game {
       color: skin ? skin.color : K.color,
       dark: skin ? skin.dark : K.dark,
       animal: skin ? skin.animal : null,
+      // 【用户 m14093】这只怪该按哪套皮肤画（无尽模式里同屏混搭；其它关卡恒等于关卡皮肤，
+      // 渲染器读它不会有任何行为变化）。
+      skinTag: SK || null,
       // 名字（血条上写什么）：只有恶龙这类有专属名字的才会用到
       title: skin && skin.name ? skin.name : null,
       halfW: K.size * 0.32,
@@ -1314,6 +1333,14 @@ export class Game {
     const bonus = CFG.score.perWave * this.wave;
     this.score += bonus;
     this.addPopup(0, this.player.z + 3, `第 ${this.wave} 波清除  +${bonus}`, '#7df9ff', 1.25);
+    // 【用户 m14093】无尽模式没有终点：清完一波直接开下一波（奖励门照常滑过来）。
+    if (isEndless()) {
+      this.openGates();
+      this.state = STATE.PREP;
+      const nextE = waveTuning(this.wave + 1);
+      this.prepT = (nextE && nextE.prep) || CFG.wave.prepTime;
+      return;
+    }
     // 打满 15 波 = 第一关通关：不再开奖励门，直接结算发金币
     if (this.wave >= CFG.level.waves) {
       this.levelClear();
@@ -1371,15 +1398,20 @@ export class Game {
     // 再给也没地方铺（_noteLane 只能去改中间那条），属于白给一次升级。
     const lanesFull = isPvz() && this._flavoredLanes() >= this._laneCount();
     const sk = CFG.level.skin;
+    // 【用户 m14093】无尽模式："四关的奖励墙也全部随机出现"——
+    // 各关专属条目（l2 水雷鱼雷 / l3 寒冰炎火阳光 / l4 剑气星尘）全进池子。
+    // 其它关卡 all=false，行为与之前逐字一致。
+    const all = isEndless();
     const pool = UPGRADES.filter((u) => {
-      if (u.l2) return sk === 'ocean';
+      if (u.l2) return all || sk === 'ocean';
       if (u.l3) {
-        if (sk !== 'pvz') return false;
+        if (!all && sk !== 'pvz') return false;
+        // 寒冰/炎火要有"还没上属性"的弹道才给，不然是白给一次升级
         if (lanesFull && (u.id === 'iceLane' || u.id === 'fireLane')) return false;
         return true;
       }
       // 第四关专属（剑气 / 星尘 / 独角兽 / 精灵祝福…，用户 m04749）
-      if (u.l4) return sk === 'fantasy';
+      if (u.l4) return all || sk === 'fantasy';
       return true;
     });
     const avail = pool.filter((u) => (this.stacks[u.id] || 0) < u.max);
@@ -1432,7 +1464,7 @@ export class Game {
     if (a.damage) w.damage += a.damage;
     if (a.rateMul) w.rateMul *= a.rateMul;
     if (a.pierce) w.pierce += a.pierce;
-    if (a.bullets) w.bullets = Math.min(6, w.bullets + a.bullets);
+    if (a.bullets) w.bullets = Math.min(this._bulletMax(), w.bullets + a.bullets);
     if (a.crit) w.crit = Math.min(0.85, w.crit + a.crit);
     if (a.critMul) w.critMul += a.critMul;
     if (a.splash) w.splash = Math.min(0.22, w.splash + a.splash);
@@ -1505,6 +1537,12 @@ export class Game {
     return idx;
   }
 
+  /** 弹道上限：默认 6 条（第一~四关的老手感）；无尽模式放宽到 8 条（用户 m14093）。 */
+  _bulletMax() {
+    const n = CFG.level && CFG.level.bulletMax;
+    return n && n > 0 ? n | 0 : 6;
+  }
+
   /** 现在有几条弹道在开火（第三关的寒冰/炎火就是按它铺属性的） */
   _laneCount() {
     return Math.max(1, Math.min(this.lanes.length, Math.round(this.weapon.bullets)));
@@ -1551,7 +1589,6 @@ export class Game {
     if (idx !== this.weapon.tierIdx) {
       this.weapon.tierIdx = idx;
       this.addPopup(this.player.x, this.player.z + 2.5, `武器进化 · ${this.tier.name}`, '#ff7df2', 1.45);
-      this.flash = 0.7;
       this.shake = Math.max(this.shake, 8);
       // 【用户 m02399】进化要有"拿到新枪"的排面：粉色冲击环 + 一圈碎星 + 脚下光环
       const pl = this.player;
@@ -1964,7 +2001,6 @@ export class Game {
       const P = CFG.puffer;
       this.rings.push({ x: e.x, z: e.z, t: 0, life: 0.42, maxR: P.blastR * 1.6, color: '#ffd166' });
       this.spawnParticles(e.x, e.z, 16, 'spark', '#ffd166');
-      this.flash = Math.max(this.flash, 0.3);
       this.shake = Math.max(this.shake, 12);
       this.sfx.bomb();
       this.addPopup(e.x, e.z, '河豚炸开！', '#ffd166', 1.2);
@@ -2006,7 +2042,6 @@ export class Game {
         '#8bf58b',
         1.4,
       );
-      this.flash = Math.max(this.flash, 0.35);
     }
   }
 
@@ -2020,6 +2055,21 @@ export class Game {
     return true;
   }
 
+  /**
+   * 【用户 m14093】无尽模式：右下角四个大招（空袭 / 鱼雷 / 樱桃炸弹 / 独角兽冲锋），
+   * 四个按钮共享同一圈充能 —— 用掉任意一个，四个同时进冷却。
+   * 走 triggerStrike 是因为充能、次数、音效、震屏那一整套都在它里面，
+   * 这里只把"这次要放哪个"塞进 this.skillCast，让它自己分派。
+   */
+  triggerSkill(kind) {
+    if (!kind) return false;
+    const prev = this.skillCast;
+    this.skillCast = kind;
+    const ok = this.triggerStrike();
+    this.skillCast = prev;
+    return ok;
+  }
+
   /** 呼叫空袭：轰炸机横穿夜空，一串导弹从天上砸下来，从远处一路犁到桥头 */
   triggerStrike() {
     if (!this.canStrike()) return false;
@@ -2027,10 +2077,17 @@ export class Game {
     this.strikeSeq += 1;
     this.strikeUses += 1;
 
+    // 【用户 m14093】先看"这次点的是哪个按钮"（无尽模式四个技能）：
+    // 没点名就按关卡原样分派 —— 第三关樱桃、第四关独角兽、第二关鱼雷、其它空袭。
+    const cast = this.skillCast
+      || (isPvz() ? 'cherry' : isFantasy() ? 'unicorn' : CFG.level.skin === 'ocean' ? 'torpedo' : 'air');
+    this.skillUsing = cast;
     // 第三关：大招不是空袭，而是植物大战僵尸里那个樱桃炸弹
-    if (isPvz()) return this.triggerCherry();
+    if (cast === 'cherry') return this.triggerCherry();
     // 第四关：大招换成独角兽冲锋（用户 m04749）
-    if (isFantasy()) return this.triggerUnicorn();
+    if (cast === 'unicorn') return this.triggerUnicorn();
+    // 第二关（用户 m14093 明确"第二关的技能应该是鱼雷"）：弹体换成鱼雷，落点是水花
+    const torp = cast === 'torpedo';
 
     const S = CFG.strike;
     // 瞄准活着的敌人的平均横向位置：空袭要砸在"人堆"上才有快感
@@ -2041,13 +2098,16 @@ export class Game {
     }
     const dmg = (S.damage + this.wave * S.damagePerWave) * this.strikeMul;
 
-    // 飞机朝哪边飞由这一发随机决定，航线高度也抖一下，免得每次一样
-    this.plane = {
-      t: 0,
-      dur: S.planeDur,
-      dir: Math.random() < 0.5 ? -1 : 1,
-      y: S.planeY * (0.86 + Math.random() * 0.3),
-    };
+    // 飞机朝哪边飞由这一发随机决定，航线高度也抖一下，免得每次一样。
+    // 鱼雷不从天上下来："从水里打过去"更像第二关的招式，所以不叫飞机（见下面的 torp 分支）。
+    if (!torp) {
+      this.plane = {
+        t: 0,
+        dur: S.planeDur,
+        dir: Math.random() < 0.5 ? -1 : 1,
+        y: S.planeY * (0.86 + Math.random() * 0.3),
+      };
+    }
 
     // 落点从远处一路铺到桥头（不是只在最远端炸）：这样无论丧尸挤在哪一段
     // 都会被这一串导弹犁一遍，最后一发正好落在玩家眼前，爽感才到位
@@ -2061,19 +2121,25 @@ export class Game {
         x: clamp(ax + rand(-0.34, 0.34), -this.cam.roadHalf, this.cam.roadHalf),
         z: zz,
         t: 0,
-        delay: S.firstDelay + i * S.interval,
-        dur: S.missileDur,
-        lean: rand(-0.5, 0.5), // 下落时的横向偏移量（屏幕比例），让弹道不是一条条垂直线
+        // 鱼雷贴水面走：比导弹落得快、也基本是直的（角度小一点）
+        delay: S.firstDelay + i * (torp ? S.interval * 0.62 : S.interval),
+        dur: torp ? S.missileDur * 0.8 : S.missileDur,
+        lean: torp ? rand(-0.16, 0.16) : rand(-0.5, 0.5), // 下落时的横向偏移量（屏幕比例），让弹道不是一条条垂直线
         dmg,
+        torp,
         launched: false,
         dead: false,
       });
     }
     this.sfx.strike();
     this.shake = Math.max(this.shake, 7);
-    this.flash = Math.max(this.flash, 0.25);
-    this.say('FIRE!', '#8bf58b');
-    this.addPopup(this.player.x, this.player.z + 5, '空 袭', '#8bf58b', 1.7);
+    if (torp) {
+      this.say('TORPEDO!', '#7df9ff');
+      this.addPopup(this.player.x, this.player.z + 5, '鱼 雷', '#7df9ff', 1.7);
+    } else {
+      this.say('FIRE!', '#8bf58b');
+      this.addPopup(this.player.x, this.player.z + 5, '空 袭', '#8bf58b', 1.7);
+    }
     return true;
   }
 
@@ -2130,7 +2196,6 @@ export class Game {
     this.rings.push({ x: c.x, z: c.z, t: 0, life: 0.36, maxR: c.r, color: '#ffe0d2' });
     this.spawnParticles(c.x, c.z, 30, 'spark', '#ff7a4a');
     this.spawnParticles(c.x, c.z, 14, 'blood', '#7d1a1a');
-    this.flash = Math.max(this.flash, 0.6);
     this.shake = Math.max(this.shake, 18);
     this.sfx.cherry();
     for (const e of this.enemies) {
@@ -2166,7 +2231,6 @@ export class Game {
     this.sfx.whoosh();
     this.sfx.strike();
     this.shake = Math.max(this.shake, 9);
-    this.flash = Math.max(this.flash, 0.3);
     this.say('冲 ！', '#ffd0f0');
     this.addPopup(this.player.x, this.player.z + 5, '独 角 兽', '#ffd0f0', 1.7);
     for (let i = 0; i < 18; i++) {
@@ -2223,7 +2287,7 @@ export class Game {
       }
       if (fly >= s.dur) {
         s.dead = true;
-        this.explode(s.x, s.z, CFG.strike.radius, s.dmg);
+        this.explode(s.x, s.z, CFG.strike.radius, s.dmg, s.torp ? 'water' : null);
       }
     }
     this.strikes = this.strikes.filter((s) => !s.dead);
@@ -2235,14 +2299,22 @@ export class Game {
     this.shout = { text, color, t: 0, life };
   }
 
-  explode(x, z, r, dmg) {
+  explode(x, z, r, dmg, style) {
+    // 【用户 m14093】第二关的鱼雷：炸在水里，不只是"一团火"。
+    // 冲击环走青蓝色、火星换成水花、屏闪压一点 —— 一眼就能和空袭的炸弹分开。
+    const water = style === 'water';
+    const ringCol = water ? '#7df9ff' : '#ffd166';
     // 冲击环画得比伤害范围大一圈：屏幕上要"看得出这一下很大"
-    this.rings.push({ x, z, t: 0, life: 0.5, maxR: r * 1.9, color: '#ffd166' });
-    this.rings.push({ x, z, t: 0, life: 0.3, maxR: r, color: '#fff3c4' });
-    this.spawnParticles(x, z, 22, 'spark', '#ffd166');
-    this.spawnParticles(x, z, 10, 'blood', '#7d1a1a');
-    this.flash = Math.max(this.flash, 0.45);
-    this.shake = Math.max(this.shake, 15);
+    this.rings.push({ x, z, t: 0, life: 0.5, maxR: r * 1.9, color: ringCol });
+    this.rings.push({ x, z, t: 0, life: 0.3, maxR: r, color: water ? '#e6feff' : '#fff3c4' });
+    if (water) {
+      this.spawnParticles(x, z, 16, 'spark', '#bff4ff');
+      this.spawnParticles(x, z, 10, 'blood', '#2f7f9e');
+    } else {
+      this.spawnParticles(x, z, 22, 'spark', '#ffd166');
+      this.spawnParticles(x, z, 10, 'blood', '#7d1a1a');
+    }
+    this.shake = Math.max(this.shake, water ? 11 : 15);
     this.sfx.bomb();
     for (const e of this.enemies) {
       if (e.dead) continue;

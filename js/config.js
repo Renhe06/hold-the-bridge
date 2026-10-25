@@ -705,6 +705,34 @@ export const CFG = {
       strikeCap: 3, // 一局最多放 3 次（用户要求"1 局最多 2~3 次"）
       hero: 'knight', // 默认角色：勇者（挥剑 + 冲击波）
     },
+    {
+      // 【用户 m14093】无尽模式：没有终点、没有 BOSS，四关的怪轮流上，
+      // 场景用第一关的（城市桥），四个大招排队放在右下角。
+      //
+      // 几个字段是"只给无尽模式看"的开关，别的关卡读不到它们：
+      //   endless  —— 没有通关（onWaveClear 不看 waves，永远进下一波）
+      //   mixSkins —— 每只怪随机挑一套皮肤（城市 / 海洋 / 草坪 / 异世界）
+      //   skills   —— 右下角四个大招，共享一圈充能
+      //   gateAll  —— 奖励门从四关的池子里一起抽
+      //   bulletMax—— 弹道上限放宽到 8（别的关是 6）
+      // waves 写 0：isBossWave 取模会得到 NaN → 恒 false，天然没有 BOSS 波。
+      id: 99,
+      name: '无尽模式',
+      hud: '无尽模式',
+      waves: 0,
+      endless: true,
+      theme: 'city',
+      skin: null, // 画面用第一关那一套（城市桥）
+      mixSkins: true,
+      bulletMax: 8,
+      gateAll: true,
+      skills: ['air', 'torpedo', 'cherry', 'unicorn'],
+      diff: 1.2,
+      countDiff: 1.1,
+      firstCount: 6,
+      countPerWave: 2.0,
+      countMaxPerWave: 0.28,
+    },
   ],
   levelIndex: 0,
   // 当前关卡的快捷引用（初始化时 = levels[0]）。全工程都读 CFG.level.xxx，
@@ -783,6 +811,15 @@ export function isPvz() {
  */
 export function isFantasy() {
   return !!CFG.level && CFG.level.skin === 'fantasy';
+}
+
+/**
+ * 【用户 m14093】无尽模式：没有终点、没有 BOSS、四关的怪混着来、四个大招排队放。
+ * 全工程只认这一个出口（别在各处散写 CFG.level.endless），
+ * 这样"无尽模式不影响其它关卡"这条要求只需要守住一个函数。
+ */
+export function isEndless() {
+  return !!(CFG.level && CFG.level.endless);
 }
 
 /**

@@ -7,7 +7,7 @@ import { Camera } from './camera.js';
 import { Sound } from './audio.js';
 import { Game, STATE } from './game.js';
 import { Renderer, TAG_COLOR } from './render.js';
-import { CFG, isHordeWave, isBossWave, findLevel, levelIndexOf, HEROES, HERO_KEY } from './config.js';
+import { CFG, isHordeWave, isBossWave, isEndless, findLevel, levelIndexOf, HEROES, HERO_KEY } from './config.js';
 import { QUALITY } from './quality.js';
 import { I18N } from './i18n.js';
 import { CHANGELOG } from './changelog.js';
@@ -67,7 +67,8 @@ const el = {
   talkMore: $('talkMore'),
   talkActions: $('talkActions'),
   talkStart: $('talkStart'),
-  // 选关面板：第 1~3 关真能进，第 4~10 关是灰按钮（点了只提示未实装）
+  // 选关面板：第 1~4 关真能进，第 5 关分上下（特典关卡，敬请期待~），
+  // 6~10 关的按钮已按用户 m14093 删掉；下面两个整行按钮是模式（无尽 / 单词）
   levelOverlay: $('levelOverlay'),
   levelGrid: $('levelGrid'),
   levelHint: $('levelHint'),
@@ -76,12 +77,10 @@ const el = {
   lv2: $('lv2'),
   lv3: $('lv3'),
   lv4: $('lv4'),
-  lv5: $('lv5'),
-  lv6: $('lv6'),
-  lv7: $('lv7'),
-  lv8: $('lv8'),
-  lv9: $('lv9'),
-  lv10: $('lv10'),
+  lv5a: $('lv5a'),
+  lv5b: $('lv5b'),
+  modeEndless: $('modeEndless'),
+  modeWord: $('modeWord'),
   // 角色面板（用户 m04749）：勇者 / 花仙子，只在第四关生效
   heroOverlay: $('heroOverlay'),
   heroGrid: $('heroGrid'),
@@ -220,6 +219,20 @@ el.canvas.addEventListener('pointerdown', (e) => {
   // 这时候只能用另一根手指去点空袭；被 activePointer 挡住的话就永远点不出来。
   const bx = canvasX(e);
   const by = canvasY(e);
+  // 【用户 m14093】无尽模式：右下角竖着四个技能键，谁被打中就放哪一个
+  // （四个共享同一圈充能，canStrike 为假时四个一起按不动）。
+  const sbs = renderer.strikeBtns;
+  if (sbs && sbs.length) {
+    for (const b of sbs) {
+      if (Math.hypot(bx - b.x, by - b.y) <= b.r) {
+        if (game.triggerSkill(b.id)) {
+          e.preventDefault();
+          return;
+        }
+        return; // 没充能：这一下就当点在按钮上，别让走位接手
+      }
+    }
+  }
   const sb = renderer.strikeBtn;
   if (sb && game.canStrike() && Math.hypot(bx - sb.x, by - sb.y) <= sb.r) {
     if (game.triggerStrike()) {
@@ -1006,17 +1019,18 @@ onTap(el.heroAuto, (e) => { sfx.uiClick(); pickHero('auto'); e.stopPropagation()
 onTap(el.heroClose, (e) => { sfx.uiClick(); hideHeroes(); guardClick(); e.stopPropagation(); });
 
 // ---- 选关面板（首页「关卡」入口）----
-// 第 1~3 关真的能进；第 4~10 关是灰按钮，点了只提示"该关卡未实装"。
+// 第 1~4 关真能进；第 5 关是特典关卡（上下两半，敬请期待~）；
+// 第 6~10 关的按钮按用户 m14093 删掉了；下面两个整行按钮是无尽 / 单词模式。
 function openLevels() {
   // 已经通关过的关卡打个「已通关」记号；按钮里的两行字是 index.html 写死的，
   // 这里只加 class，别用 textContent 写，否则会把「第 1 关 / 血色大桥」两行抹掉。
-  for (let i = 1; i <= 10; i++) {
+  for (let i = 1; i <= 4; i++) {
     const node = el['lv' + i];
     if (!node) continue;
     const lv = findLevel(i);
     node.classList.toggle('done', !!lv && game.clearedLevel >= i);
   }
-  setText(el.levelHint, 'lvH', game.clearedLevel >= 3 ? '第 4 关已解锁 · 选一关开打' : game.clearedLevel >= 2 ? '第 1~4 关都能进 · 选一关开打' : game.clearedLevel >= 1 ? '第 2~4 关已解锁 · 选一关开打' : '先打第 1 关 · 第 2~4 关也可以直接进');
+  setText(el.levelHint, 'lvH', game.clearedLevel >= 3 ? '第 1~4 关都能进 · 无尽模式随时能进' : game.clearedLevel >= 2 ? '第 1~4 关都能进 · 选一关开打' : game.clearedLevel >= 1 ? '第 2~4 关已解锁 · 选一关开打' : '先打第 1 关 · 第 2~4 关也可以直接进');
   el.levelOverlay.classList.add('show');
 }
 
@@ -1036,7 +1050,7 @@ onTap(el.levelClose, (e) => {
   guardClick();
   e.stopPropagation();
 });
-for (let i = 1; i <= 10; i++) {
+for (let i = 1; i <= 4; i++) {
   const node = el['lv' + i];
   if (!node) continue;
   onTap(node, (e) => {
@@ -1046,8 +1060,8 @@ for (let i = 1; i <= 10; i++) {
     if (!lv) {
       // 占位关：只说一句，面板不关（玩家可以接着点别的）
       sfx.uiClick();
-      setText(el.levelHint, 'lvH', `第 ${i} 关 · 该关卡未实装`);
-      showHint(`第 ${i} 关 · 该关卡未实装`, '#7df9ff');
+      setText(el.levelHint, 'lvH', `第 ${i} 关 · 敬请期待~`);
+      showHint(`第 ${i} 关 · 敬请期待~`, '#7df9ff');
       return;
     }
     sfx.uiClick();
@@ -1056,6 +1070,36 @@ for (let i = 1; i <= 10; i++) {
     startLevel(levelIndexOf(i));
   });
 }
+
+// 【用户 m14093】第 5 关特典关卡：上下两半都还没实装，点了只提示。
+for (const [node, half] of [[el.lv5a, '上'], [el.lv5b, '下']]) {
+  if (!node) continue;
+  onTap(node, (e) => {
+    sfx.uiClick();
+    e.stopPropagation();
+    setText(el.levelHint, 'lvH', `第 5 关 · ${half} · 敬请期待~`);
+    showHint(`特典关卡 · 敬请期待~`, '#f6e2a8');
+  });
+}
+
+// 无尽模式：直接开打（没有通关、没有 BOSS）
+onTap(el.modeEndless, (e) => {
+  sfx.unlock();
+  sfx.uiClick();
+  e.stopPropagation();
+  const idx = CFG.levels.findIndex((l) => l && l.endless);
+  if (idx < 0) return;
+  hideLevels();
+  guardClick();
+  startLevel(idx);
+});
+// 单词模式：还没做
+onTap(el.modeWord, (e) => {
+  sfx.uiClick();
+  e.stopPropagation();
+  setText(el.levelHint, 'lvH', '单词模式 · 敬请期待~');
+  showHint('单词模式 · 敬请期待~', '#b9a4dd');
+});
 
 // ---- 局内左下角：返回主界面 / 暂停 ----
 // 用户 m02534：打着打着想回主界面或喘口气，原来只能靠刷新页面。
@@ -1313,12 +1357,16 @@ function syncState() {
 function syncHud() {
   const st = game.state;
 
+  // 【用户 m14093】无尽模式没有"第 N / 15 波"这种东西，波次只报"打了多少波"
+  const endless = isEndless();
   setText(el.score, 'sc', String(game.score));
   setText(el.bestLabel, 'sb', String(game.best));
   setText(
     el.waveLabel,
     'wv',
-    game.wave > 0 && st !== STATE.START ? `${game.wave}/${CFG.level.waves}` : `0/${CFG.level.waves}`
+    endless
+      ? (game.wave > 0 && st !== STATE.START ? `${game.wave}` : '0')
+      : game.wave > 0 && st !== STATE.START ? `${game.wave}/${CFG.level.waves}` : `0/${CFG.level.waves}`
   );
 
   // 武器质变等级（第三关还挂上"阳光攒出来的攻击加成"，让成长看得见）
@@ -1344,7 +1392,9 @@ function syncHud() {
       setText(
         el.prepLabel,
         'pp',
-        `第 ${nw}/${CFG.level.waves} 波 ${tag}来袭 · ${Math.max(0, Math.ceil(game.prepT))}`
+        endless
+          ? `第 ${nw} 波 ${tag}来袭 · ${Math.max(0, Math.ceil(game.prepT))}`
+          : `第 ${nw}/${CFG.level.waves} 波 ${tag}来袭 · ${Math.max(0, Math.ceil(game.prepT))}`
       );
     }
     el.prepLabel.classList.add('on');
