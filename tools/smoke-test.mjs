@@ -976,6 +976,16 @@ try {
   // 【用户 m15802】无尽模式抽到寒冰/炎火要真的"一发吐两颗"（原来只在第三关生效）
   ok(/this\.lanes = \['', '', '', '', '', '', '', ''\]/.test(fs.readFileSync(path.join(ROOT, 'js', 'game.js'), 'utf8')),
     '弹道属性槽位给到 8 条（无尽模式弹道上限 8，用户 m15802）');
+  // 【用户 m15971】无尽模式抽到各关专属奖励必须真的生效（不能只有第三关能用）
+  const gsrc = fs.readFileSync(path.join(ROOT, 'js', 'game.js'), 'utf8');
+  ok(/\(CFG\.level\.skin === 'ocean' \|\| isEndless\(\)\) && this\.mineStacks > 0/.test(gsrc),
+    '无尽模式也会布水雷（原来只认第二关皮肤，用户 m15971）');
+  ok(/if \(!isPvz\(\) && !isEndless\(\)\) \{[\s\S]{0,80}?this\.suns = \[\]/.test(gsrc),
+    '无尽模式也掉阳光（原来只在第三关，用户 m15971）');
+  ok(/if \(all && u\.id === 'uniCharge'\) return false;/.test(gsrc),
+    '无尽模式把"独角兽加能"踢出奖池（独角兽本来就不限次数，用户 m15971）');
+  ok(/const laneCore = laneTint \? laneTint\.color : null;/.test(rsrc),
+    '勇者月牙 / 花仙子蝴蝶也会染上寒冰炎火色（用户 m15971）');
   ok(ELS.get('talkOverlay').classList.contains('show'), '对话弹窗弹出来了');
   ok(!ELS.get('levelOverlay').classList.contains('show'), '选关面板自己收起来了');
   // 第 1 关没有开场对话（用户 m02807 删掉了第一关那段）。

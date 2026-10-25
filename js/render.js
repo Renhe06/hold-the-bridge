@@ -2457,6 +2457,10 @@ export class Renderer {
     const r = Math.max(1.1, CFG.weapon.bulletRadius * tier.radiusMul * p.s);
     // 【用户 m15802】勇者/花仙子在无尽模式吃到寒冰/炎火时，子弹也要看得见属性
     const laneTint = b.lane === 'ice' ? CFG.pvz.ice : b.lane === 'fire' ? CFG.pvz.fire : null;
+    // 【用户 m15971】无尽模式里勇者/花仙子也要吃寒冰炎火：月牙与蝴蝶直接换上属性色，
+    // 否则"一发两颗"看着还是两颗金色的，玩家会以为奖励没生效。
+    const laneCore = laneTint ? laneTint.color : null;
+    const laneGlow = laneTint ? laneTint.glow : null;
 
     const back = cam.project(b.x, Math.max(game.player.z, b.z - 0.6 * tier.trail));
     const n = fairy ? 5 : 3;
@@ -2490,12 +2494,12 @@ export class Renderer {
       const flap = 0.55 + 0.45 * Math.sin(this.time * 17 + b.x * 0.9);
       const wS = r * 2.9 * flap;
       const hS = r * 2.3;
-      this._drawGlow(p.x, p.y, r * 3.4, '#ff9ed4', 0.85);
+      this._drawGlow(p.x, p.y, r * 3.4, laneCore || '#ff9ed4', 0.85);
       ctx.save();
       ctx.translate(p.x, p.y);
       for (const s of [-1, 1]) {
         // 上翅
-        ctx.fillStyle = b.crit ? '#ffffff' : '#ff9ed4';
+        ctx.fillStyle = b.crit ? '#ffffff' : (laneCore || '#ff9ed4');
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.quadraticCurveTo(s * wS * 0.85, -hS * 1.05, s * wS * 1.3, -hS * 0.22);
@@ -2503,7 +2507,7 @@ export class Renderer {
         ctx.closePath();
         ctx.fill();
         // 下翅（小一圈，略往后）
-        ctx.fillStyle = b.crit ? '#fff2fb' : '#ffd6ec';
+        ctx.fillStyle = b.crit ? '#fff2fb' : (laneGlow || '#ffd6ec');
         ctx.beginPath();
         ctx.moveTo(0, hS * 0.08);
         ctx.quadraticCurveTo(s * wS * 0.8, hS * 0.45, s * wS * 0.98, hS * 0.92);
@@ -2538,10 +2542,11 @@ export class Renderer {
     // 形状：两头带尖上翘的月牙（笑口朝上），中间厚、两端收成尖。
     const wS = r * 4.8;                 // 半宽
     const tS = r * 3.4;                 // 弧顶高度（决定"弯"多少）
-    const gold = b.crit ? '#fff6cf' : '#ffcd4e';
-    const goldDeep = b.crit ? '#ffd98f' : '#dd8414';
+    const gold = b.crit ? '#fff6cf' : (laneCore || '#ffcd4e');
+    const goldDeep = b.crit ? '#ffd98f' : (laneGlow || '#dd8414');
     // 光晕收一点：太亮会把金色糊成一团白，月牙就看不出形状了
-    this._drawGlow(p.x, p.y - tS * 0.2, r * 3.4, b.crit ? '#ffeaa8' : '#ffb43c', 0.5);
+    this._drawGlow(p.x, p.y - tS * 0.2, r * 3.4,
+      b.crit ? '#ffeaa8' : (laneGlow || '#ffb43c'), 0.5);
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(Math.sin(this.time * 5 + b.z * 0.4) * 0.05);
@@ -2566,7 +2571,7 @@ export class Renderer {
     ctx.quadraticCurveTo(-wS * 0.34, -tS * 0.44, -wS, tS * 0.20);
     ctx.closePath();
     const cg = ctx.createLinearGradient(0, -tS, 0, tS * 0.2);
-    cg.addColorStop(0, b.crit ? '#fff8dd' : '#fff0b8');
+    cg.addColorStop(0, b.crit ? '#fff8dd' : (laneTint ? '#ffffff' : '#fff0b8'));
     cg.addColorStop(0.38, gold);
     cg.addColorStop(1, goldDeep);
     ctx.fillStyle = cg;

@@ -494,11 +494,14 @@ export class Game {
       this.player.shield = Math.min(6, this.player.shield + this.player.shieldPerWave);
     }
 
-    // 第二关专属玩法：吃到"布水雷"奖励后，每波开局在桥面上撒几颗
-    if (CFG.level.skin === 'ocean' && this.mineStacks > 0) this.placeMines();
+    // 第二关专属玩法：吃到"布水雷"奖励后，每波开局在桥面上撒几颗。
+    // 【用户 m15971】无尽模式会抽到第二关的"布设水雷"，这条要是只认 ocean 皮肤，
+    // 抽到了也永远不撒 —— 表现为"水雷没有生效"。
+    if ((CFG.level.skin === 'ocean' || isEndless()) && this.mineStacks > 0) this.placeMines();
 
     // 第三关专属玩法：每波开局把阳光计时清零；吃到"向日葵"就当场多掉几个
-    if (isPvz()) {
+    // 【用户 m15971】无尽模式同样要掉阳光（阳光奖励是四关奖池的公共条目）
+    if (isPvz() || isEndless()) {
       this.sunT = CFG.pvz.sun.first;
       for (let i = 0; i < this.sunWaveStacks; i++) this.spawnSun(true, i * 0.4);
     }
@@ -1413,7 +1416,13 @@ export class Game {
         return true;
       }
       // 第四关专属（剑气 / 星尘 / 独角兽 / 精灵祝福…，用户 m04749）
-      if (u.l4) return all || sk === 'fantasy';
+      if (u.l4) {
+        if (!all && sk !== 'fantasy') return false;
+        // 【用户 m15971】无尽模式里独角兽本来就不限次数，"多用 1 次"没有意义，
+        // 抽到等于白给一块门 —— 直接不进池子（其它三关行为不变）。
+        if (all && u.id === 'uniCharge') return false;
+        return true;
+      }
       return true;
     });
     const avail = pool.filter((u) => (this.stacks[u.id] || 0) < u.max);
@@ -2614,8 +2623,9 @@ export class Game {
   }
 
   updateSuns(dt) {
-    // 不是第三关就一个都不留（切关卡时可能还剩着上一关的）
-    if (!isPvz()) {
+    // 不是第三关就一个都不留（切关卡时可能还剩着上一关的）；
+    // 【用户 m15971】无尽模式也掉阳光，否则"阳光充沛/向日葵"抽到就是白给
+    if (!isPvz() && !isEndless()) {
       if (this.suns.length) this.suns = [];
       return;
     }
