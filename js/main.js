@@ -104,6 +104,15 @@ const el = {
   wc30: $('wc30'),
   wc50: $('wc50'),
   wc100: $('wc100'),
+  wcReview: $('wcReview'),
+  wcWrong: $('wcWrong'),
+  wcReviewN: $('wcReviewN'),
+  wcWrongN: $('wcWrongN'),
+  wordConfirmOverlay: $('wordConfirmOverlay'),
+  wordConfirmTip: $('wordConfirmTip'),
+  wordConfirmCard: $('wordConfirmCard'),
+  wordConfirmGo: $('wordConfirmGo'),
+  wordConfirmCancel: $('wordConfirmCancel'),
   wordWrongOverlay: $('wordWrongOverlay'),
   wordWrongRows: $('wordWrongRows'),
   wordWrongNext: $('wordWrongNext'),
@@ -1172,6 +1181,7 @@ onTap(el.modeWord, (e) => {
   // 【用户 m16607】先把选关面板收起来，否则词量弹层被压在下面，还得再点一次「返回」
   hideLevels();
   guardClick();
+  refreshWordModes();
   el.wordPickOverlay.classList.add('show');
 });
 onTap(el.wordPickClose, (e) => {
@@ -1182,11 +1192,12 @@ onTap(el.wordPickClose, (e) => {
   openLevels();
 });
 
-/** 选好词量 → 关面板 → 进单词模式关卡 */
-function startWordGame(count) {
+/** 选好词量 → 关面板 → 进单词模式关卡（mode: all / review / wrong，用户 m16883） */
+function startWordGame(count, mode) {
   const idx = CFG.levels.findIndex((l) => l && l.wordMode);
   if (idx < 0) return;
   game.pendingWordTotal = count;
+  game.pendingWordMode = mode || 'all';
   wordDoneShown = false;
   wordWrongShown = false;
   el.wordPickOverlay.classList.remove('show');
@@ -1196,15 +1207,67 @@ function startWordGame(count) {
   guardClick();
   startLevel(idx);
 }
+let lastWordCount = 10;
 for (const [node, n] of [[el.wc10, 10], [el.wc30, 30], [el.wc50, 50], [el.wc100, 100]]) {
   if (!node) continue;
   onTap(node, (e) => {
     sfx.unlock();
     sfx.uiClick();
     e.stopPropagation();
-    startWordGame(n);
+    lastWordCount = n;
+    startWordGame(n, 'all');
   });
 }
+
+/** 复习 / 错词两个入口的实时计数 + 空池禁用（用户 m16883） */
+function refreshWordModes() {
+  const stats = bookStats();
+  const rev = stats.learned;
+  const bad = stats.wrong;
+  if (el.wcReviewN) setText(el.wcReviewN, 'wmr', rev > 0 ? `已背 ${rev} 词` : '还没背过词');
+  if (el.wcWrongN) setText(el.wcWrongN, 'wmw', bad > 0 ? `错词 ${bad} 个` : '错词本是空的');
+  if (el.wcReview) el.wcReview.classList.toggle('locked', rev <= 0);
+  if (el.wcWrong) el.wcWrong.classList.toggle('locked', bad <= 0);
+}
+
+// 复习模式：只考背过的词，数量沿用上次选的（不够就按池子大小）
+onTap(el.wcReview, (e) => {
+  sfx.unlock();
+  sfx.uiClick();
+  e.stopPropagation();
+  const n = bookStats().learned;
+  if (n <= 0) { setText(el.wordPickHint || el.wcReviewN, 'wmr0', '先随便背几个词再来复习'); return; }
+  startWordGame(Math.min(lastWordCount, n), 'review');
+});
+
+// 错词模式：先确认，再开局（用户 m16883：进错词模式前要提示确认）
+let wordConfirmCount = 0;
+onTap(el.wcWrong, (e) => {
+  sfx.unlock();
+  sfx.uiClick();
+  e.stopPropagation();
+  const list = wrongList();
+  if (!list.length) { setText(el.wcWrongN, 'wmw0', '错词本是空的'); return; }
+  wordConfirmCount = Math.min(lastWordCount, list.length);
+  const top = list.slice(0, 4).map((r) => `${r.w} ×${r.n}`).join('　');
+  if (el.wordConfirmTip) {
+    setText(el.wordConfirmTip, 'wct',
+      `只考错词本里的 ${list.length} 个词，这轮 ${wordConfirmCount} 题；答对一次就移出错词本`);
+  }
+  if (el.wordConfirmCard) el.wordConfirmCard.textContent = top;
+  el.wordConfirmOverlay.classList.add('show');
+});
+onTap(el.wordConfirmGo, (e) => {
+  sfx.uiClick();
+  e.stopPropagation();
+  el.wordConfirmOverlay.classList.remove('show');
+  startWordGame(wordConfirmCount, 'wrong');
+});
+onTap(el.wordConfirmCancel, (e) => {
+  sfx.uiClick();
+  e.stopPropagation();
+  el.wordConfirmOverlay.classList.remove('show');
+});
 
 // 答错弹窗：把四个词列出来（红 = 你选的，绿 = 正确答案），点「继续」接着来
 let wordWrongShown = false;

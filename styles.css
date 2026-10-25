@@ -2441,3 +2441,124 @@ body.wordmode #app::after {
 .panel.light .word-row.bad .cn { color: #a02a20; }
 .panel.light .word-row.ok .en,
 .panel.light .word-row.ok .cn { color: #11724a; }
+
+/* ============================================================
+   【用户 m16883】
+   1) 选词面板里的「复习 / 错词」两个入口
+   2) 四个浅色面板统一圆角与描边（之前 wc/卡片/行/按钮各自一套半径，看着不齐）
+   3) 结算数字去阴影；选关的错词本按钮跟同排按钮统一，只留绿色底
+   ============================================================ */
+
+/* ---- 复习 / 错词 ---- */
+.word-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.wm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 12px 8px 11px;
+  border-radius: 16px;
+  border: 1px solid rgba(150, 200, 240, 0.62);
+  background: linear-gradient(180deg, #ffffff, #edf8ff);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.9),
+    0 2px 0 rgba(150, 195, 230, 0.35);
+  color: #1d4a72;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+.wm b { font-size: 15px; letter-spacing: 3px; text-indent: 3px; }
+.wm span { font-size: 10.5px; letter-spacing: 0.4px; color: #6d8ca8; }
+.wm:active { transform: translateY(1px) scale(0.985); }
+.wm.locked {
+  border-color: rgba(160, 190, 215, 0.4);
+  background: linear-gradient(180deg, #f7fbfe, #eef4f8);
+  color: #93aec4;
+}
+.wm.locked span { color: #a8bccd; }
+
+/* 错词模式确认：把前几个错词列出来，让人知道会考什么 */
+.confirm-card {
+  margin: 2px 0 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(226, 160, 120, 0.55);
+  background: linear-gradient(180deg, rgba(255, 250, 244, 0.98), rgba(255, 240, 228, 0.98));
+  color: #8a4a2a;
+  font-size: 12.5px;
+  line-height: 1.7;
+  letter-spacing: 0.3px;
+  word-break: break-word;
+}
+
+/* ---- 浅色面板统一圆角/描边 ---- */
+.panel.light {
+  border-radius: 22px;
+  border: 1px solid rgba(140, 190, 232, 0.62);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    0 20px 52px rgba(28, 70, 112, 0.30);
+}
+.panel.light .wc { border-radius: 16px; }
+.panel.light .word-row { border-radius: 14px; }
+.panel.light .book-row { border-radius: 13px; }
+.panel.light .book-tab { border-radius: 13px; }
+.panel.light .done-book { border-radius: 16px; }
+.panel.light .btn { border-radius: 16px; }
+.panel.light .confirm-card { border-radius: 16px; }
+/* 面板里最后一颗按钮和面板底边留一点均匀的呼吸位 */
+.panel.light > .btn:last-child { margin-bottom: 2px; }
+
+/* ---- 结算：黑数字不要阴影（原来是 0 2px 10px 黑，看着发毛） ---- */
+.panel.light .stat b {
+  color: #17456b;
+  text-shadow: none;
+}
+.panel.light .stat {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.9),
+    0 2px 0 rgba(150, 195, 230, 0.28);
+  border-radius: 16px;
+}
+
+/* ---- 选关的错词本按钮：跟同排的模式按钮同一套（只把底色换成绿） ---- */
+.lv.book-btn {
+  grid-column: auto;
+  align-items: center;
+  text-align: center;
+  padding: 11px 8px;
+  gap: 2px;
+  border: 1px solid rgba(126, 226, 160, 0.42);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(46, 132, 84, 0.88) 0%, rgba(26, 96, 60, 0.92) 60%, rgba(14, 62, 40, 0.94) 100%);
+  color: #eafff2;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 3px 0 rgba(8, 46, 28, 0.55),
+    0 8px 20px rgba(10, 60, 36, 0.28);
+}
+.lv.book-btn b {
+  font-size: 16px;
+  letter-spacing: 3px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7), 0 0 14px rgba(120, 255, 180, 0.28);
+}
+.lv.book-btn span {
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  color: #b9e6cc;
+}
+.lv.book-btn:active { transform: translateY(1px) scale(0.985); }
+
+/* 错词确认要盖在选词面板上面（.word-pick 是 22） */
+.overlay.word-confirm { z-index: 26; }
+.overlay.word-confirm .panel.light { max-width: 340px; }
+.panel.light { padding-bottom: 20px; }

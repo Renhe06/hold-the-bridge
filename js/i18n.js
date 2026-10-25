@@ -112,6 +112,20 @@ const EN = {
   '再 来 一 轮': 'Again',
   '返 回 主 界 面': 'Back to menu',
 
+  // ---- 复习 / 错词模式（用户 m16883）----
+  '复 习': 'Review',
+  '错 词': 'Missed',
+  '只考背过的': 'Only what you have learned',
+  '只考背错的': 'Only what you got wrong',
+  '还没背过词': 'Nothing learned yet',
+  '错词本是空的': 'Word book is empty',
+  '进 入 错 词 模 式 ?': 'Start MISSED mode?',
+  '只考错词本里的词，答对一次就把它移出错词本':
+    'Only words from your word book — one correct answer clears each',
+  '开 始': 'Start',
+  '再 想 想': 'Not now',
+  '先随便背几个词再来复习': 'Learn a few words first, then come back',
+
   // ---- 错词本（用户 m16607）----
   '错 词 本': 'Word book',
   '已背单词': 'Learned',
@@ -636,6 +650,11 @@ const EN = {
 // 反向（英文 → 中文）不写第二套正则：翻译时把"英文结果 → 中文原文"记进 PAT_BACK，
 // 切回中文时直接查那张表 —— 屏幕上出现过的句子一定有记录。
 const PATTERNS = [
+  // 【用户 m16883】选词面板上的实时计数 + 错词模式确认句
+  [/^已背 (\d+) 词$/, '$1 learned'],
+  [/^错词 (\d+) 个$/, '$1 missed'],
+  [/^只考错词本里的 (\d+) 个词，这轮 (\d+) 题；答对一次就移出错词本$/,
+    (m) => `Only these ${m[1]} missed words · ${m[2]} questions this round; one correct answer clears each`],
   [/^第 (\d+) \/ (\d+) 波$/, 'Wave $1 / $2'],
   [/^第 (\d+)\/(\d+) 波 (.+)来袭 · (\d+)$/, (m) => `Wave ${m[1]}/${m[2]} · ${tagEn(m[3])} incoming · ${m[4]}`],
   [/^第 (\d+) 波清除 \+(\d+)$/, 'Wave $1 cleared +$2'],

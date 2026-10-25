@@ -14,7 +14,7 @@
 
 import { CFG, UPGRADES, WEAPON_TIERS, WEAPON_TIERS_FANTASY, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, isFantasy, isEndless, isWordMode, pvzPlant, heroDef, heroZRange } from './config.js';
 import { CET4_WORDS } from './words-cet4.js';
-import { markLearned, markWrong, wrongTimes } from './wordbook.js';
+import { markLearned, markWrong, wrongTimes, learnedWords, wrongWords, removeWrong } from './wordbook.js';
 import { clamp, rand, pickWeighted } from './util.js';
 import { QUALITY } from './quality.js';
 
@@ -225,7 +225,7 @@ export class Game {
     this._pvzGateWait = false;
     // 【用户 m16141】单词模式：没有波次、没有怪、没有角色技能，进来直接出一题
     if (isWordMode()) {
-      this.startWordRun(this.pendingWordTotal || CFG.word.counts[0]);
+      this.startWordRun(this.pendingWordTotal || CFG.word.counts[0], this.pendingWordMode || 'all');
       return;
     }
     if (CFG.level.intro) {
@@ -279,10 +279,33 @@ export class Game {
   //  本关没有僵尸、不用角色技能，所以整段逻辑和战斗系统完全不相交。
   // ============================================================
 
-  startWordRun(total) {
+  /**
+   * 【用户 m16883】三种词源：'all'（全部）、'review'（只考背过的）、'wrong'（只考错词本里的）。
+   * review / wrong 的词量会被池子大小夹住——背过的只有 8 个，就别硬凑 10 个。
+   */
+  wordSourcePool(mode) {
+    const byWord = new Map(CET4_WORDS.map((c) => [c.w, c]));
+    let list = null;
+    if (mode === 'review') list = learnedWords();
+    else if (mode === 'wrong') list = wrongWords();
+    if (!list) return CET4_WORDS.slice();
+    const out = [];
+    for (const w of list) {
+      const c = byWord.get(w);
+      if (c) out.push(c);
+    }
+    return out;
+  }
+
+  startWordRun(total, mode) {
     this.reset();
     this.state = STATE.FIGHT; // 复用 FIGHT：主循环照跑，update 里由 isWordMode() 分流
-    this.wordTotal = Math.max(1, total | 0);
+    this.wordSrc = mode === 'review' || mode === 'wrong' ? mode : 'all';
+    this.wordPool = this.wordSourcePool(this.wordSrc);
+    this.wordPoolSeen = new Set();
+    // 词池不够就按池子大小来（复习模式背过几个就考几个）
+    const poolN = this.wordSrc === 'all' ? Infinity : this.wordPool.length;
+    this.wordTotal = Math.max(1, Math.min(Math.max(1, total | 0), poolN === Infinity ? 1e9 : Math.max(1, poolN)));
     this.wordDone = 0;
     this.wordRight = 0;
     this.wordWrong = 0;
@@ -306,8 +329,17 @@ export class Game {
 
   /** 出一个新词：题干 + 四个选项（一个正确、三个干扰） */
   wordNext() {
-    const pool = CET4_WORDS;
+    const pool = (this.wordPool && this.wordPool.length ? this.wordPool : CET4_WORDS);
     const n = pool.length;
+    const fresh = () => {
+      // 复习 / 错词模式：同一个词一局里只出一次，抽到过的先跳过
+      if (this.wordSrc === 'all' || !this.wordPoolSeen) return pool[(Math.random() * n) | 0];
+      for (let i = 0; i < 40; i++) {
+        const c = pool[(Math.random() * n) | 0];
+        if (!this.wordPoolSeen.has(c.w)) return c;
+      }
+      return pool[(Math.random() * n) | 0];
+    };
     // 【用户 m16607】先看错词队列里有没有到期的：隔几个词再考一次，答对才销账
     let redo = null;
     if (this.wordRetry && this.wordRetry.length) {
@@ -323,20 +355,21 @@ export class Game {
       q = pool.find((c) => c.w === redo.w) || redo.q;
       this.wordIsRedo = true;
     } else {
-      q = pool[(Math.random() * n) | 0];
+      q = fresh();
       // 别连续出同一个词
       for (let i = 0; i < 12 && this.wordUsed && q.w === this.wordUsed.w; i++) {
-        q = pool[(Math.random() * n) | 0];
+        q = fresh();
       }
       this.wordIsRedo = false;
     }
+    if (this.wordPoolSeen) this.wordPoolSeen.add(q.w);
     this.wordUsed = q;
 
     // 干扰项先找"像的词"：前两个字母相同（abandon / abandon…），或同首字母且长度接近，
     // 这样四个中文选项才真的需要辨析，而不是一眼就能排除。
     const like = [];
     const far = [];
-    for (const c of pool) {
+    for (const c of CET4_WORDS) {
       if (c === q) continue;
       const sameHead = c.w.slice(0, 2) === q.w.slice(0, 2);
       const nearLen = Math.abs(c.w.length - q.w.length) <= 1;
@@ -396,6 +429,8 @@ export class Game {
       this.wordHold = CFG.word.holdRight;
       this.wordBurst(true);
       markLearned(this.wordQ.w);
+      // 【用户 m16883】错词模式里答对一次就移出错词本（复习模式不动错词本）
+      if (this.wordSrc === 'wrong') removeWrong(this.wordQ.w);
       if (this.sfx && this.sfx.wordRight) this.sfx.wordRight();
       else if (this.sfx && this.sfx.hit) this.sfx.hit();
       return true;

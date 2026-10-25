@@ -1003,6 +1003,27 @@ try {
     '答对下一题 / 答错弹窗继续（用户 m16141）');
   ok(/_drawWordScene\(ctx, game, w, h\)/.test(rsrc), '单词模式有自己的画面（明亮英语主题）');
   ok(/_drawWordOption\(/.test(rsrc), '四个中文选项卡（奖励卡样式）');
+  // ---- 复习 / 错词模式（用户 m16883）----
+  const wbSrc2 = fs.readFileSync(path.join(ROOT, 'js', 'wordbook.js'), 'utf8');
+  ok(/wordSourcePool\(mode\)/.test(gsrc) && /mode === 'review'/.test(gsrc) && /mode === 'wrong'/.test(gsrc),
+    '单词模式有三种词源：全部 / 复习（只考背过的）/ 错词（只考错过的，用户 m16883）');
+  ok(/if \(this\.wordSrc === 'wrong'\) removeWrong\(this\.wordQ\.w\);/.test(gsrc),
+    '错词模式里答对一次就移出错词本（用户 m16883）');
+  ok(/export function removeWrong\(w\)/.test(wbSrc2) && /export function wrongWords\(\)/.test(wbSrc2),
+    '错词本支持列出错词 + 移除单词');
+  ok(/this\.wordPoolSeen\.has\(c\.w\)/.test(gsrc), '复习/错词模式同一个词一局只出一次');
+  ok(/wordPickOverlay[\s\S]{0,400}?word-modes/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'))
+    || /class="word-modes"/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')),
+    '选词面板里多了复习 / 错词两个入口（在返回键上面）');
+  ok(/wordConfirmOverlay/.test(msrc) && /进 入 错 词 模 式 \?/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')),
+    '进错词模式前先弹确认（用户 m16883）');
+  ok(/panel\.light[\s\S]{0,120}?border-radius: 22px/.test(fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8')),
+    '四个浅色面板统一圆角/描边');
+  ok(/\.panel\.light \.stat b \{[\s\S]{0,60}?text-shadow: none/.test(fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8')),
+    '结算数字去掉阴影（用户 m16883）');
+  ok(/\.lv\.book-btn \{[\s\S]{0,400}?border: 1px solid rgba\(126, 226, 160, 0\.42\)/.test(fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8')),
+    '选关的错词本按钮跟同排按钮同款，只换绿色底（用户 m16883）');
+
   ok(/applyWordLocale\(isWordMode\(\)\)/.test(msrc) && /I18N\.setBypass\(on\)/.test(msrc)
     && /let bypass = false;/.test(fs.readFileSync(path.join(ROOT, 'js', 'i18n.js'), 'utf8')),
     '单词模式局内不适用英语模式（用户 m16473）');

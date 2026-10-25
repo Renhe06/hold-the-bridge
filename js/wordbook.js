@@ -95,3 +95,26 @@ export function bookStats() {
   const b = loadBook();
   return { learned: b.learned.length, wrong: Object.keys(b.wrong).length };
 }
+
+/** 已背过的单词（数组，最近的在后） */
+export function learnedWords() {
+  return loadBook().learned.slice();
+}
+
+/** 错词（数组，按错次从多到少） */
+export function wrongWords() {
+  return wrongList().map((r) => r.w);
+}
+
+/**
+ * 【用户 m16883】错词模式里"答对一次就移出错词本"：
+ * 直接从 wrong 里删掉，已背单词保留（背过这件事不能抹）。
+ */
+export function removeWrong(w) {
+  if (!w) return false;
+  const b = loadBook();
+  if (!b.wrong[w]) return false;
+  delete b.wrong[w];
+  save();
+  return true;
+}
