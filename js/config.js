@@ -764,7 +764,9 @@ export const CFG = {
     cardGap: 0.028, // 四张选项卡的间距（占屏宽比例）
     cardH: 0.085, // 选项卡高度（占屏高比例）
     heroH: 0.34, // 角色立绘高度（占屏高比例）
-    scorePerWord: 10, // 每题基础分
+    scorePerWord: 10,
+    // 【用户 m16607】答错的词隔几个词再考一次（最后一个词就直接再来）
+    retryGap: 3, // 每题基础分
     streakBonus: 2, // 连对每多一题多给几分
   },
   levelIndex: 0,

@@ -390,6 +390,21 @@ export class Sound {
     this.burst({ dur: 0.22, vol: 0.2, type: 'lowpass', freq: 700, sweepTo: 140 });
   }
 
+  // ---- 单词模式（用户 m16607 / m16141）----
+  // 答对：清脆的三连上行，像课堂上的"叮咚"；答错：闷闷的两声下行，不刺耳
+  wordRight() {
+    const notes = [783.99, 987.77, 1318.51];
+    notes.forEach((f, i) => {
+      this.tone({ freq: f, type: 'triangle', dur: 0.12, vol: 0.14, delay: i * 0.07 });
+    });
+    this.burst({ dur: 0.05, vol: 0.06, type: 'highpass', freq: 6200 });
+  }
+
+  wordWrong() {
+    this.tone({ freq: 320, freq2: 210, type: 'sine', dur: 0.18, vol: 0.16 });
+    this.tone({ freq: 240, freq2: 150, type: 'sine', dur: 0.26, vol: 0.13, delay: 0.13 });
+  }
+
   pickup() {
     this.tone({ freq: 880, type: 'sine', dur: 0.1, vol: 0.16 });
     this.tone({ freq: 1320, type: 'sine', dur: 0.14, vol: 0.13, delay: 0.08 });

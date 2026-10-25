@@ -14,6 +14,7 @@
 
 import { CFG, UPGRADES, WEAPON_TIERS, WEAPON_TIERS_FANTASY, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, isFantasy, isEndless, isWordMode, pvzPlant, heroDef, heroZRange } from './config.js';
 import { CET4_WORDS } from './words-cet4.js';
+import { markLearned, markWrong, wrongTimes } from './wordbook.js';
 import { clamp, rand, pickWeighted } from './util.js';
 import { QUALITY } from './quality.js';
 
@@ -295,6 +296,11 @@ export class Game {
     this.wordFinished = false;
     this.wordBursts = [];
     this.wordUsed = null;
+    // 【用户 m16607】答错的词隔几个词再来一次，直到答对为止
+    this.wordRetry = [];      // [{ q, due }]，due = wordDone 到几时再考
+    this.wordRedo = 0;        // 这一局里"再考"的次数（不计入词量）
+    this.wordShake = 0;       // 答错时画面抖一下（渲染用）
+    this.wordFlash = 0;       // 答错时的红色边光
     this.wordNext();
   }
 
@@ -302,10 +308,27 @@ export class Game {
   wordNext() {
     const pool = CET4_WORDS;
     const n = pool.length;
-    let q = pool[(Math.random() * n) | 0];
-    // 别连续出同一个词
-    for (let i = 0; i < 12 && this.wordUsed && q.w === this.wordUsed.w; i++) {
+    // 【用户 m16607】先看错词队列里有没有到期的：隔几个词再考一次，答对才销账
+    let redo = null;
+    if (this.wordRetry && this.wordRetry.length) {
+      const live = this.wordRetry.filter((r) => r.due <= this.wordDone || this.wordDone >= this.wordTotal);
+      if (live.length) {
+        live.sort((a, b) => a.due - b.due || b.n - a.n);
+        redo = live[0];
+        this.wordRetry.splice(this.wordRetry.indexOf(redo), 1);
+      }
+    }
+    let q;
+    if (redo) {
+      q = pool.find((c) => c.w === redo.w) || redo.q;
+      this.wordIsRedo = true;
+    } else {
       q = pool[(Math.random() * n) | 0];
+      // 别连续出同一个词
+      for (let i = 0; i < 12 && this.wordUsed && q.w === this.wordUsed.w; i++) {
+        q = pool[(Math.random() * n) | 0];
+      }
+      this.wordIsRedo = false;
     }
     this.wordUsed = q;
 
@@ -372,7 +395,9 @@ export class Game {
       this.score += CFG.word.scorePerWord + Math.max(0, this.wordStreak - 1) * CFG.word.streakBonus;
       this.wordHold = CFG.word.holdRight;
       this.wordBurst(true);
-      if (this.sfx && this.sfx.hit) this.sfx.hit();
+      markLearned(this.wordQ.w);
+      if (this.sfx && this.sfx.wordRight) this.sfx.wordRight();
+      else if (this.sfx && this.sfx.hit) this.sfx.hit();
       return true;
     }
     this.wordPhase = 'wrong';
@@ -388,7 +413,20 @@ export class Game {
       correct: this.wordQ.opts.findIndex((o) => o.ok),
       rows: this.wordQ.opts.map((o) => ({ w: o.w, z: o.z, ok: !!o.ok })),
     };
-    if (this.sfx && this.sfx.hurt) this.sfx.hurt();
+    // 【用户 m16607】错词本记一笔，并排进"再考一次"队列：
+    //   一般是隔 CFG.word.retryGap 个词再出现；要是这已经是本轮最后一个词，就马上再来
+    const w = this.wordQ.w;
+    const times = markWrong(w);
+    const last = this.wordDone + 1 >= this.wordTotal;
+    const due = last ? this.wordDone : this.wordDone + (CFG.word.retryGap || 3);
+    this.wordRetry = this.wordRetry || [];
+    if (!this.wordRetry.some((r) => r.w === w)) {
+      this.wordRetry.push({ w, q: { w: this.wordQ.w, z: this.wordQ.z, p: this.wordQ.p }, due, n: times });
+    }
+    this.wordShake = 0.34;
+    this.wordFlash = 0.5;
+    if (this.sfx && this.sfx.wordWrong) this.sfx.wordWrong();
+    else if (this.sfx && this.sfx.hurt) this.sfx.hurt();
     return true;
   }
 
@@ -419,8 +457,11 @@ export class Game {
 
   /** 一题收尾：算完成数，没到量就出下一题，到了就结算 */
   wordFinishOne() {
-    this.wordDone += 1;
-    if (this.wordDone >= this.wordTotal) {
+    // 再考一遍的错词不计入词量（不然 10 个词永远背不完）
+    if (this.wordIsRedo) this.wordRedo += 1;
+    else this.wordDone += 1;
+    const pending = (this.wordRetry || []).length > 0;
+    if (this.wordDone >= this.wordTotal && !pending) {
       this.wordFinished = true;
       this.wordPhase = 'done';
       this.state = STATE.FIGHT; // 不切 OVER/CLEAR：这两个会弹战斗结算面板
@@ -433,6 +474,8 @@ export class Game {
   updateWord(dt) {
     this.time += dt;
     this.wordT += dt;
+    if (this.wordShake > 0) this.wordShake = Math.max(0, this.wordShake - dt);
+    if (this.wordFlash > 0) this.wordFlash = Math.max(0, this.wordFlash - dt);
     if (this.wordHold > 0) {
       this.wordHold -= dt;
       if (this.wordHold <= 0) {

@@ -2105,3 +2105,339 @@ body.wordmode {
 .stats.three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+
+/* =========================================================
+   单词模式（用户 m16607）
+   1) 选关界面：单词模式缩到 5/8，右边 3/8 是绿色错词本
+   2) 选词量 / 答错 / 结算 / 错词本四个面板改成浅色，和局内一致
+   3) 局内的音量、返回、暂停换成浅色描边，别在奶油底上戳一块黑
+   ========================================================= */
+
+/* ---- 1. 选关：模式行 ---- */
+.mode-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 5fr 3fr;
+  gap: 9px;
+}
+.mode-row .lv.mode {
+  grid-column: auto;
+  padding: 11px 8px;
+}
+.mode-row .lv.mode b {
+  font-size: 16px;
+  letter-spacing: 3px;
+}
+.mode-row .lv.mode span {
+  font-size: 10px;
+  letter-spacing: 0.4px;
+}
+
+/* 绿色的「错词本」——选关界面用，实心草绿，和紫黑的模式行区分 */
+.lv.book-btn {
+  align-items: center;
+  text-align: center;
+  padding: 11px 8px;
+  gap: 2px;
+  border-color: rgba(126, 226, 160, 0.55);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 48%),
+    linear-gradient(180deg, #3fbf72 0%, #279c58 62%, #1b7a44 100%);
+  color: #f2fff6;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.18),
+    0 3px 0 rgba(10, 62, 33, 0.55),
+    0 8px 18px rgba(16, 120, 66, 0.35);
+}
+.lv.book-btn b {
+  font-size: 15px;
+  letter-spacing: 3px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+.lv.book-btn span {
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  color: rgba(240, 255, 245, 0.86);
+}
+.lv.book-btn:active { transform: translateY(1px) scale(0.985); }
+
+/* ---- 2. 浅色面板：选词量 / 答错 / 结算 / 错词本 ---- */
+.panel.light {
+  border-color: rgba(150, 200, 240, 0.55);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(242, 250, 255, 0.97) 62%, rgba(255, 248, 236, 0.97) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.9),
+    0 18px 46px rgba(31, 74, 117, 0.28);
+  color: #1d3d5c;
+}
+.panel.light h2,
+.panel.light .title {
+  color: #1d4a72;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.panel.light .word-sub,
+.panel.light .level-hint,
+.panel.light .pause-tip {
+  color: #6d8ca8;
+}
+.panel.light .over-title.win { color: #1f9d63; text-shadow: none; }
+.panel.light .over-title.miss { color: #e0503f; text-shadow: none; }
+.panel.light .stat {
+  border-color: rgba(150, 200, 240, 0.45);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(238, 247, 255, 0.96));
+}
+.panel.light .stat i { color: #6d8ca8; }
+.panel.light .stat b { color: #17456b; }
+.panel.light .word-row {
+  border-color: rgba(150, 200, 240, 0.4);
+  background: rgba(255, 255, 255, 0.9);
+  color: #2a5273;
+}
+.panel.light .word-row.ok {
+  border-color: rgba(70, 200, 140, 0.75);
+  background: linear-gradient(180deg, #eafff3, #d6f7e6);
+  color: #12724a;
+}
+.panel.light .word-row.bad {
+  border-color: rgba(230, 100, 90, 0.7);
+  background: linear-gradient(180deg, #fff1f0, #ffe0dd);
+  color: #9a2b22;
+}
+.panel.light .btn.primary {
+  background: linear-gradient(180deg, #4fc3e8 0%, #2f9ed6 60%, #1f7fb6 100%);
+  border-color: rgba(120, 210, 245, 0.75);
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.22);
+  box-shadow: 0 4px 0 rgba(14, 88, 128, 0.55), 0 10px 22px rgba(31, 127, 182, 0.3);
+}
+.panel.light .btn.ghost {
+  border-color: rgba(150, 200, 240, 0.6);
+  background: rgba(255, 255, 255, 0.86);
+  color: #2a5273;
+  box-shadow: none;
+}
+.panel.light .wc {
+  border-color: rgba(150, 200, 240, 0.6);
+  background: linear-gradient(180deg, #ffffff, #eef7ff);
+  color: #1d4a72;
+}
+.panel.light .wc b { color: #f0a93a; text-shadow: none; }
+.panel.light .wc span { color: #6d8ca8; }
+.panel.light .wc:active { border-color: #4fc3e8; }
+
+/* 结算界面的错词本入口：和选关那个绿色实心块不一样 —— 这里是白底 + 绿描边 + 一行小字 */
+.done-book {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  margin: 10px 0 8px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px dashed rgba(63, 191, 114, 0.7);
+  background: linear-gradient(180deg, rgba(240, 255, 246, 0.95), rgba(224, 250, 235, 0.95));
+  color: #17804b;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.done-book b {
+  font-size: 15px;
+  letter-spacing: 3px;
+}
+.done-book span {
+  font-size: 11px;
+  color: #4f8f6d;
+  letter-spacing: 0.4px;
+}
+.done-book:active { transform: scale(0.985); box-shadow: 0 0 0 2px rgba(63, 191, 114, 0.28); }
+
+/* ---- 错词本面板 ---- */
+.word-book-title {
+  font-size: 22px;
+  letter-spacing: 8px;
+  color: #1d4a72;
+  text-align: center;
+  margin-bottom: 4px;
+}
+.book-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 12px 0 10px;
+}
+.book-tab {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(150, 200, 240, 0.6);
+  background: rgba(255, 255, 255, 0.86);
+  color: #4a7191;
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 1.6px;
+  cursor: pointer;
+}
+.book-tab i {
+  font-style: normal;
+  margin-left: 4px;
+  font-weight: 800;
+  color: #2f9ed6;
+}
+.book-tab.on {
+  border-color: #4fc3e8;
+  background: linear-gradient(180deg, #eaf8ff, #d9f0ff);
+  color: #17567f;
+  box-shadow: inset 0 0 0 1px rgba(79, 195, 232, 0.4);
+}
+.book-list {
+  max-height: 52vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-right: 2px;
+}
+.book-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(150, 200, 240, 0.4);
+  background: rgba(255, 255, 255, 0.92);
+}
+.book-row .bw {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: 16px;
+  color: #17456b;
+  letter-spacing: 0.4px;
+}
+.book-row .bz {
+  font-size: 12px;
+  color: #5b7d99;
+  text-align: right;
+}
+.book-row .bn {
+  flex: 0 0 auto;
+  min-width: 26px;
+  text-align: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ff8f7a, #e0503f);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+.book-empty {
+  padding: 26px 12px;
+  text-align: center;
+  color: #7d9ab3;
+  font-size: 12px;
+  letter-spacing: 0.6px;
+}
+
+/* ---- 3. 局内浅色化（只在单词模式）---- */
+body.wordmode .mute {
+  border-color: rgba(120, 175, 220, 0.55);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(226, 242, 255, 0.92));
+  color: #2a5f8a;
+  box-shadow: 0 4px 14px rgba(31, 74, 117, 0.22);
+}
+body.wordmode .mute svg,
+body.wordmode .mute .ic {
+  fill: #2f6f9e;
+  stroke: #2f6f9e;
+}
+body.wordmode .ig-btn {
+  border-color: rgba(120, 175, 220, 0.6);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(226, 242, 255, 0.95));
+  color: #24557d;
+  box-shadow: 0 4px 14px rgba(31, 74, 117, 0.2);
+}
+body.wordmode .ig-btn.warn {
+  border-color: rgba(235, 120, 90, 0.8);
+  color: #b1402c;
+}
+
+/* 单词模式的画面是奶油底，全局暗角在这儿会显得下半部发黑 —— 换成一层很淡的蓝雾 */
+body.wordmode #app::after {
+  background: radial-gradient(120% 82% at 50% 40%, transparent 66%, rgba(70, 130, 175, 0.12) 100%);
+}
+
+/* 错词本要盖在选关面板上面（.overlay.level 是 z-index 18） */
+.overlay.word-book { z-index: 22; }
+/* 选词量 / 答错 / 结算也要压在选关面板之上 */
+.overlay.word-pick, .overlay.word-wrong { z-index: 22; }
+#wordDoneOverlay { z-index: 24; }
+
+/* 错词本：列表能滚、面板不顶出屏幕（手机上一屏放得下） */
+.overlay.word-book .panel { max-height: 88vh; }
+.book-list { max-height: 42vh; }
+
+/* 错词本面板：弹性布局——上面的标题/标签固定，中间列表自己滚，返回键永远在底下 */
+.overlay.word-book .panel {
+  display: flex;
+  flex-direction: column;
+  max-height: 84vh;
+  overflow: hidden;
+}
+.overlay.word-book .book-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+.overlay.word-book .btn.primary {
+  flex: 0 0 auto;
+  margin-top: 4px;
+}
+.book-row { padding: 7px 12px; }
+.book-row .bw { font-size: 15px; }
+.book-row .bz { font-size: 11.5px; }
+.book-tabs { margin: 10px 0 8px; }
+.book-tab { padding: 9px 10px; font-size: 12.5px; }
+.overlay.word-book .panel { padding-bottom: 14px; }
+
+/* 浅色面板：补内边距（默认 .panel 在这里是 0，按钮会贴到圆角上）+ 标题别撑出去 */
+.panel.light { padding: 18px 16px 16px; }
+.panel.light h2,
+.panel.light .title.sm,
+.panel.light .over-title {
+  letter-spacing: 2px;
+  font-size: 21px;
+  text-align: center;
+}
+.panel.light .word-sub { margin-bottom: 10px; }
+
+/* 单词模式这四个面板的底：淡淡的奶油蓝，不要黑色蒙层（用户 m16607：整体要放松愉悦） */
+.overlay.word-pick,
+.overlay.word-wrong,
+.overlay.word-book,
+#wordDoneOverlay {
+  background:
+    var(--grid),
+    radial-gradient(120% 90% at 50% 0%, rgba(226, 244, 255, 0.94), rgba(255, 248, 235, 0.96) 70%);
+}
+
+/* 结算面板的六项数据：3 列 × 2 行（原来第三条被"独占一行"的规则顶下去了） */
+#wordDoneOverlay .stats.three { grid-template-columns: repeat(3, 1fr); }
+#wordDoneOverlay .stats .stat:last-child:nth-child(odd) { grid-column: auto; }
+#wordDoneOverlay .stats { margin-bottom: 8px; }
+#wordDoneOverlay .stats + .stats { margin-top: 0; }
+
+/* 答错复盘的词表：释义别太淡（原来在浅底上几乎看不清） */
+.panel.light .word-row { color: #1f4664; }
+.panel.light .word-row .en { color: #17456b; }
+.panel.light .word-row .cn { color: #3c6383; }
+.panel.light .word-row.bad .en,
+.panel.light .word-row.bad .cn { color: #a02a20; }
+.panel.light .word-row.ok .en,
+.panel.light .word-row.ok .cn { color: #11724a; }

@@ -7940,14 +7940,45 @@ export class Renderer {
     // 【用户 m16141】英文单词与 A/B/C/D 必须原样画：i18n 把 canvas 的 fillText 换成了
     // 自动翻译（反查表里有"袭→A""樱→C"），走它会把字母和单词替成汉字。
 
-    // ---- 背景：清晨的教室窗光 ----
+    // ---- 背景：清晨的操场 ----
+    // 【用户 m16607】原来下半部压到 #ffe9cf 又被全局暗角一压就发黑，现在整张都提亮，
+    // 底下换成"草坡 + 暖阳"，看着松弛一点。
     const bg = ctx.createLinearGradient(0, 0, 0, h);
-    bg.addColorStop(0, '#e9f6ff');
-    bg.addColorStop(0.42, '#f7fcff');
-    bg.addColorStop(0.78, '#fff6e6');
-    bg.addColorStop(1, '#ffe9cf');
+    bg.addColorStop(0, '#dff0ff');
+    bg.addColorStop(0.34, '#eef9ff');
+    bg.addColorStop(0.62, '#fdffff');
+    bg.addColorStop(0.84, '#fff8e8');
+    bg.addColorStop(1, '#fff2dc');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
+
+    // 右上角的暖阳（一大圈很淡的光斑 + 一颗小太阳）
+    this._drawGlow(w * 0.86, h * 0.13, h * 0.30, 'rgba(255,214,120,0.55)', 0.42);
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,239,178,0.95)';
+    ctx.beginPath();
+    ctx.arc(w * 0.86, h * 0.13, h * 0.045, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // 底部的两层草坡：越往下越暖、越淡，把"画面下半截"的空白填起来
+    ctx.save();
+    for (let k = 0; k < 2; k++) {
+      const baseY = h * (0.80 + k * 0.10);
+      const amp = h * (0.035 - k * 0.012);
+      ctx.beginPath();
+      ctx.moveTo(-2, h + 2);
+      ctx.lineTo(-2, baseY);
+      for (let x = 0; x <= w + 8; x += 8) {
+        const yy = baseY - Math.sin((x / w) * Math.PI * (1.4 + k * 0.7) + k * 1.9 + t * 0.12) * amp;
+        ctx.lineTo(x, yy);
+      }
+      ctx.lineTo(w + 2, h + 2);
+      ctx.closePath();
+      ctx.fillStyle = k === 0 ? 'rgba(206,240,214,0.55)' : 'rgba(255,236,196,0.62)';
+      ctx.fill();
+    }
+    ctx.restore();
 
     // 云朵（缓慢横移，纯白半透明）
     ctx.save();
@@ -8045,21 +8076,27 @@ export class Renderer {
     ctx.fillText(`${Math.min(game.wordDone + 1, game.wordTotal)} / ${game.wordTotal}`, cardX + cardW - h * 0.02, cardY + h * 0.034);
     ctx.restore();
 
-    // 英文单词本体
+    // 英文单词本体：卡片正中（词性标签和进度在两侧，单词用真居中）
     if (q) {
-      const wordY = cardY + cardH * 0.62;
-      let size = h * 0.072;
+      const wordY = cardY + cardH * 0.64;
+      let size = h * 0.062;
       ctx.save();
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `700 ${size}px Georgia, "Times New Roman", serif`;
-      // 长词自动缩一档，别顶出卡片
-      while (ctx.measureText(q.w).width > cardW * 0.78 && size > h * 0.026) {
+      // 答错时整块左右抖两下（用户 m16607：答错要有视觉反馈）
+      const shake = game.wordShake > 0 ? Math.sin(game.wordShake * 58) * game.wordShake * h * 0.022 : 0;
+      const fnt = (px) => `800 ${px}px Georgia, "Times New Roman", "Songti SC", serif`;
+      ctx.font = fnt(size);
+      while (ctx.measureText(q.w).width > cardW * 0.62 && size > h * 0.026) {
         size *= 0.92;
-        ctx.font = `700 ${size}px Georgia, "Times New Roman", serif`;
+        ctx.font = fnt(size);
       }
-      ctx.fillStyle = '#123a5e';
-      (ctx.__rawFillText || ctx.fillText).call(ctx, q.w, w / 2, wordY);
+      // 极淡的投影把字形从白底上"托"起来，远看更实
+      ctx.shadowColor = 'rgba(20,60,100,0.18)';
+      ctx.shadowBlur = h * 0.008;
+      ctx.shadowOffsetY = h * 0.003;
+      ctx.fillStyle = '#0d3253';
+      (ctx.__rawFillText || ctx.fillText).call(ctx, q.w, w / 2 + shake, wordY);
       ctx.restore();
     }
 
@@ -8083,16 +8120,43 @@ export class Renderer {
     const gridTop = cardY + cardH + h * 0.075;
     const cards = [];
     if (q) {
+      // 四个选项统一字号：按最长的那条中文量一次，四张卡看着才齐
+      const cnFont = (px) => `700 ${px}px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif`;
+      const tx0 = optH * (0.4 + 0.2 + 0.16);
+      const maxW0 = optW - tx0 - optH * 0.34;
+      let fs0 = optH * 0.32;
+      ctx.save();
+      for (let i = 0; i < 4; i++) {
+        const zz = q.opts[i] && q.opts[i].z ? q.opts[i].z : '';
+        let f = optH * 0.32;
+        ctx.font = cnFont(f);
+        while (ctx.measureText(zz).width > maxW0 && f > optH * 0.135) {
+          f *= 0.92;
+          ctx.font = cnFont(f);
+        }
+        fs0 = Math.min(fs0, f);
+      }
+      ctx.restore();
       for (let i = 0; i < 4; i++) {
         const col = i % 2;
         const row = (i / 2) | 0;
         const x = cardX + col * (optW + gap);
         const y = gridTop + row * (optH + gap);
         cards.push({ x, y, w: optW, h: optH, i });
-        this._drawWordOption(ctx, game, q.opts[i], x, y, optW, optH, i, h);
+        this._drawWordOption(ctx, game, q.opts[i], x, y, optW, optH, i, h, fs0);
       }
     }
     this.wordCards = cards;
+
+    // ---- 答错：屏幕边上一圈红光（很快淡掉，不刺眼）----
+    if (game.wordFlash > 0) {
+      const a = Math.min(1, game.wordFlash / 0.5) * 0.5;
+      const vg = ctx.createRadialGradient(w / 2, h * 0.45, h * 0.22, w / 2, h * 0.45, h * 0.75);
+      vg.addColorStop(0, 'rgba(255,90,90,0)');
+      vg.addColorStop(1, `rgba(255,72,72,${a.toFixed(3)})`);
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, w, h);
+    }
 
     // ---- 答对/答错的一圈星火 ----
     for (const b of game.wordBursts || []) {
@@ -8107,7 +8171,7 @@ export class Renderer {
   }
 
   /** 选项卡：白底 + 彩色序号 + 中文释义；对/错有独立配色 */
-  _drawWordOption(ctx, game, opt, x, y, w, h, i, hs) {
+  _drawWordOption(ctx, game, opt, x, y, w, h, i, hs, fs0) {
     const phase = game.wordPhase;
     const picked = game.wordPickedIdx === i;
     const isRight = opt && opt.ok;
@@ -8134,8 +8198,13 @@ export class Renderer {
       }
     }
     const k = pop ? 1 + Math.sin(Math.min(1, (CFG.word.holdRight - game.wordHold) * 6) * Math.PI) * 0.03 : 1;
+    // 【用户 m16607】答错时卡片左右抖，选错的那张抖得最厉害
+    let shk = 0;
+    if (game.wordShake > 0 && phase === 'wrong') {
+      shk = Math.sin(game.wordShake * 62 + i) * game.wordShake * (picked ? h * 0.09 : h * 0.035);
+    }
     ctx.save();
-    ctx.translate(x + w / 2, y + h / 2);
+    ctx.translate(x + w / 2 + shk, y + h / 2);
     ctx.scale(k, k);
     ctx.translate(-w / 2, -h / 2);
     ctx.shadowColor = 'rgba(43,88,142,0.22)';
@@ -8153,30 +8222,35 @@ export class Renderer {
     roundRect(ctx, 0, 0, w, h, h * 0.26);
     ctx.stroke();
 
-    // A / B / C / D 圆形序号
-    const bx = h * 0.34;
-    const by = h * 0.34;
+    // A / B / C / D 圆形序号 —— 和中文释义共用一条水平中线（用户 m16607：选项要和文字对齐）
+    const midY = h * 0.5;
+    const bx = h * 0.40;
+    const br = h * 0.2;
     ctx.beginPath();
-    ctx.arc(bx, by, h * 0.215, 0, Math.PI * 2);
+    ctx.arc(bx, midY, br, 0, Math.PI * 2);
     ctx.fillStyle = edge;
     ctx.fill();
-    ctx.fillStyle = fill === '#ffffff' ? '#ffffff' : '#ffffff';
+    ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `700 ${h * 0.28}px Arial, Helvetica, sans-serif`;
-    (ctx.__rawFillText || ctx.fillText).call(ctx, String.fromCharCode(65 + i), bx, by + h * 0.012);
+    ctx.font = `700 ${h * 0.26}px Arial, Helvetica, sans-serif`;
+    (ctx.__rawFillText || ctx.fillText).call(ctx, String.fromCharCode(65 + i), bx, midY + h * 0.012);
 
     // 中文释义
+    const tx = bx + br + h * 0.16;
     ctx.textAlign = 'left';
     ctx.fillStyle = textCol;
-    let fs = h * 0.30;
-    ctx.font = `600 ${fs}px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif`;
-    const maxW = w - h * 0.78;
-    while (ctx.measureText(opt ? opt.z : '').width > maxW && fs > h * 0.18) {
-      fs *= 0.9;
-      ctx.font = `600 ${fs}px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif`;
+    const cn = (px) => `700 ${px}px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif`;
+    let fs = fs0 || h * 0.32;
+    ctx.font = cn(fs);
+    // 右边要留出 ✓ / ✗ 的位置，别让勾叉压在字上
+    const markW = phase === 'right' || phase === 'wrong' ? h * 0.42 : h * 0.14;
+    const maxW = w - tx - markW;
+    while (ctx.measureText(opt ? opt.z : '').width > maxW && fs > h * 0.135) {
+      fs *= 0.92;
+      ctx.font = cn(fs);
     }
-    ctx.fillText(opt ? opt.z : '', h * 0.62, h * 0.52);
+    ctx.fillText(opt ? opt.z : '', tx, midY + h * 0.012);
 
     // 对错角标
     if (phase === 'right' && isRight) {

@@ -8,6 +8,11 @@ import { Sound } from './audio.js';
 import { Game, STATE } from './game.js';
 import { Renderer, TAG_COLOR } from './render.js';
 import { CFG, isHordeWave, isBossWave, isEndless, isWordMode, findLevel, levelIndexOf, HEROES, HERO_KEY } from './config.js';
+import { CET4_WORDS } from './words-cet4.js';
+import { learnedList, wrongList, bookStats } from './wordbook.js';
+
+// 错词本要显示释义：建一张 词 → 释义 的表（800 条，开机一次）
+const CET4_LOOKUP = new Map(CET4_WORDS.map((x) => [x.w, x]));
 import { QUALITY } from './quality.js';
 import { I18N } from './i18n.js';
 import { CHANGELOG } from './changelog.js';
@@ -81,6 +86,18 @@ const el = {
   lv5b: $('lv5b'),
   modeEndless: $('modeEndless'),
   modeWord: $('modeWord'),
+  wordBookBtn: $('wordBookBtn'),
+  wordBookBtnNote: $('wordBookBtnNote'),
+  wordBookOverlay: $('wordBookOverlay'),
+  wordBookClose: $('wordBookClose'),
+  bookTabLearned: $('bookTabLearned'),
+  bookTabWrong: $('bookTabWrong'),
+  bookTabLearnedN: $('bookTabLearnedN'),
+  bookTabWrongN: $('bookTabWrongN'),
+  bookList: $('bookList'),
+  wordBookHint: $('wordBookHint'),
+  wordDoneBook: $('wordDoneBook'),
+  wordDoneBookNote: $('wordDoneBookNote'),
   wordPickOverlay: $('wordPickOverlay'),
   wordPickClose: $('wordPickClose'),
   wc10: $('wc10'),
@@ -1075,6 +1092,7 @@ onTap(el.heroClose, (e) => { sfx.uiClick(); hideHeroes(); guardClick(); e.stopPr
 // 第 1~4 关真能进；第 5 关是特典关卡（上下两半，敬请期待~）；
 // 第 6~10 关的按钮按用户 m14093 删掉了；下面两个整行按钮是无尽 / 单词模式。
 function openLevels() {
+  bookCounts();
   // 已经通关过的关卡打个「已通关」记号；按钮里的两行字是 index.html 写死的，
   // 这里只加 class，别用 textContent 写，否则会把「第 1 关 / 血色大桥」两行抹掉。
   for (let i = 1; i <= 4; i++) {
@@ -1151,12 +1169,17 @@ onTap(el.modeWord, (e) => {
   sfx.unlock();
   sfx.uiClick();
   e.stopPropagation();
+  // 【用户 m16607】先把选关面板收起来，否则词量弹层被压在下面，还得再点一次「返回」
+  hideLevels();
+  guardClick();
   el.wordPickOverlay.classList.add('show');
 });
 onTap(el.wordPickClose, (e) => {
   sfx.uiClick();
-  el.wordPickOverlay.classList.remove('show');
   e.stopPropagation();
+  el.wordPickOverlay.classList.remove('show');
+  // 退回来是"选关"，不是主界面
+  openLevels();
 });
 
 /** 选好词量 → 关面板 → 进单词模式关卡 */
@@ -1193,6 +1216,87 @@ onTap(el.wordWrongNext, (e) => {
   el.wordWrongOverlay.classList.remove('show');
   wordWrongShown = false;
   game.wordContinue();
+});
+
+// ---------------------------------------------------------
+//  错词本（用户 m16607）
+//   - 选关界面的绿色按钮：实心草绿
+//   - 结算界面的入口：白底绿描边（.done-book）
+//  两个入口打开同一个面板，关闭时回到进来的地方
+// ---------------------------------------------------------
+let bookTab = 'learned';
+let bookFrom = 'levels'; // 'levels' | 'done'
+
+function bookCounts() {
+  const st = bookStats();
+  setText(el.wordBookBtnNote, 'bkN', `已背 ${st.learned} · 错词 ${st.wrong}`);
+  setText(el.bookTabLearnedN, 'bt1', String(st.learned));
+  setText(el.bookTabWrongN, 'bt2', String(st.wrong));
+}
+
+function renderBook() {
+  const isWrong = bookTab === 'wrong';
+  el.bookTabLearned.classList.toggle('on', !isWrong);
+  el.bookTabWrong.classList.toggle('on', isWrong);
+  setText(el.wordBookHint, 'bkh', isWrong ? '按错得多的排在前面 · 再考一次答对才算过' : '背过的词都在这儿，最近背的在上面');
+  let html = '';
+  if (isWrong) {
+    const rows = wrongList();
+    html = rows.length
+      ? rows.map((r) => {
+          const def = (CET4_LOOKUP.get(r.w) || {}).z || '';
+          return `<div class="book-row"><span class="bw">${esc(r.w)}</span><span class="bz">${esc(def)}</span><span class="bn">×${r.n}</span></div>`;
+        }).join('')
+      : `<div class="book-empty">${esc('还没有错词 · 继续保持')}</div>`;
+  } else {
+    const rows = learnedList();
+    html = rows.length
+      ? rows.map((w) => {
+          const def = (CET4_LOOKUP.get(w) || {}).z || '';
+          return `<div class="book-row"><span class="bw">${esc(w)}</span><span class="bz">${esc(def)}</span></div>`;
+        }).join('')
+      : `<div class="book-empty">${esc('这一轮背过的词会记在这儿')}</div>`;
+  }
+  el.bookList.innerHTML = html;
+  bookCounts();
+}
+
+function openBook(from) {
+  bookFrom = from || 'levels';
+  bookTab = 'learned';
+  bookCounts();
+  renderBook();
+  el.wordBookOverlay.classList.add('show');
+}
+
+onTap(el.wordBookBtn, (e) => {
+  sfx.unlock();
+  sfx.uiClick();
+  e.stopPropagation();
+  openBook('levels');
+});
+onTap(el.wordDoneBook, (e) => {
+  sfx.uiClick();
+  e.stopPropagation();
+  openBook('done');
+});
+onTap(el.bookTabLearned, (e) => {
+  sfx.uiClick();
+  e.stopPropagation();
+  bookTab = 'learned';
+  renderBook();
+});
+onTap(el.bookTabWrong, (e) => {
+  sfx.uiClick();
+  e.stopPropagation();
+  bookTab = 'wrong';
+  renderBook();
+});
+onTap(el.wordBookClose, (e) => {
+  sfx.uiClick();
+  e.stopPropagation();
+  el.wordBookOverlay.classList.remove('show');
+  if (bookFrom === 'levels') openLevels();
 });
 
 // 结算面板：再来一轮（同样的词量）/ 回主界面（留 500ms 缓冲，别被连点带走）
@@ -1537,7 +1641,8 @@ function syncWordHud() {
   setText(el.waveLabel, 'wv', `${Math.min(g.wordDone + 1, g.wordTotal)}/${g.wordTotal}`);
 
   // 答错 → 弹出复盘（只弹一次；玩家点「继续」后 game.wordWrongInfo 被清空）
-  if (g.wordWrongInfo && !wordWrongShown) {
+  // 【用户 m16607】答错先让画面抖一下、红边闪一下，0.45 秒后再弹复盘，别一上来就盖住
+  if (g.wordWrongInfo && !wordWrongShown && (g.wordHold || 0) <= CFG.word.holdWrong - 0.45) {
     wordWrongShown = true;
     const rows = g.wordWrongInfo.rows || [];
     el.wordWrongRows.innerHTML = rows
@@ -1557,10 +1662,19 @@ function syncWordHud() {
     setText(el.wordDoneTotal, 'wd1', String(total));
     setText(el.wordDoneRight, 'wd2', String(right));
     setText(el.wordDoneWrong, 'wd3', String(g.wordWrong || 0));
-    setText(el.wordDoneAcc, 'wd4', total ? `${Math.round((right / total) * 100)}%` : '0%');
+    // 正确率按"答过几次"算：错词会再考一次，用总作答数当分母才不虚高
+    const answered = right + (g.wordWrong || 0);
+    setText(el.wordDoneAcc, 'wd4', answered ? `${Math.round((right / answered) * 100)}%` : '0%');
     setText(el.wordDoneBest, 'wd5', String(g.wordBest || 0));
     const sec = Math.max(1, Math.round(g.time || 0));
     setText(el.wordDoneTime, 'wd6', `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
+    // 【用户 m16607】结算界面上的错词本入口写清"这轮错了几个"
+    const st = bookStats();
+    setText(
+      el.wordDoneBookNote,
+      'bdn',
+      `这轮错了 ${g.wordWrong || 0} 个 · 本子上共 ${st.wrong} 个错词`
+    );
     el.wordDoneOverlay.classList.add('show');
     wordDoneAt = performance.now();
   }

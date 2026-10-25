@@ -1006,6 +1006,35 @@ try {
   ok(/applyWordLocale\(isWordMode\(\)\)/.test(msrc) && /I18N\.setBypass\(on\)/.test(msrc)
     && /let bypass = false;/.test(fs.readFileSync(path.join(ROOT, 'js', 'i18n.js'), 'utf8')),
     '单词模式局内不适用英语模式（用户 m16473）');
+
+  // ---- 单词模式第二轮（用户 m16607）----
+  const hsrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const asrc = fs.readFileSync(path.join(ROOT, 'js', 'audio.js'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+  const wbsrc = fs.readFileSync(path.join(ROOT, 'js', 'wordbook.js'), 'utf8');
+  ok(/onTap\(el\.modeWord[\s\S]{0,260}?hideLevels\(\)[\s\S]{0,120}?wordPickOverlay\.classList\.add\('show'\)/.test(msrc),
+    '点单词模式先收起选关面板，不用再点一次返回（用户 m16607）');
+  ok(/wordRetry/.test(gsrc) && /retryGap: 3/.test(fs.readFileSync(path.join(ROOT, 'js', 'config.js'), 'utf8')),
+    '答错的词排进"再考一次"队列，隔 3 个词回来（用户 m16607）');
+  ok(/const last = this\.wordDone \+ 1 >= this\.wordTotal;/.test(gsrc),
+    '最后一个词答错就立刻重考（用户 m16607）');
+  ok(/if \(this\.wordIsRedo\) this\.wordRedo \+= 1;/.test(gsrc),
+    '重考不计入本轮词量（用户 m16607）');
+  ok(/wordShake/.test(gsrc) && /wordFlash/.test(gsrc) && /wordShake/.test(rsrc) && /wordFlash/.test(rsrc),
+    '答错有抖动 + 红边（用户 m16607）');
+  ok(/wordWrong\(\) \{/.test(asrc) && /wordRight\(\) \{/.test(asrc),
+    '答对/答错各有音效（用户 m16607）');
+  ok(/export function markWrong/.test(wbsrc) && /export function learnedList/.test(wbsrc)
+    && /export function wrongList/.test(wbsrc) && /const KEY = 'htb\.words\.v1';/.test(wbsrc),
+    '错词本存在本地，分已背/错词两栏（用户 m16607）');
+  ok(/id="wordBookBtn"/.test(hsrc) && /id="wordBookOverlay"/.test(hsrc) && /id="wordDoneBook"/.test(hsrc),
+    '选关界面 + 结算界面各有错词本入口（用户 m16607）');
+  ok(/\.mode-row \{[\s\S]{0,80}?grid-template-columns: 5fr 3fr/.test(css) && /\.lv\.book-btn \{/.test(css),
+    '单词模式按钮缩到 5/8，右边 3/8 是绿色错词本（用户 m16607）');
+  ok(/\.done-book \{[\s\S]{0,320}?border: 1px dashed/.test(css) && /\.lv\.book-btn \{[\s\S]{0,320}?linear-gradient/.test(css),
+    '两处错词本按钮视觉不一样（选关实心绿 / 结算白底绿虚线）');
+  ok(/\.panel\.light \{/.test(css) && /body\.wordmode #app::after \{/.test(css),
+    '选词量/答错/结算改成浅色，局内暗角也调淡（用户 m16607）');
   ok(ELS.get('talkOverlay').classList.contains('show'), '对话弹窗弹出来了');
   ok(!ELS.get('levelOverlay').classList.contains('show'), '选关面板自己收起来了');
   // 第 1 关没有开场对话（用户 m02807 删掉了第一关那段）。
