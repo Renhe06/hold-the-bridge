@@ -2588,3 +2588,150 @@ body.wordmode #app::after {
 .log-group-fix .log-dot { background: #ff9b8a; box-shadow: 0 0 8px rgba(255, 155, 138, 0.6); }
 .log-group-fix .log-glabel { color: #e6b3a8; }
 .log-group + .log-ul { margin-top: 0; }
+
+/* 【用户 m17229】四级 / 六级 / 考研：三颗并排的小按钮，选中那颗染成天蓝 */
+.word-banks {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+.wb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 9px 4px;
+  border-radius: 14px;
+  border: 1px solid rgba(140, 190, 232, 0.55);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(238, 247, 255, 0.92));
+  color: #2c5878;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+}
+.wb b { font-size: 15px; letter-spacing: 1px; font-weight: 800; }
+.wb span { font-size: 10.5px; letter-spacing: 0.5px; color: #7ba3c2; }
+.wb:active { transform: scale(0.97); }
+.wb.sel {
+  border-color: rgba(72, 168, 226, 0.95);
+  background: linear-gradient(180deg, #e8f6ff, #d3ecff);
+  box-shadow: 0 0 0 2px rgba(72, 168, 226, 0.18), 0 4px 10px rgba(72, 168, 226, 0.18);
+}
+.wb.sel b { color: #17567f; }
+.wb.sel span { color: #3f88b5; }
+
+/* 【用户 m17229】零失误通关彩蛋：金箔卡片 + 旋转光晕 + 微光扫过 */
+.done-egg {
+  position: relative;
+  display: none;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 206, 110, 0.85);
+  background:
+    radial-gradient(120% 140% at 15% 0%, rgba(255, 246, 205, 0.98), rgba(255, 226, 150, 0.72) 45%, rgba(255, 202, 110, 0.62) 100%);
+  box-shadow: 0 8px 22px rgba(214, 158, 46, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  animation: eggIn 0.55s cubic-bezier(0.19, 1.3, 0.4, 1) both;
+}
+.done-egg.show { display: flex; }
+@keyframes eggIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+.done-egg .egg-rays {
+  position: absolute;
+  inset: -60% -30%;
+  background: conic-gradient(from 0deg,
+    rgba(255, 255, 255, 0.55) 0deg, rgba(255, 255, 255, 0) 26deg,
+    rgba(255, 255, 255, 0.45) 46deg, rgba(255, 255, 255, 0) 78deg,
+    rgba(255, 255, 255, 0.5) 108deg, rgba(255, 255, 255, 0) 150deg,
+    rgba(255, 255, 255, 0.4) 190deg, rgba(255, 255, 255, 0) 240deg,
+    rgba(255, 255, 255, 0.5) 280deg, rgba(255, 255, 255, 0) 330deg);
+  animation: eggSpin 9s linear infinite;
+  opacity: 0.55;
+  pointer-events: none;
+}
+@keyframes eggSpin { to { transform: rotate(360deg); } }
+.done-egg .egg-badge {
+  position: relative;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 20px;
+  color: #8a5b06;
+  background: radial-gradient(circle at 35% 30%, #fffdf2, #ffe9a8 55%, #f6c85a 100%);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8), 0 4px 12px rgba(196, 138, 22, 0.35);
+  animation: eggPulse 1.8s ease-in-out infinite;
+}
+@keyframes eggPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+.done-egg .egg-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+.done-egg .egg-title {
+  font-size: 15px;
+  letter-spacing: 2px;
+  color: #6d4304;
+  font-weight: 800;
+}
+.done-egg .egg-sub {
+  font-size: 11.5px;
+  color: #8b6a22;
+  letter-spacing: 0.4px;
+}
+
+/* 彩蛋卡再精致一点：内部描边 + 扫光 + 四角星点 */
+.done-egg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.75), inset 0 -10px 22px rgba(214, 158, 46, 0.18);
+  pointer-events: none;
+}
+.done-egg .egg-shine {
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  width: 42%;
+  left: -50%;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.85) 45%, rgba(255, 255, 255, 0) 100%);
+  transform: skewX(-18deg);
+  animation: eggShine 2.8s ease-in-out 0.35s infinite;
+  pointer-events: none;
+}
+@keyframes eggShine {
+  0% { left: -55%; opacity: 0; }
+  18% { opacity: 0.9; }
+  55% { opacity: 0.75; }
+  100% { left: 115%; opacity: 0; }
+}
+.done-egg .egg-spark {
+  position: absolute;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: #fffdf3;
+  box-shadow: 0 0 6px 2px rgba(255, 236, 168, 0.9);
+  animation: eggSpark 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+.done-egg .egg-spark.s1 { top: 8px;  right: 18%; animation-delay: 0.1s; }
+.done-egg .egg-spark.s2 { bottom: 9px; right: 34%; animation-delay: 0.7s; }
+.done-egg .egg-spark.s3 { top: 12px;  right: 52%; animation-delay: 1.3s; }
+@keyframes eggSpark {
+  0%, 100% { opacity: 0.15; transform: scale(0.7); }
+  50% { opacity: 1; transform: scale(1.25); }
+}

@@ -999,6 +999,30 @@ try {
     '单词模式整局走 updateWord，不出怪不刷波（用户 m16141）');
   ok(/if \(isWordMode\(\)\) \{[\s\S]{0,80}?this\.startWordRun\(/.test(gsrc),
     '进单词模式先挑词量再开局（用户 m16141）');
+
+  // ---- 三套词库 + 零失误彩蛋（用户 m17229）----
+  const bsrc = fs.readFileSync(path.join(ROOT, 'js', 'words-bank.js'), 'utf8');
+  const bankHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const bankCss = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+  ok(/CET4_WORDS/.test(bsrc) && /CET6_WORDS/.test(bsrc) && /KAOYAN_WORDS/.test(bsrc)
+    && /id: 'cet4'/.test(bsrc) && /id: 'cet6'/.test(bsrc) && /id: 'kaoyan'/.test(bsrc),
+    '四级 / 六级 / 考研三套词库都在（用户 m17229）');
+  ok(/export const ALL_WORDS = CET4_WORDS\.concat\(CET6_WORDS, KAOYAN_WORDS\)/.test(bsrc),
+    '三套词库合成 ALL_WORDS（干扰项与错词本反查兜底）');
+  ok(/this\.wordBank = bank \|\| this\.wordBank \|\| 'cet4'/.test(gsrc),
+    '开局记录这一轮背的是哪套词库');
+  ok(/game\.pendingWordBank = wordBank/.test(msrc) && /let wordBank = 'cet4'/.test(msrc),
+    '选词面板选中的词库会被带进关卡');
+  ok(/id="wbCet4"/.test(bankHtml) && /id="wbCet6"/.test(bankHtml) && /id="wbKaoyan"/.test(bankHtml),
+    '选词面板上有四级 / 六级 / 考研三颗按钮');
+  ok(/game\.wordGold > 0/.test(rsrc), '零失误金光在画布上画出来');
+  ok(/this\.wordPerfect = this\.wordWrong === 0 && this\.wordRedo === 0;/.test(gsrc),
+    '一个都没错才判定彩蛋（错一个就没有）');
+  ok(/wordPerfectFx\(\) \{/.test(gsrc), '彩蛋有自己的金色彩带特效');
+  ok(/id="wordDoneEgg"/.test(bankHtml) && /\.done-egg\.show/.test(bankCss),
+    '结算面板上有一张彩蛋卡（默认藏着）');
+  ok(/if \(this\.wordIsRedo\) this\.wordRedo \+= 1;[\s\S]{0,40}?else this\.wordDone \+= 1;/.test(gsrc),
+    '错词计入总词量、再考不重复计数（用户 m17229）');
   ok(/pickWord\(i\) \{/.test(gsrc) && /wordContinue\(\) \{/.test(gsrc),
     '答对下一题 / 答错弹窗继续（用户 m16141）');
   ok(/_drawWordScene\(ctx, game, w, h\)/.test(rsrc), '单词模式有自己的画面（明亮英语主题）');
@@ -3107,7 +3131,7 @@ try {
     return idx.some((n) => n < 0) || idx.some((n, i) => i > 0 && n < idx[i - 1]);
   });
   ok(badOrder.length === 0, `更新说明分组顺序都是 新增→优化→修复${badOrder.length ? `（乱了：${badOrder.map((r) => r.version).join(',')}）` : ''}`);
-  ok(CHANGELOG[0].version === '1.0.65' && /保护世界/.test(CHANGELOG[0].preview || ''),
+  ok(CHANGELOG[0].version === '1.0.66' && /保护世界/.test(CHANGELOG[0].preview || ''),
     '最新一版带「更新预告」：保护世界特典关卡（用户 m17134）');
   const logSrc = fs.readFileSync(path.join(ROOT, 'js', 'main.js'), 'utf8');
   ok(/badge\.textContent = '更新预告'/.test(logSrc), '预告小标签写着「更新预告」（用户 m17134）');

@@ -8158,6 +8158,37 @@ export class Renderer {
       ctx.fillRect(0, 0, w, h);
     }
 
+    // ---- 【用户 m17229】零失误彩蛋：金光从中心荡开 + 一圈旋转的金边 ----
+    if (game.wordGold > 0) {
+      const g = Math.min(1, game.wordGold / 1.35);
+      const cx = w * 0.5, cy = h * 0.42;
+      const rg = ctx.createRadialGradient(cx, cy, h * 0.02, cx, cy, h * 0.62);
+      rg.addColorStop(0, `rgba(255,246,205,${(0.55 * g).toFixed(3)})`);
+      rg.addColorStop(0.45, `rgba(255,214,120,${(0.26 * g).toFixed(3)})`);
+      rg.addColorStop(1, 'rgba(255,196,90,0)');
+      ctx.fillStyle = rg;
+      ctx.fillRect(0, 0, w, h);
+      // 12 道旋转光条
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(this.time * 0.9);
+      for (let i = 0; i < 12; i++) {
+        ctx.rotate((Math.PI * 2) / 12);
+        const len = h * (0.30 + 0.10 * Math.sin(this.time * 3 + i));
+        const lg = ctx.createLinearGradient(0, 0, 0, -len);
+        lg.addColorStop(0, `rgba(255,232,160,${(0.30 * g).toFixed(3)})`);
+        lg.addColorStop(1, 'rgba(255,232,160,0)');
+        ctx.fillStyle = lg;
+        ctx.beginPath();
+        ctx.moveTo(-h * 0.016, 0);
+        ctx.lineTo(0, -len);
+        ctx.lineTo(h * 0.016, 0);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     // ---- 答对/答错的一圈星火 ----
     for (const b of game.wordBursts || []) {
       const k = 1 - b.t / b.life;

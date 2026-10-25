@@ -8,8 +8,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 const src = readFileSync(path.join(ROOT, 'js', 'words-cet4.js'), 'utf8');
 
-const mod = await import('file://' + path.join(ROOT, 'js', 'words-cet4.js').replace(/\\/g, '/'));
-const words = mod.CET4_WORDS;
+const load = async (file, name) =>
+  (await import('file://' + path.join(ROOT, 'js', file).replace(/\\/g, '/')))[name];
+const words = await load('words-cet4.js', 'CET4_WORDS');
+const cet6 = await load('words-cet6.js', 'CET6_WORDS');
+const kaoyan = await load('words-kaoyan.js', 'KAOYAN_WORDS');
 
 let fail = 0;
 const ok = (cond, msg) => {
@@ -55,6 +58,27 @@ for (const e of words) first.set(e.w[0], (first.get(e.w[0]) || 0) + 1);
 const maxFirst = Math.max(...first.values());
 ok(first.size >= 20, `首字母有 ${first.size} 种（≥20，四选一能避开同首字母）`);
 ok(maxFirst <= 160, `单个首字母最多 ${maxFirst} 个（≤160，避免某个字母占掉词表两成）`);
+
+// ---- 三套词库（用户 m17229）----
+for (const [name, bank] of [['六级', cet6], ['考研', kaoyan]]) {
+  ok(Array.isArray(bank) && bank.length === 800, `${name}词表 800 词（现在 ${bank.length}）`);
+  const bad = bank.filter((e) => !e || typeof e.w !== 'string' || typeof e.z !== 'string' || typeof e.p !== 'string' || !e.z.trim());
+  ok(bad.length === 0, `${name}词表每条都有 w/z/p`);
+  const notCn = bank.filter((e) => !/[\u4e00-\u9fa5]/.test(e.z || ''));
+  ok(notCn.length === 0, `${name}词表释义都是中文`);
+  const inner = new Map();
+  const dupIn = [];
+  for (const e of bank) { if (inner.has(e.w)) dupIn.push(e.w); inner.set(e.w, 1); }
+  ok(dupIn.length === 0, `${name}词表内部没有重复词${dupIn.length ? '：' + dupIn.slice(0, 5).join(', ') : ''}`);
+}
+const all = new Map();
+const crossDup = [];
+for (const e of words.concat(cet6, kaoyan)) {
+  if (all.has(e.w)) crossDup.push(e.w);
+  all.set(e.w, 1);
+}
+ok(crossDup.length === 0, `三套词库之间零重复${crossDup.length ? '：' + crossDup.slice(0, 8).join(', ') : ''}`);
+ok(all.size === 2400, `三套合计 2400 词（现在 ${all.size}）`);
 
 if (fail) { console.log(`\n词表体检失败 ${fail} 项`); process.exit(1); }
 console.log('\n词表体检通过 ✅');

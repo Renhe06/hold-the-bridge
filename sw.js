@@ -13,7 +13,7 @@
 //       离线时外壳还在、能打开游戏；图片没缓存上顶多暂时缺图（渲染器有手绘兜底）。
 // ============================================================
 
-const CACHE = 'hold-the-bridge-v1.0.65';
+const CACHE = 'hold-the-bridge-v1.0.66';
 
 // 只预缓存"外壳"：打开游戏必需的那几样，体积小、改动频繁
 const SHELL = [
@@ -30,6 +30,10 @@ const SHELL = [
   './js/quality.js',
   './js/i18n.js',
   './js/changelog.js',
+  './js/words-bank.js',
+  './js/words-cet4.js',
+  './js/words-cet6.js',
+  './js/words-kaoyan.js',
   './js/camera.js',
   './js/audio.js',
   './js/game.js',

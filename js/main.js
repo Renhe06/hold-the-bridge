@@ -8,11 +8,12 @@ import { Sound } from './audio.js';
 import { Game, STATE } from './game.js';
 import { Renderer, TAG_COLOR } from './render.js';
 import { CFG, isHordeWave, isBossWave, isEndless, isWordMode, findLevel, levelIndexOf, HEROES, HERO_KEY } from './config.js';
-import { CET4_WORDS } from './words-cet4.js';
+import { WORD_LOOKUP, WORD_BANKS, bankName } from './words-bank.js';
 import { learnedList, wrongList, bookStats } from './wordbook.js';
 
 // 错词本要显示释义：建一张 词 → 释义 的表（800 条，开机一次）
-const CET4_LOOKUP = new Map(CET4_WORDS.map((x) => [x.w, x]));
+// 三套词库并集的查表（错词本按单词反查释义）
+const CET4_LOOKUP = WORD_LOOKUP;
 import { QUALITY } from './quality.js';
 import { I18N } from './i18n.js';
 import { CHANGELOG } from './changelog.js';
@@ -96,10 +97,16 @@ const el = {
   bookTabWrongN: $('bookTabWrongN'),
   bookList: $('bookList'),
   wordBookHint: $('wordBookHint'),
+  wordDoneEgg: $('wordDoneEgg'),
+  wordDoneEggSub: $('wordDoneEggSub'),
   wordDoneBook: $('wordDoneBook'),
   wordDoneBookNote: $('wordDoneBookNote'),
   wordPickOverlay: $('wordPickOverlay'),
   wordPickClose: $('wordPickClose'),
+  wordPickSub: $('wordPickSub'),
+  wbCet4: $('wbCet4'),
+  wbCet6: $('wbCet6'),
+  wbKaoyan: $('wbKaoyan'),
   wc10: $('wc10'),
   wc30: $('wc30'),
   wc50: $('wc50'),
@@ -1179,6 +1186,7 @@ onTap(el.modeWord, (e) => {
   hideLevels();
   guardClick();
   refreshWordModes();
+  refreshBanks();
   el.wordPickOverlay.classList.add('show');
 });
 onTap(el.wordPickClose, (e) => {
@@ -1195,6 +1203,7 @@ function startWordGame(count, mode) {
   if (idx < 0) return;
   game.pendingWordTotal = count;
   game.pendingWordMode = mode || 'all';
+  game.pendingWordBank = wordBank; // 【用户 m17229】这轮背的是四级 / 六级 / 考研
   wordDoneShown = false;
   wordWrongShown = false;
   el.wordPickOverlay.classList.remove('show');
@@ -1213,6 +1222,34 @@ for (const [node, n] of [[el.wc10, 10], [el.wc30, 30], [el.wc50, 50], [el.wc100,
     e.stopPropagation();
     lastWordCount = n;
     startWordGame(n, 'all');
+  });
+}
+
+// 【用户 m17229】四级 / 六级 / 考研 三套词库，选中的那套写进 game.pendingWordBank
+let wordBank = 'cet4';
+// 记住上次选的那套词库，下次进来不用重选（localStorage 挂了就退回四级）
+try {
+  const savedBank = window.localStorage && window.localStorage.getItem('htb.wordBank');
+  if (savedBank && WORD_BANKS.some((b) => b.id === savedBank)) wordBank = savedBank;
+} catch (e) { /* 隐私模式 */ }
+function refreshBanks() {
+  for (const b of WORD_BANKS) {
+    const node = el['wb' + b.id[0].toUpperCase() + b.id.slice(1)];
+    if (!node) continue;
+    node.classList.toggle('sel', b.id === wordBank);
+    node.setAttribute('aria-pressed', b.id === wordBank ? 'true' : 'false');
+  }
+  if (el.wordPickSub) setText(el.wordPickSub, 'wbsub', `这轮背${bankName(wordBank)}的词，答完就结算`);
+}
+for (const b of WORD_BANKS) {
+  const key = 'wb' + b.id[0].toUpperCase() + b.id.slice(1);
+  onTap(el[key], (e) => {
+    sfx.unlock();
+    sfx.uiClick();
+    e.stopPropagation();
+    wordBank = b.id;
+    try { window.localStorage && window.localStorage.setItem('htb.wordBank', wordBank); } catch (err) { /* 忽略 */ }
+    refreshBanks();
   });
 }
 
@@ -1715,13 +1752,14 @@ function syncWordHud() {
   if (g.wordFinished && !wordDoneShown) {
     wordDoneShown = true;
     const total = g.wordTotal || 0;
-    const right = g.wordRight || 0;
+    // 正确/错误按「这轮哪些词一次就答对」算：两个数加起来正好等于词汇量
+    const missedCnt = g.wordMissSet ? g.wordMissSet.size : (g.wordWrong || 0);
+    const right = Math.max(0, total - missedCnt);
     setText(el.wordDoneTotal, 'wd1', String(total));
     setText(el.wordDoneRight, 'wd2', String(right));
-    setText(el.wordDoneWrong, 'wd3', String(g.wordWrong || 0));
-    // 正确率按"答过几次"算：错词会再考一次，用总作答数当分母才不虚高
-    const answered = right + (g.wordWrong || 0);
-    setText(el.wordDoneAcc, 'wd4', answered ? `${Math.round((right / answered) * 100)}%` : '0%');
+    setText(el.wordDoneWrong, 'wd3', String(g.wordMissSet ? g.wordMissSet.size : (g.wordWrong || 0)));
+    // 正确率 = 一次就答对的词 / 词汇量（错词重考也不再拉低，玩家看得舒服）
+    setText(el.wordDoneAcc, 'wd4', total ? `${Math.round((right / total) * 100)}%` : '0%');
     setText(el.wordDoneBest, 'wd5', String(g.wordBest || 0));
     const sec = Math.max(1, Math.round(g.time || 0));
     setText(el.wordDoneTime, 'wd6', `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
@@ -1730,8 +1768,16 @@ function syncWordHud() {
     setText(
       el.wordDoneBookNote,
       'bdn',
-      `这轮错了 ${g.wordWrong || 0} 个 · 本子上共 ${st.wrong} 个错词`
+      `这轮错了 ${missedCnt} 个 · 本子上共 ${st.wrong} 个错词`
     );
+    // 【用户 m17229】零失误彩蛋：一个都没错才亮出来
+    if (el.wordDoneEgg) {
+      const perfect = !!g.wordPerfect;
+      el.wordDoneEgg.classList.toggle('show', perfect);
+      if (perfect) {
+        setText(el.wordDoneEggSub, 'egg1', `${total} 个词一个都没错 · ${bankName(g.wordBank)}专场`);
+      }
+    }
     el.wordDoneOverlay.classList.add('show');
     wordDoneAt = performance.now();
   }

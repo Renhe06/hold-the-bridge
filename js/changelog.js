@@ -17,7 +17,7 @@
 
 export const CHANGELOG = [
   {
-    version: '1.0.65',
+    version: '1.0.66',
     date: '26/10/25',
     // 【用户 m17134】原文条目按「新增 / 优化 / 修复」重排并润色成更新说明的口吻
     groups: [

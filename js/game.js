@@ -13,7 +13,7 @@
 // ============================================================
 
 import { CFG, UPGRADES, WEAPON_TIERS, WEAPON_TIERS_FANTASY, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, isFantasy, isEndless, isWordMode, pvzPlant, heroDef, heroZRange } from './config.js';
-import { CET4_WORDS } from './words-cet4.js';
+import { bankWords, ALL_WORDS } from './words-bank.js';
 import { markLearned, markWrong, wrongTimes, learnedWords, wrongWords, removeWrong } from './wordbook.js';
 import { clamp, rand, pickWeighted } from './util.js';
 import { QUALITY } from './quality.js';
@@ -225,7 +225,7 @@ export class Game {
     this._pvzGateWait = false;
     // 【用户 m16141】单词模式：没有波次、没有怪、没有角色技能，进来直接出一题
     if (isWordMode()) {
-      this.startWordRun(this.pendingWordTotal || CFG.word.counts[0], this.pendingWordMode || 'all');
+      this.startWordRun(this.pendingWordTotal || CFG.word.counts[0], this.pendingWordMode || 'all', this.pendingWordBank);
       return;
     }
     if (CFG.level.intro) {
@@ -287,11 +287,12 @@ export class Game {
    * review / wrong 的词量会被池子大小夹住——背过的只有 8 个，就别硬凑 10 个。
    */
   wordSourcePool(mode) {
-    const byWord = new Map(CET4_WORDS.map((c) => [c.w, c]));
+    const byWord = new Map(ALL_WORDS.map((c) => [c.w, c]));
     let list = null;
     if (mode === 'review') list = learnedWords();
     else if (mode === 'wrong') list = wrongWords();
-    if (!list) return CET4_WORDS.slice();
+    // 【用户 m17229】'all' = 当前选中的那套词库（四级 / 六级 / 考研）
+    if (!list) return bankWords(this.wordBank).slice();
     const out = [];
     for (const w of list) {
       const c = byWord.get(w);
@@ -300,10 +301,11 @@ export class Game {
     return out;
   }
 
-  startWordRun(total, mode) {
+  startWordRun(total, mode, bank) {
     this.reset();
     this.state = STATE.FIGHT; // 复用 FIGHT：主循环照跑，update 里由 isWordMode() 分流
     this.wordSrc = mode === 'review' || mode === 'wrong' ? mode : 'all';
+    this.wordBank = bank || this.wordBank || 'cet4';
     this.wordPool = this.wordSourcePool(this.wordSrc);
     this.wordPoolSeen = new Set();
     // 词池不够就按池子大小来（复习模式背过几个就考几个）
@@ -327,12 +329,17 @@ export class Game {
     this.wordRedo = 0;        // 这一局里"再考"的次数（不计入词量）
     this.wordShake = 0;       // 答错时画面抖一下（渲染用）
     this.wordFlash = 0;       // 答错时的红色边光
+    // 【用户 m17229】一轮下来一个都没错 → 通关彩蛋
+    this.wordPerfect = false;
+    this.wordMissSet = new Set();
+    this.wordGold = 0;        // 彩蛋的金光（渲染用，1 → 0 衰减）
     this.wordNext();
   }
 
   /** 出一个新词：题干 + 四个选项（一个正确、三个干扰） */
   wordNext() {
-    const pool = (this.wordPool && this.wordPool.length ? this.wordPool : CET4_WORDS);
+    const bankPool = bankWords(this.wordBank);
+    const pool = (this.wordPool && this.wordPool.length ? this.wordPool : bankPool);
     const n = pool.length;
     const fresh = () => {
       // 复习 / 错词模式：同一个词一局里只出一次，抽到过的先跳过
@@ -370,9 +377,11 @@ export class Game {
 
     // 干扰项先找"像的词"：前两个字母相同（abandon / abandon…），或同首字母且长度接近，
     // 这样四个中文选项才真的需要辨析，而不是一眼就能排除。
+    // 干扰项优先从同一套词库里找（四级题就别用考研词来干扰），太少时再退到全库
     const like = [];
     const far = [];
-    for (const c of CET4_WORDS) {
+    const decoyPool = (this.wordSrc === 'all' && bankPool.length >= 40) ? bankPool : ALL_WORDS;
+    for (const c of decoyPool) {
       if (c === q) continue;
       const sameHead = c.w.slice(0, 2) === q.w.slice(0, 2);
       const nearLen = Math.abs(c.w.length - q.w.length) <= 1;
@@ -440,6 +449,8 @@ export class Game {
     }
     this.wordPhase = 'wrong';
     this.wordWrong += 1;
+    // 这轮「错过的不同的词」：错几次都只算一个词，供结算页显示
+    if (this.wordMissSet) this.wordMissSet.add(this.wordQ.w);
     this.wordStreak = 0;
     this.wordHold = CFG.word.holdWrong;
     this.wordBurst(false);
@@ -476,6 +487,28 @@ export class Game {
     this.wordFinishOne(info);
   }
 
+  /** 【用户 m17229】零失误彩蛋：满屏金色彩带 + 一圈金光 */
+  wordPerfectFx() {
+    this.wordGold = 1.35;
+    const cx = this.cam ? this.cam.w * 0.5 : 195;
+    const cy = this.cam ? this.cam.h * 0.42 : 360;
+    const cols = ['#ffd76a', '#fff3c4', '#ffb43c', '#9ef0c0', '#8fd8ff', '#ffb6e6'];
+    for (let i = 0; i < 46; i++) {
+      const a = (i / 46) * Math.PI * 2 + Math.random() * 0.3;
+      const sp = 150 + Math.random() * 210;
+      this.wordBursts.push({
+        x: cx + Math.cos(a) * 26,
+        y: cy + Math.sin(a) * 18,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 120,
+        t: 0,
+        life: 0.9 + Math.random() * 0.7,
+        col: cols[i % cols.length],
+        r: 3 + Math.random() * 3.4,
+      });
+    }
+  }
+
   wordBurst(ok) {
     // 答对撒一圈星星、答错掉一圈红点，纯装饰
     const cx = this.cam ? this.cam.w * 0.5 : 195;
@@ -503,6 +536,9 @@ export class Game {
       this.wordFinished = true;
       this.wordPhase = 'done';
       this.state = STATE.FIGHT; // 不切 OVER/CLEAR：这两个会弹战斗结算面板
+      // 【用户 m17229】零失误彩蛋：一轮下来一次没答错（也没有再考）
+      this.wordPerfect = this.wordWrong === 0 && this.wordRedo === 0;
+      if (this.wordPerfect) this.wordPerfectFx();
       return;
     }
     this.wordNext();
@@ -514,6 +550,7 @@ export class Game {
     this.wordT += dt;
     if (this.wordShake > 0) this.wordShake = Math.max(0, this.wordShake - dt);
     if (this.wordFlash > 0) this.wordFlash = Math.max(0, this.wordFlash - dt);
+    if (this.wordGold > 0) this.wordGold = Math.max(0, this.wordGold - dt * 0.9);
     if (this.wordHold > 0) {
       this.wordHold -= dt;
       if (this.wordHold <= 0) {

@@ -79,6 +79,17 @@ const EN = {
   无尽模式: 'Endless',
   '没有终点 · 全员出动 · 四技能合一': 'No finish · everything spawns · four skills',
   '单 词 模 式': 'W O R D   M O D E',
+  // 【用户 m17229】三套词库
+  四级: 'CET-4',
+  六级: 'CET-6',
+  考研: 'Postgrad',
+  '四 级': 'CET-4',
+  '六 级': 'CET-6',
+  '考 研': 'Postgrad',
+  '10 个词一个都没错': '10 words, zero misses',
+  '800 词': '800 words',
+  '这轮背四级的词，答完就结算': 'This round: CET-4 words — pick a count to start',
+  '零 失 误 · 通 关': 'ZERO MISSES · CLEARED',
   '单词模式 · 敬请期待~': 'Word mode · coming soon~',
   上: 'Part 1',
   下: 'Part 2',
@@ -708,6 +719,11 @@ const EN = {
 // 切回中文时直接查那张表 —— 屏幕上出现过的句子一定有记录。
 const PATTERNS = [
   // 【用户 m16883】选词面板上的实时计数 + 错词模式确认句
+  // 【用户 m17229】词库名 + 选词面板副标题 + 零失误彩蛋
+  [/^这轮背(\S+)的词，答完就结算$/, (m) => `This round: ${I18Nd(m[1])} words — pick a count to start`],
+  [/^(\d+) 个词一个都没错 · (\S+)专场$/, (m) => `${m[1]} words, zero misses · ${I18Nd(m[2])} run`],
+  [/^这轮错了 (\d+) 个 · 本子上共 (\d+) 个错词$/, '$1 missed this round · $2 in the book'],
+  [/^(\d+) 词$/, '$1 words'],
   [/^已背 (\d+) 词$/, '$1 learned'],
   [/^错词 (\d+) 个$/, '$1 missed'],
   [/^只考错词本里的 (\d+) 个词，这轮 (\d+) 题；答对一次就移出错词本$/,
