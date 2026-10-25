@@ -858,15 +858,34 @@ function renderChangelog() {
     ver.textContent = `v${row.version}`;
     head.appendChild(date);
     head.appendChild(ver);
-    const ul = document.createElement('ul');
-    ul.className = 'log-ul';
-    for (const line of row.items) {
-      const li = document.createElement('li');
-      li.textContent = line;
-      ul.appendChild(li);
-    }
     card.appendChild(head);
-    card.appendChild(ul);
+    // 【用户 m17134】条目分组：新增 / 优化 / 修复 三段，顺序固定
+    const GROUP_TITLE = { new: '新增', polish: '优化', fix: '修复' };
+    const groups = row.groups && row.groups.length
+      ? row.groups
+      : [{ k: 'new', items: row.items || [] }];
+    for (const g of groups) {
+      const items = (g.items || []).filter(Boolean);
+      if (!items.length) continue;
+      const gh = document.createElement('div');
+      gh.className = `log-group log-group-${g.k}`;
+      const gd = document.createElement('i');
+      gd.className = 'log-dot';
+      const gt = document.createElement('span');
+      gt.className = 'log-glabel';
+      gt.textContent = GROUP_TITLE[g.k] || '新增';
+      gh.appendChild(gd);
+      gh.appendChild(gt);
+      card.appendChild(gh);
+      const ul = document.createElement('ul');
+      ul.className = 'log-ul';
+      for (const line of items) {
+        const li = document.createElement('li');
+        li.textContent = line;
+        ul.appendChild(li);
+      }
+      card.appendChild(ul);
+    }
     // 【用户 m10949】更新预告单独一行 + 「即将上线」小标签（方案 B）。
     // 文案照样是纯中文文本节点，由界面字典翻成英文，所以 EN 表里要有对应键。
     if (row.preview) {
@@ -874,7 +893,7 @@ function renderChangelog() {
       pv.className = 'log-preview';
       const badge = document.createElement('span');
       badge.className = 'log-badge';
-      badge.textContent = '即将上线';
+      badge.textContent = '更新预告';
       const txt = document.createElement('span');
       txt.className = 'log-preview-txt';
       txt.textContent = row.preview;

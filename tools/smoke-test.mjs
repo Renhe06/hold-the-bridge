@@ -3082,11 +3082,15 @@ try {
 try {
   const { CHANGELOG } = await import(pathToFileURL(path.join(ROOT, 'js', 'changelog.js')).href);
   ok(Array.isArray(CHANGELOG) && CHANGELOG.length > 0, `更新说明有 ${CHANGELOG.length} 条版本记录`);
+  // 【用户 m17134】条目改成分组（新增 / 优化 / 修复），老格式 items 也继续支持
+  const linesOf = (r) => (Array.isArray(r.groups)
+    ? r.groups.flatMap((g) => (Array.isArray(g.items) ? g.items : []))
+    : (r.items || []));
   const bad = CHANGELOG.filter(
     (r) => !/^\d+\.\d+\.\d+$/.test(String(r.version || '')) ||
       !/^\d{2}\/\d{2}\/\d{2}$/.test(String(r.date || '')) ||
-      !Array.isArray(r.items) || r.items.length === 0 ||
-      r.items.some((s) => typeof s !== 'string' || !s.trim())
+      linesOf(r).length === 0 ||
+      linesOf(r).some((s) => typeof s !== 'string' || !s.trim())
   );
   ok(bad.length === 0, `每条都有版本号 / 日期(YY/MM/DD) / 非空条目${bad.length ? `（有问题：${bad.map((r) => r.version).join(',')}）` : ''}`);
   const stamp = (r) => {
@@ -3095,6 +3099,18 @@ try {
   };
   const sorted = CHANGELOG.slice().sort((a, b) => stamp(b) - stamp(a));
   ok(sorted[0] === CHANGELOG[0], `最新的排在最前面（第一眼看到 ${CHANGELOG[0].date} · v${CHANGELOG[0].version}）`);
+  // 分组顺序固定：新增 → 优化 → 修复（用户 m17134）
+  const ORDER = ['new', 'polish', 'fix'];
+  const badOrder = CHANGELOG.filter((r) => {
+    if (!Array.isArray(r.groups)) return false;
+    const idx = r.groups.map((g) => ORDER.indexOf(g.k));
+    return idx.some((n) => n < 0) || idx.some((n, i) => i > 0 && n < idx[i - 1]);
+  });
+  ok(badOrder.length === 0, `更新说明分组顺序都是 新增→优化→修复${badOrder.length ? `（乱了：${badOrder.map((r) => r.version).join(',')}）` : ''}`);
+  ok(CHANGELOG[0].version === '1.0.65' && /保护世界/.test(CHANGELOG[0].preview || ''),
+    '最新一版带「更新预告」：保护世界特典关卡（用户 m17134）');
+  const logSrc = fs.readFileSync(path.join(ROOT, 'js', 'main.js'), 'utf8');
+  ok(/badge\.textContent = '更新预告'/.test(logSrc), '预告小标签写着「更新预告」（用户 m17134）');
 } catch (err) {
   failures++;
   notes.push(`  ✗ 更新说明测试抛异常: ${err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : err}`);

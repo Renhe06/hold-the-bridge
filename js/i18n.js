@@ -221,6 +221,63 @@ const EN = {
   '新增角色界面，可自由更换出战角色': 'New hero screen — switch your fighter freely',
   '修复大量 bug': 'Fixed a pile of bugs',
   即将上线: 'COMING SOON',
+  更新预告: "WHAT'S NEXT",
+  // ---- 更新说明分组小标题（用户 m17134）----
+  新增: 'NEW',
+  优化: 'POLISHED',
+  修复: 'FIXED',
+
+  // ---- v1.0.65 / 26-10-25 ----
+  '无尽模式来了：没有终点，四关的怪排着队往上冲，一口气打个痛快':
+    'Endless mode: no finish line, monsters from all four stages line up — go wild',
+  '单词模式（Beta）上线：打累了就背两个词，劳逸结合刚刚好':
+    'Word mode (Beta): rest your trigger finger and learn a couple of words',
+  '错词本上线：背错的词都会记下来，想复习随时翻':
+    'Word book: every word you miss is saved, ready to review anytime',
+  '修掉了一个很烦人的问题：打得太欢时画面会频繁频闪、晃得眼睛疼':
+    'Fixed an annoying one: heavy firefights no longer strobe and hurt your eyes',
+  '「保护世界」主题特典关卡即将上线，游戏步入完结':
+    'Bonus stage "Protect the World" is coming — and the story wraps up',
+
+  // ---- v1.0.56 / 26-10-20 ----
+  '勇者和花仙子现在四关都能上场了':
+    'Knight and Fairy can now fight in all four stages',
+  '花仙子的蝴蝶和脚下花环不再只在第四关出现':
+    "The Fairy's butterflies and flower ring no longer stay in stage 4",
+  '勇者的金色剑气更醒目，环绕小剑更轻更薄，转到身后会被身体挡住':
+    "Knight's golden slash reads better and the orbiting swords are lighter — they hide behind him",
+  '修掉微信里打开时技能键偶尔错位的问题':
+    'Fixed skill buttons occasionally misaligning when opened in WeChat',
+  '修掉其它零碎小问题，顺手抠了些细节':
+    'Fixed a pile of small issues and polished plenty of details',
+
+  // ---- v1.0.54 / 26-10-18 ----
+  '第四关「异世界」上线：新场景、新怪物，玩法全面升级':
+    'Stage 4 "Other World" is live: new scenery, new monsters, upgraded gameplay',
+  '角色界面开放，出战角色可以自由更换':
+    'Hero screen unlocked — swap your hero freely',
+  '新角色「花仙子」登场：专属特效和专属玩法一并上线~':
+    'New hero "Fairy" arrives with her own effects and playstyle~',
+  '新增加载页，进游戏前先看见进度':
+    'New loading screen so you can watch the progress',
+  '新增第三关通关失败彩蛋，输一次也有惊喜':
+    'New stage-3 game-over easter egg — losing has a surprise too',
+  '自该版本起，游戏改为联网模式，打开就是最新版':
+    'From this version on the game runs online: open it and you are up to date',
+  '整合并重排了部分功能与界面，看着更顺眼':
+    'Reworked and tidied parts of the UI',
+  '修复大量 bug，稳定性明显变好':
+    'Fixed lots of bugs — noticeably more stable',
+
+  // ---- v1.0.26 / 26-10-16 ----
+  '新增版本说明，每次改了什么都一目了然~':
+    'Version notes added so you can see what changed~',
+  'UI 和特效全部重做，视觉效果全面焕新':
+    'UI and effects rebuilt from scratch — a full visual refresh',
+  '底层架构优化，跑起来更快更稳':
+    'Under-the-hood optimizations: faster and steadier',
+  '全面适配英语，中英双语同步更新':
+    'Full English support, both languages updated together',
 
   // ---- HUD / 局内 ----
   波次: 'Wave',

@@ -2562,3 +2562,29 @@ body.wordmode #app::after {
 .overlay.word-confirm { z-index: 26; }
 .overlay.word-confirm .panel.light { max-width: 340px; }
 .panel.light { padding-bottom: 20px; }
+
+/* 更新说明的分组标题（用户 m17134：新增 / 优化 / 修复 三段） */
+.log-group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 12px 0 4px;
+}
+.log-group .log-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #7df9ff;
+  box-shadow: 0 0 8px rgba(125, 249, 255, 0.7);
+}
+.log-group .log-glabel {
+  font-size: 11.5px;
+  letter-spacing: 2px;
+  color: #9fd4e8;
+}
+.log-group-new .log-dot { background: #7df9ff; box-shadow: 0 0 8px rgba(125, 249, 255, 0.7); }
+.log-group-polish .log-dot { background: #ffd479; box-shadow: 0 0 8px rgba(255, 212, 121, 0.6); }
+.log-group-polish .log-glabel { color: #e8cfa0; }
+.log-group-fix .log-dot { background: #ff9b8a; box-shadow: 0 0 8px rgba(255, 155, 138, 0.6); }
+.log-group-fix .log-glabel { color: #e6b3a8; }
+.log-group + .log-ul { margin-top: 0; }
