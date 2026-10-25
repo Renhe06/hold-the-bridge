@@ -1992,3 +1992,116 @@ body.skin-fantasy .mute {
   background: linear-gradient(180deg, rgba(32, 25, 20, 0.78), rgba(13, 10, 9, 0.72));
 }
 
+/* ============================================================
+   单词模式（【用户 m16141】Beta）
+   画面大部分在 canvas 里画，这里只管三个 DOM 面板：
+   选词量 / 答错复盘 / 结算。
+   ============================================================ */
+.word-pick .title,
+.word-pick .word-sub {
+  text-align: center;
+}
+.word-sub {
+  margin: 0 0 14px;
+  font-size: 13px;
+  letter-spacing: 0.4px;
+  color: rgba(214, 231, 248, 0.72);
+  text-align: center;
+}
+.word-counts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.wc {
+  position: relative;
+  padding: 14px 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(126, 178, 231, 0.34);
+  background: linear-gradient(180deg, rgba(38, 74, 116, 0.86), rgba(18, 32, 52, 0.92));
+  color: #eaf4ff;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.wc b {
+  display: block;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #ffe6a8;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+.wc span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: rgba(198, 219, 240, 0.68);
+}
+.wc:active {
+  transform: scale(0.97);
+  border-color: rgba(255, 214, 130, 0.72);
+  box-shadow: 0 0 18px rgba(255, 206, 120, 0.28) inset;
+}
+
+/* 答错复盘：四行「英文 + 中文」，红的是自己点错的、绿的是正确答案 */
+.word-rows {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+.word-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  border: 1px solid rgba(126, 178, 231, 0.24);
+  background: rgba(18, 32, 52, 0.66);
+}
+.word-row .en {
+  flex: none;
+  min-width: 34%;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: #eaf4ff;
+}
+.word-row .cn {
+  flex: 1;
+  font-size: 13px;
+  color: rgba(214, 231, 248, 0.86);
+}
+.word-row.ok {
+  border-color: rgba(64, 199, 130, 0.62);
+  background: rgba(20, 74, 52, 0.6);
+}
+.word-row.ok .en {
+  color: #8ff0bc;
+}
+.word-row.bad {
+  border-color: rgba(239, 83, 80, 0.66);
+  background: rgba(84, 26, 30, 0.6);
+}
+.word-row.bad .en {
+  color: #ff9a9a;
+}
+
+/* 单词模式里战斗 HUD 全部让位：没有波次、没有血条、没有武器称号 */
+body.wordmode .hud-pill,
+body.wordmode .tier,
+body.wordmode .hud-mid,
+body.wordmode .hud-score {
+  display: none;
+}
+body.wordmode {
+  background: #eaf6ff;
+}
+
+/* 单词模式结算：3 列 2 行，别留半行空白 */
+.stats.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}

@@ -733,7 +733,40 @@ export const CFG = {
       countPerWave: 2.0,
       countMaxPerWave: 0.28,
     },
+    // 【用户 m16141】单词模式（Beta）：不计波次、不出怪、不用角色技能，
+    // 一局就是"背 N 个单词"——答完结算。
+    //   wordMode —— 全工程唯一开关（见 isWordMode()），保证别的关卡一点不受影响
+    //   theme 仍写 city：渲染走 _drawWordScene 自己那一套明亮英语主题，不碰天空烘焙
+    {
+      id: 98,
+      name: '单词模式',
+      hud: '单词模式',
+      waves: 0,
+      wordMode: true,
+      theme: 'city',
+      skin: null,
+      bulletMax: 6,
+      gateAll: false,
+      skills: [],
+      diff: 1,
+      countDiff: 1,
+      firstCount: 0,
+      countPerWave: 0,
+      countMaxPerWave: 0,
+    },
   ],
+
+  // 【用户 m16141】单词模式的观感与判定参数（都从这里调）
+  word: {
+    counts: [10, 30, 50, 100], // 开局让玩家选的本轮词量
+    holdRight: 0.42, // 答对后绿卡停留多久再换下一题（秒）
+    holdWrong: 0.9, // 答错后红卡停留多久再弹窗（秒）
+    cardGap: 0.028, // 四张选项卡的间距（占屏宽比例）
+    cardH: 0.085, // 选项卡高度（占屏高比例）
+    heroH: 0.34, // 角色立绘高度（占屏高比例）
+    scorePerWord: 10, // 每题基础分
+    streakBonus: 2, // 连对每多一题多给几分
+  },
   levelIndex: 0,
   // 当前关卡的快捷引用（初始化时 = levels[0]）。全工程都读 CFG.level.xxx，
   // 所以切关卡只调 setLevel()，其余代码一行都不用改。
@@ -820,6 +853,11 @@ export function isFantasy() {
  */
 export function isEndless() {
   return !!(CFG.level && CFG.level.endless);
+}
+
+/** 【用户 m16141】单词模式：全工程唯一出口，别处一律走它，免得影响其它关卡 */
+export function isWordMode() {
+  return !!(CFG.level && CFG.level.wordMode);
 }
 
 /**

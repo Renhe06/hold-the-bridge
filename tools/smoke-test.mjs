@@ -980,12 +980,32 @@ try {
   const gsrc = fs.readFileSync(path.join(ROOT, 'js', 'game.js'), 'utf8');
   ok(/\(CFG\.level\.skin === 'ocean' \|\| isEndless\(\)\) && this\.mineStacks > 0/.test(gsrc),
     '无尽模式也会布水雷（原来只认第二关皮肤，用户 m15971）');
-  ok(/if \(!isPvz\(\) && !isEndless\(\)\) \{[\s\S]{0,80}?this\.suns = \[\]/.test(gsrc),
-    '无尽模式也掉阳光（原来只在第三关，用户 m15971）');
+  ok(/if \(!isPvz\(\)\) \{[\s\S]{0,80}?this\.suns = \[\]/.test(gsrc),
+    '无尽模式不出阳光（用户 m16141：删掉一切阳光相关）');
+  ok(/if \(all && u\.id === 'sunValue'\) return false;/.test(gsrc),
+    '无尽模式把"阳光充沛"踢出奖池（用户 m16141）');
   ok(/if \(all && u\.id === 'uniCharge'\) return false;/.test(gsrc),
     '无尽模式把"独角兽加能"踢出奖池（独角兽本来就不限次数，用户 m15971）');
   ok(/const laneCore = laneTint \? laneTint\.color : null;/.test(rsrc),
     '勇者月牙 / 花仙子蝴蝶也会染上寒冰炎火色（用户 m15971）');
+
+  // ---- 单词模式（用户 m16141）----
+  const csrc = fs.readFileSync(path.join(ROOT, 'js', 'config.js'), 'utf8');
+  const msrc = fs.readFileSync(path.join(ROOT, 'js', 'main.js'), 'utf8');
+  ok(/wordMode: true/.test(csrc) && /counts: \[10, 30, 50, 100\]/.test(csrc),
+    '单词模式关卡 + 四档词量（10/30/50/100，用户 m16141）');
+  ok(/export function isWordMode\(\)/.test(csrc), '单词模式有唯一的 isWordMode() 出口');
+  ok(/if \(isWordMode\(\)\) \{[\s\S]{0,80}?this\.updateWord\(dt\);/.test(gsrc),
+    '单词模式整局走 updateWord，不出怪不刷波（用户 m16141）');
+  ok(/if \(isWordMode\(\)\) \{[\s\S]{0,80}?this\.startWordRun\(/.test(gsrc),
+    '进单词模式先挑词量再开局（用户 m16141）');
+  ok(/pickWord\(i\) \{/.test(gsrc) && /wordContinue\(\) \{/.test(gsrc),
+    '答对下一题 / 答错弹窗继续（用户 m16141）');
+  ok(/_drawWordScene\(ctx, game, w, h\)/.test(rsrc), '单词模式有自己的画面（明亮英语主题）');
+  ok(/_drawWordOption\(/.test(rsrc), '四个中文选项卡（奖励卡样式）');
+  ok(/applyWordLocale\(isWordMode\(\)\)/.test(msrc) && /I18N\.setBypass\(on\)/.test(msrc)
+    && /let bypass = false;/.test(fs.readFileSync(path.join(ROOT, 'js', 'i18n.js'), 'utf8')),
+    '单词模式局内不适用英语模式（用户 m16473）');
   ok(ELS.get('talkOverlay').classList.contains('show'), '对话弹窗弹出来了');
   ok(!ELS.get('levelOverlay').classList.contains('show'), '选关面板自己收起来了');
   // 第 1 关没有开场对话（用户 m02807 删掉了第一关那段）。

@@ -8,7 +8,7 @@
 //   - 径向渐变只在上面那两种烘焙里创建，主循环里不新建渐变对象
 // ============================================================
 
-import { CFG, WEAPON_TIERS, isHordeWave, isBossWave, isEndless, pvzPlant } from './config.js';
+import { CFG, WEAPON_TIERS, isHordeWave, isBossWave, isEndless, isWordMode, pvzPlant } from './config.js';
 import { STATE } from './game.js';
 import { clamp, mulberry32, mix, rgba } from './util.js';
 import { QUALITY } from './quality.js';
@@ -859,6 +859,13 @@ export class Renderer {
     const h = this.h;
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+
+    // 【用户 m16141】单词模式：整套画面自己画（明亮的英语主题），
+    // 不碰桥梁/战斗/特效那一整套，所以直接在这里分流出去。
+    if (isWordMode()) {
+      this._drawWordScene(ctx, game, w, h);
+      return;
+    }
 
     // ---- 屏幕震动 ----
     const sh = game.shake;
@@ -7919,6 +7926,353 @@ export class Renderer {
   }
 
   /** 画在 canvas 上的少量 HUD：血条盾牌、波次敌人数、波次横幅 */
+
+  // ============================================================
+  //  单词模式：明亮的英语主题（【用户 m16141】）
+  //  背景：晨光渐变 + 云朵 + 漂浮的英文字母与星星
+  //  主体：白毛小魔女（img/hero-word.webp）
+  //  交互：顶部"单词框" + 四张中文选项卡（奖励卡样式）
+  // ============================================================
+  _drawWordScene(ctx, game, w, h) {
+    const W = CFG.word;
+    const t = this.time;
+    const q = game.wordQ;
+    // 【用户 m16141】英文单词与 A/B/C/D 必须原样画：i18n 把 canvas 的 fillText 换成了
+    // 自动翻译（反查表里有"袭→A""樱→C"），走它会把字母和单词替成汉字。
+
+    // ---- 背景：清晨的教室窗光 ----
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#e9f6ff');
+    bg.addColorStop(0.42, '#f7fcff');
+    bg.addColorStop(0.78, '#fff6e6');
+    bg.addColorStop(1, '#ffe9cf');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    // 云朵（缓慢横移，纯白半透明）
+    ctx.save();
+    for (let i = 0; i < 6; i++) {
+      const cy = h * (0.10 + i * 0.055);
+      const cx = ((t * (6 + i * 2.5) + i * 137) % (w + 260)) - 130;
+      const rr = h * (0.035 + (i % 3) * 0.012);
+      ctx.globalAlpha = 0.55 - i * 0.05;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+      ctx.arc(cx + rr * 0.9, cy + rr * 0.16, rr * 0.78, 0, Math.PI * 2);
+      ctx.arc(cx - rr * 0.95, cy + rr * 0.2, rr * 0.66, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 漂浮的英文字母：慢速上浮 + 轻微摇摆，颜色是糖果色
+    const LETTER_COLS = ['#8ecbff', '#ffc2e2', '#ffd98a', '#a9e8c4', '#c9b6ff'];
+    const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < 14; i++) {
+      const seed = i * 97.13;
+      const lx = ((seed * 3.7) % (w * 1.02)) - w * 0.01;
+      const phase = (t * (0.10 + (i % 4) * 0.03) + seed * 0.013) % 1;
+      const ly = h * (1.02 - phase * 1.12);
+      const ch = LETTERS[(i * 7 + 3) % 26];
+      const size = h * (0.030 + ((i * 13) % 5) * 0.008);
+      ctx.globalAlpha = 0.30 + ((i * 11) % 5) * 0.05;
+      ctx.fillStyle = LETTER_COLS[i % LETTER_COLS.length];
+      ctx.font = `700 ${size}px Georgia, "Times New Roman", serif`;
+      ctx.save();
+      ctx.translate(lx + Math.sin(t * 0.7 + i) * h * 0.012, ly);
+      ctx.rotate(Math.sin(t * 0.5 + i * 2) * 0.16);
+      ctx.fillText(ch, 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // 星星点点
+    ctx.save();
+    for (let i = 0; i < 18; i++) {
+      const sx = ((i * 211.7) % (w * 0.98)) + w * 0.01;
+      const sy = ((i * 373.3) % (h * 0.9)) + h * 0.04;
+      const tw = 0.5 + 0.5 * Math.sin(t * 2 + i * 1.7);
+      ctx.globalAlpha = 0.18 + tw * 0.34;
+      this._wordStar(ctx, sx, sy, h * 0.008 * (0.7 + tw * 0.6), '#ffcf6a');
+    }
+    ctx.restore();
+
+    // ---- 顶部：单词框（原连击位）----
+    const cardW = w * 0.86;
+    const cardX = (w - cardW) / 2;
+    const cardY = h * 0.115;
+    const cardH = h * 0.135;
+    ctx.save();
+    ctx.shadowColor = 'rgba(43,88,142,0.28)';
+    ctx.shadowBlur = h * 0.028;
+    ctx.shadowOffsetY = h * 0.008;
+    const cardG = ctx.createLinearGradient(0, cardY, 0, cardY + cardH);
+    cardG.addColorStop(0, '#ffffff');
+    cardG.addColorStop(1, '#eef7ff');
+    roundRect(ctx, cardX, cardY, cardW, cardH, h * 0.022);
+    ctx.fillStyle = cardG;
+    ctx.fill();
+    ctx.restore();
+    ctx.lineWidth = Math.max(2, h * 0.004);
+    ctx.strokeStyle = 'rgba(126,178,231,0.75)';
+    roundRect(ctx, cardX, cardY, cardW, cardH, h * 0.022);
+    ctx.stroke();
+
+    // 词性小标签（n. / v. / a.）
+    if (q && q.p) {
+      ctx.save();
+      ctx.font = `700 ${h * 0.020}px Georgia, serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const tagW = ctx.measureText(q.p).width + h * 0.028;
+      ctx.fillStyle = 'rgba(255,206,120,0.9)';
+      roundRect(ctx, cardX + h * 0.018, cardY + h * 0.018, tagW, h * 0.034, h * 0.017);
+      ctx.fill();
+      ctx.fillStyle = '#7a5216';
+      ctx.fillText(q.p, cardX + h * 0.018 + h * 0.014, cardY + h * 0.036);
+      ctx.restore();
+    }
+
+    // 进度（第几个 / 一共几个）
+    ctx.save();
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${h * 0.021}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+    ctx.fillStyle = 'rgba(46,92,141,0.62)';
+    ctx.fillText(`${Math.min(game.wordDone + 1, game.wordTotal)} / ${game.wordTotal}`, cardX + cardW - h * 0.02, cardY + h * 0.034);
+    ctx.restore();
+
+    // 英文单词本体
+    if (q) {
+      const wordY = cardY + cardH * 0.62;
+      let size = h * 0.072;
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `700 ${size}px Georgia, "Times New Roman", serif`;
+      // 长词自动缩一档，别顶出卡片
+      while (ctx.measureText(q.w).width > cardW * 0.78 && size > h * 0.026) {
+        size *= 0.92;
+        ctx.font = `700 ${size}px Georgia, "Times New Roman", serif`;
+      }
+      ctx.fillStyle = '#123a5e';
+      (ctx.__rawFillText || ctx.fillText).call(ctx, q.w, w / 2, wordY);
+      ctx.restore();
+    }
+
+    // ---- 角色：白毛小魔女 ----
+    const art = this._wordHeroArt();
+    const heroH = h * W.heroH;
+    const bob = Math.sin(t * 1.9) * h * 0.008;
+    const heroY = h * 0.985 + bob;
+    if (art && art.img && art.img.complete && art.img.naturalWidth) {
+      const k = heroH / art.img.naturalHeight;
+      const dw = art.img.naturalWidth * k;
+      // 脚下的一团暖光，避免人物像贴纸
+      this._drawGlow(w / 2, heroY - heroH * 0.06, heroH * 0.55, 'rgba(255,214,150,0.85)', 0.42);
+      ctx.drawImage(art.img, w / 2 - dw / 2, heroY - heroH, dw, heroH);
+    }
+
+    // ---- 四张中文选项卡（2 × 2）----
+    const gap = w * W.cardGap;
+    const optW = (cardW - gap) / 2;
+    const optH = h * W.cardH;
+    const gridTop = cardY + cardH + h * 0.075;
+    const cards = [];
+    if (q) {
+      for (let i = 0; i < 4; i++) {
+        const col = i % 2;
+        const row = (i / 2) | 0;
+        const x = cardX + col * (optW + gap);
+        const y = gridTop + row * (optH + gap);
+        cards.push({ x, y, w: optW, h: optH, i });
+        this._drawWordOption(ctx, game, q.opts[i], x, y, optW, optH, i, h);
+      }
+    }
+    this.wordCards = cards;
+
+    // ---- 答对/答错的一圈星火 ----
+    for (const b of game.wordBursts || []) {
+      const k = 1 - b.t / b.life;
+      ctx.globalAlpha = Math.max(0, k);
+      ctx.fillStyle = b.col;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r * (0.6 + k * 0.8), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** 选项卡：白底 + 彩色序号 + 中文释义；对/错有独立配色 */
+  _drawWordOption(ctx, game, opt, x, y, w, h, i, hs) {
+    const phase = game.wordPhase;
+    const picked = game.wordPickedIdx === i;
+    const isRight = opt && opt.ok;
+    let fill = '#ffffff';
+    let edge = 'rgba(126,178,231,0.6)';
+    let textCol = '#22405f';
+    let pop = 0;
+    if (phase === 'right' && isRight) {
+      fill = '#e8fff1';
+      edge = '#33c97a';
+      textCol = '#0f6e3e';
+      pop = 1;
+    } else if (phase === 'wrong') {
+      if (picked) {
+        fill = '#ffecec';
+        edge = '#ef5350';
+        textCol = '#8e1b1b';
+      } else if (isRight) {
+        fill = '#e8fff1';
+        edge = '#33c97a';
+        textCol = '#0f6e3e';
+      } else {
+        ctx.globalAlpha = 0.55;
+      }
+    }
+    const k = pop ? 1 + Math.sin(Math.min(1, (CFG.word.holdRight - game.wordHold) * 6) * Math.PI) * 0.03 : 1;
+    ctx.save();
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.scale(k, k);
+    ctx.translate(-w / 2, -h / 2);
+    ctx.shadowColor = 'rgba(43,88,142,0.22)';
+    ctx.shadowBlur = hs * 0.02;
+    ctx.shadowOffsetY = hs * 0.005;
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, fill);
+    g.addColorStop(1, fill === '#ffffff' ? '#f2f9ff' : fill);
+    roundRect(ctx, 0, 0, w, h, h * 0.26);
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.lineWidth = Math.max(2, hs * 0.0045);
+    ctx.strokeStyle = edge;
+    roundRect(ctx, 0, 0, w, h, h * 0.26);
+    ctx.stroke();
+
+    // A / B / C / D 圆形序号
+    const bx = h * 0.34;
+    const by = h * 0.34;
+    ctx.beginPath();
+    ctx.arc(bx, by, h * 0.215, 0, Math.PI * 2);
+    ctx.fillStyle = edge;
+    ctx.fill();
+    ctx.fillStyle = fill === '#ffffff' ? '#ffffff' : '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${h * 0.28}px Arial, Helvetica, sans-serif`;
+    (ctx.__rawFillText || ctx.fillText).call(ctx, String.fromCharCode(65 + i), bx, by + h * 0.012);
+
+    // 中文释义
+    ctx.textAlign = 'left';
+    ctx.fillStyle = textCol;
+    let fs = h * 0.30;
+    ctx.font = `600 ${fs}px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif`;
+    const maxW = w - h * 0.78;
+    while (ctx.measureText(opt ? opt.z : '').width > maxW && fs > h * 0.18) {
+      fs *= 0.9;
+      ctx.font = `600 ${fs}px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif`;
+    }
+    ctx.fillText(opt ? opt.z : '', h * 0.62, h * 0.52);
+
+    // 对错角标
+    if (phase === 'right' && isRight) {
+      ctx.fillStyle = '#1fae63';
+      ctx.font = `700 ${h * 0.3}px Georgia, serif`;
+      ctx.textAlign = 'right';
+      ctx.fillText('✓', w - h * 0.16, h * 0.52);
+    } else if (phase === 'wrong' && picked) {
+      ctx.fillStyle = '#e03d3d';
+      ctx.font = `700 ${h * 0.3}px Georgia, serif`;
+      ctx.textAlign = 'right';
+      ctx.fillText('✗', w - h * 0.16, h * 0.52);
+    } else if (phase === 'wrong' && isRight) {
+      ctx.fillStyle = '#1fae63';
+      ctx.font = `700 ${h * 0.28}px Georgia, serif`;
+      ctx.textAlign = 'right';
+      ctx.fillText('✓', w - h * 0.16, h * 0.52);
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * 选项卡角标 A / B / C / D —— 用线条画，不用文字。
+   * （这台机器上 canvas 的 fillText('A') 会被某个坏掉的字体替成乱码字，
+   *  测试画布上正常、游戏画布上就坏，所以干脆不依赖字体。）
+   */
+  _wordLetter(ctx, idx, cx, cy, size, col) {
+    const s = size * 0.42;      // 半个字宽
+    const t = Math.max(1.6, size * 0.17); // 线宽
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = t;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    if (idx === 0) {
+      // A
+      ctx.moveTo(-s, s);
+      ctx.lineTo(0, -s);
+      ctx.lineTo(s, s);
+      ctx.moveTo(-s * 0.52, s * 0.16);
+      ctx.lineTo(s * 0.52, s * 0.16);
+    } else if (idx === 1) {
+      // B：竖 + 上下两个半圆
+      ctx.moveTo(-s * 0.6, -s);
+      ctx.lineTo(-s * 0.6, s);
+      ctx.moveTo(-s * 0.6, -s);
+      ctx.arc(-s * 0.6, -s * 0.46, s * 0.54, -Math.PI / 2, Math.PI / 2);
+      ctx.moveTo(-s * 0.6, s * 0.06);
+      ctx.arc(-s * 0.6, s * 0.46, s * 0.6, -Math.PI / 2, Math.PI / 2);
+    } else if (idx === 2) {
+      // C
+      ctx.arc(0, 0, s * 0.94, Math.PI * 0.28, Math.PI * 1.72);
+    } else {
+      // D：竖 + 大半个圆
+      ctx.moveTo(-s * 0.55, -s);
+      ctx.lineTo(-s * 0.55, s);
+      ctx.moveTo(-s * 0.55, -s);
+      ctx.lineTo(0, -s);
+      ctx.arc(0, 0, s, -Math.PI / 2, Math.PI / 2);
+      ctx.lineTo(-s * 0.55, s);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  _wordStar(ctx, cx, cy, r, col) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      const rr = i % 2 ? r * 0.44 : r;
+      const px = Math.cos(a) * rr;
+      const py = Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = col;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** 小魔女立绘（懒加载一次，失败就退化成占位） */
+  _wordHeroArt() {
+    if (this._wordHero) return this._wordHero;
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = 'img/hero-word.webp';
+    this._wordHero = { img };
+    return this._wordHero;
+  }
+
   _drawHudCanvas(ctx, game, w, h) {
     const safeTop = this.safeTop || 0;
 

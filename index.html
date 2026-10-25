@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<!-- build: 2026-10-25 18:15:56 -->
+<!-- build: 2026-10-25 18:59:44 -->
 <meta charset="UTF-8" />
 <title>守桥 · 丧尸围城</title>
 
@@ -110,7 +110,7 @@
          版本号由 deploy.ps1 每次部署自动 +1（别手改，改了会被下次部署覆盖） -->
     <div class="foot-right">
       <button class="log-btn" id="logBtn" type="button">更 新 说 明</button>
-      <div class="build" id="buildLabel">v1.0.60</div>
+      <div class="build" id="buildLabel">v1.0.61</div>
     </div>
   </div>
 
@@ -289,11 +289,55 @@
         <!-- 两个模式各占一整行（两关的长度），深紫黑底，和上面的关卡卡区分开 -->
         <button class="lv mode wide" id="modeEndless"
           ><b>无 尽 模 式</b><span>没有终点 · 全员出动 · 四技能合一</span></button>
-        <button class="lv mode wide locked" id="modeWord"
-          ><b>单 词 模 式</b><span>敬请期待~</span></button>
+        <button class="lv mode wide" id="modeWord"
+          ><b>单 词 模 式</b><span>Beta 版 · 边打边背单词</span></button>
       </div>
       <p class="level-hint" id="levelHint">第 1 ~ 4 关可以打 · 无尽模式随时能进</p>
       <button class="btn ghost" id="levelClose">返 回</button>
+    </div>
+  </div>
+
+  <!-- ============ 单词模式：开局选本轮词量（【用户 m16141】）============ -->
+  <div class="overlay word-pick" id="wordPickOverlay">
+    <div class="panel">
+      <h2 class="title sm">这 轮 背 多 少 个 ?</h2>
+      <p class="word-sub">选一个数量，答完就结算</p>
+      <div class="word-counts">
+        <button class="wc" id="wc10"><b>10</b><span>热身</span></button>
+        <button class="wc" id="wc30"><b>30</b><span>轻松</span></button>
+        <button class="wc" id="wc50"><b>50</b><span>标准</span></button>
+        <button class="wc" id="wc100"><b>100</b><span>硬核</span></button>
+      </div>
+      <button class="btn ghost" id="wordPickClose">返 回</button>
+    </div>
+  </div>
+
+  <!-- ============ 单词模式：答错后的复盘弹窗 ============ -->
+  <div class="overlay word-wrong" id="wordWrongOverlay">
+    <div class="panel">
+      <h2 class="over-title miss" id="wordWrongTitle">答 错 了</h2>
+      <p class="word-sub" id="wordWrongTip">这四个词都记一下 —— 红的是你选的</p>
+      <div class="word-rows" id="wordWrongRows"></div>
+      <button class="btn primary" id="wordWrongNext">继 续</button>
+    </div>
+  </div>
+
+  <!-- ============ 单词模式：结算 ============ -->
+  <div class="overlay" id="wordDoneOverlay">
+    <div class="panel">
+      <h2 class="over-title win" id="wordDoneTitle">本 轮 完 成</h2>
+      <div class="stats three">
+        <div class="stat"><i>词汇量</i><b id="wordDoneTotal">0</b></div>
+        <div class="stat"><i>正确</i><b id="wordDoneRight">0</b></div>
+        <div class="stat"><i>错误</i><b id="wordDoneWrong">0</b></div>
+      </div>
+      <div class="stats three">
+        <div class="stat"><i>正确率</i><b id="wordDoneAcc">0%</b></div>
+        <div class="stat"><i>最长连对</i><b id="wordDoneBest">0</b></div>
+        <div class="stat"><i>用时</i><b id="wordDoneTime">0:00</b></div>
+      </div>
+      <button class="btn primary" id="wordDoneAgain">再 来 一 轮</button>
+      <button class="btn ghost" id="wordDoneMenu">返 回 主 界 面</button>
     </div>
   </div>
 

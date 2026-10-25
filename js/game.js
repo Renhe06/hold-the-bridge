@@ -12,7 +12,8 @@
 //   3. 僵尸体型整体放大一档
 // ============================================================
 
-import { CFG, UPGRADES, WEAPON_TIERS, WEAPON_TIERS_FANTASY, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, isFantasy, isEndless, pvzPlant, heroDef, heroZRange } from './config.js';
+import { CFG, UPGRADES, WEAPON_TIERS, WEAPON_TIERS_FANTASY, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, isFantasy, isEndless, isWordMode, pvzPlant, heroDef, heroZRange } from './config.js';
+import { CET4_WORDS } from './words-cet4.js';
 import { clamp, rand, pickWeighted } from './util.js';
 import { QUALITY } from './quality.js';
 
@@ -50,6 +51,23 @@ export class Game {
   reset() {
     this.state = STATE.PREP;
     this.time = 0;
+    // 【用户 m16141】单词模式的运行时状态（切关卡/回主界面时必须清干净，
+    // 否则下一局会带着上一局的"已完成 5/10"直接开打）
+    this.wordQ = null;
+    this.wordDone = 0;
+    this.wordRight = 0;
+    this.wordWrong = 0;
+    this.wordStreak = 0;
+    this.wordBest = 0;
+    this.wordPhase = 'ask';
+    this.wordT = 0;
+    this.wordHold = 0;
+    this.wordPickedIdx = -1;
+    this.wordWrongInfo = null;
+    this.wordFinished = false;
+    this.wordCards = [];
+    this.wordBursts = [];
+    this.wordUsed = null;
     this.score = 0;
     this.kills = 0;
     this.wave = 0;
@@ -204,6 +222,11 @@ export class Game {
     // 不放在 reset() 里 —— reset() 每一波都会调，放进去就会波波响警报。
     this._pvzIntroShown = false;
     this._pvzGateWait = false;
+    // 【用户 m16141】单词模式：没有波次、没有怪、没有角色技能，进来直接出一题
+    if (isWordMode()) {
+      this.startWordRun(this.pendingWordTotal || CFG.word.counts[0]);
+      return;
+    }
     if (CFG.level.intro) {
       this.reset();
       this.state = STATE.TALK;
@@ -246,6 +269,185 @@ export class Game {
   backToMenu() {
     this.reset();
     this.state = STATE.START;
+  }
+
+  // ============================================================
+  //  单词模式（【用户 m16141】Beta）
+  //  一局 = 背 N 个单词：英文出题、四个中文选项（另外三个用"长得像/意思近"
+  //  的干扰词的中文释义）、答对绿卡直接下一题、答错红卡 + 弹窗复盘四词。
+  //  本关没有僵尸、不用角色技能，所以整段逻辑和战斗系统完全不相交。
+  // ============================================================
+
+  startWordRun(total) {
+    this.reset();
+    this.state = STATE.FIGHT; // 复用 FIGHT：主循环照跑，update 里由 isWordMode() 分流
+    this.wordTotal = Math.max(1, total | 0);
+    this.wordDone = 0;
+    this.wordRight = 0;
+    this.wordWrong = 0;
+    this.wordStreak = 0;
+    this.wordBest = 0;
+    this.wordPhase = 'ask';
+    this.wordT = 0;
+    this.wordHold = 0;
+    this.wordPickedIdx = -1;
+    this.wordWrongInfo = null;
+    this.wordFinished = false;
+    this.wordBursts = [];
+    this.wordUsed = null;
+    this.wordNext();
+  }
+
+  /** 出一个新词：题干 + 四个选项（一个正确、三个干扰） */
+  wordNext() {
+    const pool = CET4_WORDS;
+    const n = pool.length;
+    let q = pool[(Math.random() * n) | 0];
+    // 别连续出同一个词
+    for (let i = 0; i < 12 && this.wordUsed && q.w === this.wordUsed.w; i++) {
+      q = pool[(Math.random() * n) | 0];
+    }
+    this.wordUsed = q;
+
+    // 干扰项先找"像的词"：前两个字母相同（abandon / abandon…），或同首字母且长度接近，
+    // 这样四个中文选项才真的需要辨析，而不是一眼就能排除。
+    const like = [];
+    const far = [];
+    for (const c of pool) {
+      if (c === q) continue;
+      const sameHead = c.w.slice(0, 2) === q.w.slice(0, 2);
+      const nearLen = Math.abs(c.w.length - q.w.length) <= 1;
+      if (sameHead) like.push(c);
+      else if (nearLen && c.w[0] === q.w[0]) like.push(c);
+      else far.push(c);
+    }
+
+    const opts = [{ z: q.z, ok: true, w: q.w }];
+    const seen = new Set([q.z]);
+    const take = (arr) => {
+      // 随机抽，但释义不能重复（否则两个一样的选项就露馅了）
+      for (let i = 0; i < 40 && opts.length < 4; i++) {
+        const c = arr[(Math.random() * arr.length) | 0];
+        if (!c || seen.has(c.z)) continue;
+        seen.add(c.z);
+        opts.push({ z: c.z, ok: false, w: c.w });
+      }
+    };
+    take(like);
+    take(far);
+    // 极端情况下还凑不满，就硬填
+    for (const c of pool) {
+      if (opts.length >= 4) break;
+      if (seen.has(c.z)) continue;
+      seen.add(c.z);
+      opts.push({ z: c.z, ok: false, w: c.w });
+    }
+    // 洗牌（Fisher-Yates）
+    for (let i = opts.length - 1; i > 0; i--) {
+      const j = (Math.random() * (i + 1)) | 0;
+      const t = opts[i];
+      opts[i] = opts[j];
+      opts[j] = t;
+    }
+
+    this.wordQ = { w: q.w, z: q.z, p: q.p, opts };
+    this.wordPhase = 'ask';
+    this.wordPickedIdx = -1;
+    this.wordT = 0;
+    this.wordHold = 0;
+  }
+
+  /** 玩家点了第 i 个中文选项 */
+  pickWord(i) {
+    if (!isWordMode() || this.wordFinished) return false;
+    if (this.wordPhase !== 'ask' || !this.wordQ) return false;
+    const opt = this.wordQ.opts[i];
+    if (!opt) return false;
+    this.wordPickedIdx = i;
+    if (opt.ok) {
+      this.wordPhase = 'right';
+      this.wordRight += 1;
+      this.wordStreak += 1;
+      this.wordBest = Math.max(this.wordBest, this.wordStreak);
+      this.score += CFG.word.scorePerWord + Math.max(0, this.wordStreak - 1) * CFG.word.streakBonus;
+      this.wordHold = CFG.word.holdRight;
+      this.wordBurst(true);
+      if (this.sfx && this.sfx.hit) this.sfx.hit();
+      return true;
+    }
+    this.wordPhase = 'wrong';
+    this.wordWrong += 1;
+    this.wordStreak = 0;
+    this.wordHold = CFG.word.holdWrong;
+    this.wordBurst(false);
+    // 弹窗要的四词对照：错在哪、正确答案是哪几个字母
+    this.wordWrongInfo = {
+      w: this.wordQ.w,
+      p: this.wordQ.p,
+      picked: i,
+      correct: this.wordQ.opts.findIndex((o) => o.ok),
+      rows: this.wordQ.opts.map((o) => ({ w: o.w, z: o.z, ok: !!o.ok })),
+    };
+    if (this.sfx && this.sfx.hurt) this.sfx.hurt();
+    return true;
+  }
+
+  /** 答错弹窗里点「继续」：记完成、下一题（或结算） */
+  wordContinue() {
+    if (!isWordMode()) return;
+    const info = this.wordWrongInfo;
+    this.wordWrongInfo = null;
+    this.wordFinishOne(info);
+  }
+
+  wordBurst(ok) {
+    // 答对撒一圈星星、答错掉一圈红点，纯装饰
+    const cx = this.cam ? this.cam.w * 0.5 : 195;
+    const cy = this.cam ? this.cam.h * 0.5 : 420;
+    for (let i = 0; i < (ok ? 16 : 12); i++) {
+      const a = (i / (ok ? 16 : 12)) * Math.PI * 2 + Math.random() * 0.4;
+      const sp = (ok ? 130 : 90) + Math.random() * 70;
+      this.wordBursts.push({
+        x: cx, y: cy,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+        t: 0, life: 0.55 + Math.random() * 0.35,
+        col: ok ? (i % 2 ? '#46d98a' : '#ffe07a') : '#ff5a5a',
+        r: 2.5 + Math.random() * 2.6,
+      });
+    }
+  }
+
+  /** 一题收尾：算完成数，没到量就出下一题，到了就结算 */
+  wordFinishOne() {
+    this.wordDone += 1;
+    if (this.wordDone >= this.wordTotal) {
+      this.wordFinished = true;
+      this.wordPhase = 'done';
+      this.state = STATE.FIGHT; // 不切 OVER/CLEAR：这两个会弹战斗结算面板
+      return;
+    }
+    this.wordNext();
+  }
+
+  /** 答对后停一会儿自动接下一题 */
+  updateWord(dt) {
+    this.time += dt;
+    this.wordT += dt;
+    if (this.wordHold > 0) {
+      this.wordHold -= dt;
+      if (this.wordHold <= 0) {
+        if (this.wordPhase === 'right') this.wordFinishOne();
+        // wrong：等玩家在弹窗里点「继续」（wordContinue）
+      }
+    }
+    for (let i = this.wordBursts.length - 1; i >= 0; i--) {
+      const b = this.wordBursts[i];
+      b.t += dt;
+      if (b.t >= b.life) { this.wordBursts.splice(i, 1); continue; }
+      b.vy += 320 * dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+    }
   }
 
   /** 这一关打到第几波了（HUD 显示 n/15 用） */
@@ -322,6 +524,11 @@ export class Game {
 
   update(dtRaw) {
     let dt = Math.min(dtRaw, 0.05);
+    // 【用户 m16141】单词模式整局走自己的循环：不出怪、不刷波、不判定失守
+    if (isWordMode()) {
+      this.updateWord(dt);
+      return;
+    }
     // 击杀顿帧：把时间流速压到 42%，持续 26~100ms。
     // 打击"爽感"里最便宜也最有效的一招（子弹时间那一下）。
     // 用真实 dtRaw 递减，否则顿帧会把自己也拖长。
@@ -500,8 +707,8 @@ export class Game {
     if ((CFG.level.skin === 'ocean' || isEndless()) && this.mineStacks > 0) this.placeMines();
 
     // 第三关专属玩法：每波开局把阳光计时清零；吃到"向日葵"就当场多掉几个
-    // 【用户 m15971】无尽模式同样要掉阳光（阳光奖励是四关奖池的公共条目）
-    if (isPvz() || isEndless()) {
+    // 【用户 m16141】无尽模式不吃阳光这一套：没有阳光、也不给阳光类奖励
+    if (isPvz()) {
       this.sunT = CFG.pvz.sun.first;
       for (let i = 0; i < this.sunWaveStacks; i++) this.spawnSun(true, i * 0.4);
     }
@@ -1413,6 +1620,8 @@ export class Game {
         if (!all && sk !== 'pvz') return false;
         // 寒冰/炎火要有"还没上属性"的弹道才给，不然是白给一次升级
         if (lanesFull && (u.id === 'iceLane' || u.id === 'fireLane')) return false;
+        // 【用户 m16141】无尽模式不出现阳光，阳光类奖励（阳光充沛）不再进池子
+        if (all && u.id === 'sunValue') return false;
         return true;
       }
       // 第四关专属（剑气 / 星尘 / 独角兽 / 精灵祝福…，用户 m04749）
@@ -2623,9 +2832,9 @@ export class Game {
   }
 
   updateSuns(dt) {
-    // 不是第三关就一个都不留（切关卡时可能还剩着上一关的）；
-    // 【用户 m15971】无尽模式也掉阳光，否则"阳光充沛/向日葵"抽到就是白给
-    if (!isPvz() && !isEndless()) {
+    // 不是第三关就一个都不留（切关卡时可能还剩着上一关的）
+    // 【用户 m16141】无尽模式同样一个阳光都不出
+    if (!isPvz()) {
       if (this.suns.length) this.suns = [];
       return;
     }

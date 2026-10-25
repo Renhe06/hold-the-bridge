@@ -88,6 +88,29 @@ const EN = {
   樱: 'C',
   兽: 'U',
   '鱼 雷': 'TORPEDO',
+
+  // ---- 单词模式（【用户 m16141】Beta）----
+  // 局内不走英语模式（用户 m16473），这里的英文只给"选词量 / 复盘 / 结算"三块 DOM 用。
+  单词模式: 'Word mode',
+  'Beta 版 · 边打边背单词': 'Beta · learn words as you play',
+  '这 轮 背 多 少 个 ?': 'How many words this round?',
+  '选一个数量，答完就结算': 'Pick a number — the round ends when you finish them',
+  热身: 'Warm-up',
+  轻松: 'Easy',
+  标准: 'Standard',
+  硬核: 'Hardcore',
+  '答 错 了': 'Not quite',
+  '这四个词都记一下 —— 红的是你选的': 'Note all four — red is what you picked',
+  '继 续': 'Continue',
+  '本 轮 完 成': 'Round complete',
+  词汇量: 'Words',
+  正确: 'Correct',
+  错误: 'Wrong',
+  正确率: 'Accuracy',
+  最长连对: 'Best streak',
+  用时: 'Time',
+  '再 来 一 轮': 'Again',
+  '返 回 主 界 面': 'Back to menu',
   '第 2、3 关已解锁 · 选一关开打': 'Stages 2-3 unlocked · pick one',
   '第 3 关已解锁 · 选一关开打': 'Stage 3 unlocked · pick one',
   '第 4 关已解锁 · 选一关开打': 'Stage 4 unlocked · pick one',
@@ -812,26 +835,41 @@ function toZh(s) {
   return ZH[core] || core;
 }
 
+// 【用户 m16473】单词模式局内不走英语模式：题干是英文、选项是中文，
+// 任何自动翻译都会把两边搅乱（反查表还带"袭→A""樱→C"这种单字母）。
+let bypass = false;
+
 export const I18N = {
   get lang() {
     return lang;
   },
   isEn,
+  /** 局内暂停自动翻译（单词模式用）；恢复时传 false */
+  setBypass(v) {
+    bypass = !!v;
+  },
+  get bypassed() {
+    return bypass;
+  },
   // 通用翻译入口（也跟着当前语言走）
   tr(s) {
+    if (bypass) return String(s);
     return isEn() ? toEn(s) : toZh(s);
   },
   // 必须在调用点给两份的句子（带变量、而且变量本身也要翻的）
   L(zh, en) {
     return isEn() ? en : zh;
   },
-  set(next) {
+  // persist=false：只临时切界面语言，不写 localStorage（单词模式开局用，用户 m16473）
+  set(next, persist = true) {
     if (next !== 'en' && next !== 'zh') return;
     lang = next;
-    try {
-      window.localStorage && window.localStorage.setItem(KEY, lang);
-    } catch (e) {
-      /* 存不了就算了，只影响下次打开 */
+    if (persist) {
+      try {
+        window.localStorage && window.localStorage.setItem(KEY, lang);
+      } catch (e) {
+        /* 存不了就算了，只影响下次打开 */
+      }
     }
     this.applyDom();
   },
@@ -945,9 +983,15 @@ export const I18N = {
   installCanvas(ctx) {
     if (!ctx || ctx.__i18nWrapped) return;
     ctx.__i18nWrapped = true;
+    // 【用户 m16141】单词模式的口语/单词必须原样画：
+    // 反查表里有"袭→A""樱→C""鱼→T""兽→U"这种单字母映射，
+    // 走翻译的话题干里的 A/B/C/D 会被替成汉字。这里把原始实现留个口子。
+    ctx.__rawFillText = ctx.fillText.bind(ctx);
+    ctx.__rawStrokeText = ctx.strokeText.bind(ctx);
     for (const name of ['fillText', 'strokeText']) {
       const orig = ctx[name].bind(ctx);
-      ctx[name] = (text, ...rest) => orig(isEn() ? toEn(text) : toZh(text), ...rest);
+      ctx[name] = (text, ...rest) =>
+        orig(bypass ? text : isEn() ? toEn(text) : toZh(text), ...rest);
     }
   },
 };

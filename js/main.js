@@ -7,7 +7,7 @@ import { Camera } from './camera.js';
 import { Sound } from './audio.js';
 import { Game, STATE } from './game.js';
 import { Renderer, TAG_COLOR } from './render.js';
-import { CFG, isHordeWave, isBossWave, isEndless, findLevel, levelIndexOf, HEROES, HERO_KEY } from './config.js';
+import { CFG, isHordeWave, isBossWave, isEndless, isWordMode, findLevel, levelIndexOf, HEROES, HERO_KEY } from './config.js';
 import { QUALITY } from './quality.js';
 import { I18N } from './i18n.js';
 import { CHANGELOG } from './changelog.js';
@@ -81,6 +81,24 @@ const el = {
   lv5b: $('lv5b'),
   modeEndless: $('modeEndless'),
   modeWord: $('modeWord'),
+  wordPickOverlay: $('wordPickOverlay'),
+  wordPickClose: $('wordPickClose'),
+  wc10: $('wc10'),
+  wc30: $('wc30'),
+  wc50: $('wc50'),
+  wc100: $('wc100'),
+  wordWrongOverlay: $('wordWrongOverlay'),
+  wordWrongRows: $('wordWrongRows'),
+  wordWrongNext: $('wordWrongNext'),
+  wordDoneOverlay: $('wordDoneOverlay'),
+  wordDoneTotal: $('wordDoneTotal'),
+  wordDoneRight: $('wordDoneRight'),
+  wordDoneWrong: $('wordDoneWrong'),
+  wordDoneAcc: $('wordDoneAcc'),
+  wordDoneBest: $('wordDoneBest'),
+  wordDoneTime: $('wordDoneTime'),
+  wordDoneAgain: $('wordDoneAgain'),
+  wordDoneMenu: $('wordDoneMenu'),
   // 角色面板（用户 m04749）：勇者 / 花仙子，只在第四关生效
   heroOverlay: $('heroOverlay'),
   heroGrid: $('heroGrid'),
@@ -104,6 +122,30 @@ const el = {
 //  中英双语（用户 m02901）
 //  按钮上永远写"另一种语言"：中文界面显示 English，英文界面显示 中文
 // ---------------------------------------------------------
+// 单词模式局内的界面语言：进来临时切中文（不写 localStorage），出去恢复用户选的语言
+let _wordModeLocale = false;
+let _userLang = null;
+function applyWordLocale(on) {
+  if (on === _wordModeLocale) return;
+  _wordModeLocale = on;
+  I18N.setBypass(on);
+  if (on) {
+    _userLang = I18N.lang;
+    I18N.set('zh', false);
+    // applyDom 只覆盖带 data-i18n 的节点，局内这两颗按钮是 setText 写的，
+    // 切回中文后要手动摁回中文，否则会留着 "Back / Pause"。
+    cache.bk = null;
+    cache.pa = null;
+    setText(el.backBtn, 'bk', '返回');
+    setText(el.pauseBtn, 'pa', '暂停');
+  } else {
+    I18N.set(_userLang || I18N.lang, false);
+    _userLang = null;
+  }
+  syncLangBtn();
+  document.documentElement.setAttribute('data-lang', I18N.isEn() ? 'en' : 'zh');
+}
+
 function syncLangBtn() {
   if (!el.langBtn) return;
   el.langBtn.textContent = I18N.isEn() ? '中文' : 'English';
@@ -219,6 +261,17 @@ el.canvas.addEventListener('pointerdown', (e) => {
   // 这时候只能用另一根手指去点空袭；被 activePointer 挡住的话就永远点不出来。
   const bx = canvasX(e);
   const by = canvasY(e);
+  // 【用户 m16141】单词模式：点四张中文卡，别的（走位、技能）一概不动
+  if (isWordMode()) {
+    const cards = renderer.wordCards || [];
+    for (const c of cards) {
+      if (bx >= c.x && bx <= c.x + c.w && by >= c.y && by <= c.y + c.h) {
+        if (game.pickWord(c.i)) e.preventDefault();
+        return;
+      }
+    }
+    return;
+  }
   // 【用户 m14093】无尽模式：右下角竖着四个技能键，谁被打中就放哪一个
   // （四个共享同一圈充能，canStrike 为假时四个一起按不动）。
   const sbs = renderer.strikeBtns;
@@ -1093,12 +1146,72 @@ onTap(el.modeEndless, (e) => {
   guardClick();
   startLevel(idx);
 });
-// 单词模式：还没做
+// 【用户 m16141】单词模式（Beta）：开局先让玩家选本轮背多少个
 onTap(el.modeWord, (e) => {
+  sfx.unlock();
   sfx.uiClick();
   e.stopPropagation();
-  setText(el.levelHint, 'lvH', '单词模式 · 敬请期待~');
-  showHint('单词模式 · 敬请期待~', '#b9a4dd');
+  el.wordPickOverlay.classList.add('show');
+});
+onTap(el.wordPickClose, (e) => {
+  sfx.uiClick();
+  el.wordPickOverlay.classList.remove('show');
+  e.stopPropagation();
+});
+
+/** 选好词量 → 关面板 → 进单词模式关卡 */
+function startWordGame(count) {
+  const idx = CFG.levels.findIndex((l) => l && l.wordMode);
+  if (idx < 0) return;
+  game.pendingWordTotal = count;
+  wordDoneShown = false;
+  wordWrongShown = false;
+  el.wordPickOverlay.classList.remove('show');
+  el.wordDoneOverlay.classList.remove('show');
+  el.wordWrongOverlay.classList.remove('show');
+  hideLevels();
+  guardClick();
+  startLevel(idx);
+}
+for (const [node, n] of [[el.wc10, 10], [el.wc30, 30], [el.wc50, 50], [el.wc100, 100]]) {
+  if (!node) continue;
+  onTap(node, (e) => {
+    sfx.unlock();
+    sfx.uiClick();
+    e.stopPropagation();
+    startWordGame(n);
+  });
+}
+
+// 答错弹窗：把四个词列出来（红 = 你选的，绿 = 正确答案），点「继续」接着来
+let wordWrongShown = false;
+let wordDoneShown = false;
+let wordDoneAt = 0;
+onTap(el.wordWrongNext, (e) => {
+  sfx.uiClick();
+  e.stopPropagation();
+  el.wordWrongOverlay.classList.remove('show');
+  wordWrongShown = false;
+  game.wordContinue();
+});
+
+// 结算面板：再来一轮（同样的词量）/ 回主界面（留 500ms 缓冲，别被连点带走）
+onTap(el.wordDoneAgain, (e) => {
+  if (performance.now() - wordDoneAt < 500) return;
+  sfx.uiClick();
+  e.stopPropagation();
+  const n = game.wordTotal || CFG.word.counts[0];
+  el.wordDoneOverlay.classList.remove('show');
+  wordDoneShown = false;
+  startWordGame(n);
+});
+onTap(el.wordDoneMenu, (e) => {
+  if (performance.now() - wordDoneAt < 500) return;
+  sfx.uiClick();
+  e.stopPropagation();
+  el.wordDoneOverlay.classList.remove('show');
+  wordDoneShown = false;
+  game.backToMenu();
 });
 
 // ---- 局内左下角：返回主界面 / 暂停 ----
@@ -1313,6 +1426,11 @@ function syncState() {
     document.body.classList.toggle('skin-fantasy', skin === 'fantasy');
   }
 
+  document.body.classList.toggle('wordmode', isWordMode());
+  // 【用户 m16473】单词模式局内不适用英语模式：题干英文 + 选项中文，
+  // 自动翻译（尤其反查表）会把两边搅乱，所以整局暂停翻译，界面语言临时切中文。
+  applyWordLocale(isWordMode());
+
   if (st !== lastState) {
     if (st === STATE.OVER) showGameOver();
     if (st === STATE.CLEAR) showClear();
@@ -1356,6 +1474,12 @@ function syncState() {
 
 function syncHud() {
   const st = game.state;
+
+  // 【用户 m16141】单词模式：HUD 换成"第几个 / 一共几个"，并负责弹窗开关
+  if (isWordMode()) {
+    syncWordHud();
+    return;
+  }
 
   // 【用户 m14093】无尽模式没有"第 N / 15 波"这种东西，波次只报"打了多少波"
   const endless = isEndless();
@@ -1401,6 +1525,52 @@ function syncHud() {
   } else {
     el.prepLabel.classList.remove('on');
   }
+}
+
+// ---------------------------------------------------------
+//  单词模式 HUD（【用户 m16141】）
+//  没有波次 / 没有血条：只报进度、自动开关"答错复盘"和"结算"两个面板
+// ---------------------------------------------------------
+function syncWordHud() {
+  const g = game;
+  setText(el.score, 'sc', String(g.score));
+  setText(el.waveLabel, 'wv', `${Math.min(g.wordDone + 1, g.wordTotal)}/${g.wordTotal}`);
+
+  // 答错 → 弹出复盘（只弹一次；玩家点「继续」后 game.wordWrongInfo 被清空）
+  if (g.wordWrongInfo && !wordWrongShown) {
+    wordWrongShown = true;
+    const rows = g.wordWrongInfo.rows || [];
+    el.wordWrongRows.innerHTML = rows
+      .map((r, i) => {
+        const cls = r.ok ? 'ok' : i === g.wordWrongInfo.picked ? 'bad' : '';
+        return `<div class="word-row ${cls}"><span class="en">${esc(r.w)}</span><span class="cn">${esc(r.z)}</span></div>`;
+      })
+      .join('');
+    el.wordWrongOverlay.classList.add('show');
+  }
+
+  // 答完 → 结算
+  if (g.wordFinished && !wordDoneShown) {
+    wordDoneShown = true;
+    const total = g.wordTotal || 0;
+    const right = g.wordRight || 0;
+    setText(el.wordDoneTotal, 'wd1', String(total));
+    setText(el.wordDoneRight, 'wd2', String(right));
+    setText(el.wordDoneWrong, 'wd3', String(g.wordWrong || 0));
+    setText(el.wordDoneAcc, 'wd4', total ? `${Math.round((right / total) * 100)}%` : '0%');
+    setText(el.wordDoneBest, 'wd5', String(g.wordBest || 0));
+    const sec = Math.max(1, Math.round(g.time || 0));
+    setText(el.wordDoneTime, 'wd6', `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
+    el.wordDoneOverlay.classList.add('show');
+    wordDoneAt = performance.now();
+  }
+}
+
+/** 往 HTML 里塞用户数据时的最小转义（词表里目前没有尖括号，以防万一） */
+function esc(str) {
+  return String(str == null ? '' : str).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
 }
 
 // ---------------------------------------------------------
