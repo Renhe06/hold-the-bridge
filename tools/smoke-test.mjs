@@ -1021,12 +1021,17 @@ try {
     '四个浅色面板统一圆角/描边');
   ok(/\.panel\.light \.stat b \{[\s\S]{0,60}?text-shadow: none/.test(fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8')),
     '结算数字去掉阴影（用户 m16883）');
+  ok(/backToMenu\(\) \{[\s\S]{0,160}?setLevel\(0\);/.test(gsrc),
+    '退回主界面时背景固定成第一关（用户 m17062）');
+
   ok(/\.lv\.book-btn \{[\s\S]{0,400}?border: 1px solid rgba\(126, 226, 160, 0\.42\)/.test(fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8')),
     '选关的错词本按钮跟同排按钮同款，只换绿色底（用户 m16883）');
 
-  ok(/applyWordLocale\(isWordMode\(\)\)/.test(msrc) && /I18N\.setBypass\(on\)/.test(msrc)
-    && /let bypass = false;/.test(fs.readFileSync(path.join(ROOT, 'js', 'i18n.js'), 'utf8')),
-    '单词模式局内不适用英语模式（用户 m16473）');
+  // 【用户 m17062 更正】不是整局关翻译，只有"题面那几处"绕开 canvas 的 i18n 包装
+  ok(/__rawFillText \|\| ctx\.fillText\)\.call\(ctx, q\.w/.test(rsrc)
+    && /__rawFillText \|\| ctx\.fillText\)\.call\(ctx, opt \? opt\.z/.test(rsrc),
+    '出题那块（英文单词 + 四个中文释义）原样画、不翻译（用户 m17062）');
+  ok(!/applyWordLocale/.test(msrc), '不再整局切中文 / 关掉翻译（用户 m17062）');
 
   // ---- 单词模式第二轮（用户 m16607）----
   const hsrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');

@@ -270,6 +270,9 @@ export class Game {
   backToMenu() {
     this.reset();
     this.state = STATE.START;
+    // 【用户 m17062】首页背景固定成第一关：CFG.level 决定背景/雾/装饰的皮肤，
+    // 退回菜单时把它还原成第 1 关；下次 startLevel 会再设回对应关卡。
+    setLevel(0);
   }
 
   // ============================================================

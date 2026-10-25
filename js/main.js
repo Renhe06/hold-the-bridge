@@ -147,31 +147,9 @@ const el = {
 // ---------------------------------------------------------
 //  中英双语（用户 m02901）
 //  按钮上永远写"另一种语言"：中文界面显示 English，英文界面显示 中文
-// ---------------------------------------------------------
-// 单词模式局内的界面语言：进来临时切中文（不写 localStorage），出去恢复用户选的语言
-let _wordModeLocale = false;
-let _userLang = null;
-function applyWordLocale(on) {
-  if (on === _wordModeLocale) return;
-  _wordModeLocale = on;
-  I18N.setBypass(on);
-  if (on) {
-    _userLang = I18N.lang;
-    I18N.set('zh', false);
-    // applyDom 只覆盖带 data-i18n 的节点，局内这两颗按钮是 setText 写的，
-    // 切回中文后要手动摁回中文，否则会留着 "Back / Pause"。
-    cache.bk = null;
-    cache.pa = null;
-    setText(el.backBtn, 'bk', '返回');
-    setText(el.pauseBtn, 'pa', '暂停');
-  } else {
-    I18N.set(_userLang || I18N.lang, false);
-    _userLang = null;
-  }
-  syncLangBtn();
-  document.documentElement.setAttribute('data-lang', I18N.isEn() ? 'en' : 'zh');
-}
-
+// 【用户 m17062 更正】单词模式不再整局切中文/关翻译：
+// 要"不翻译"的只有题面那部分 canvas 文字（英文单词 + 四个中文释义），
+// 那几处已经直接用 ctx.__rawFillText 画了；界面语言照用户选的来。
 function syncLangBtn() {
   if (!el.langBtn) return;
   el.langBtn.textContent = I18N.isEn() ? '中文' : 'English';
@@ -1594,9 +1572,6 @@ function syncState() {
   }
 
   document.body.classList.toggle('wordmode', isWordMode());
-  // 【用户 m16473】单词模式局内不适用英语模式：题干英文 + 选项中文，
-  // 自动翻译（尤其反查表）会把两边搅乱，所以整局暂停翻译，界面语言临时切中文。
-  applyWordLocale(isWordMode());
 
   if (st !== lastState) {
     if (st === STATE.OVER) showGameOver();

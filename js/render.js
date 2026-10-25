@@ -8063,7 +8063,7 @@ export class Renderer {
       roundRect(ctx, cardX + h * 0.018, cardY + h * 0.018, tagW, h * 0.034, h * 0.017);
       ctx.fill();
       ctx.fillStyle = '#7a5216';
-      ctx.fillText(q.p, cardX + h * 0.018 + h * 0.014, cardY + h * 0.036);
+      (ctx.__rawFillText || ctx.fillText).call(ctx, q.p, cardX + h * 0.018 + h * 0.014, cardY + h * 0.036);
       ctx.restore();
     }
 
@@ -8073,7 +8073,7 @@ export class Renderer {
     ctx.textBaseline = 'middle';
     ctx.font = `700 ${h * 0.021}px "PingFang SC", "Microsoft YaHei", sans-serif`;
     ctx.fillStyle = 'rgba(46,92,141,0.62)';
-    ctx.fillText(`${Math.min(game.wordDone + 1, game.wordTotal)} / ${game.wordTotal}`, cardX + cardW - h * 0.02, cardY + h * 0.034);
+    (ctx.__rawFillText || ctx.fillText).call(ctx, `${Math.min(game.wordDone + 1, game.wordTotal)} / ${game.wordTotal}`, cardX + cardW - h * 0.02, cardY + h * 0.034);
     ctx.restore();
 
     // 英文单词本体：卡片正中（词性标签和进度在两侧，单词用真居中）
@@ -8250,7 +8250,7 @@ export class Renderer {
       fs *= 0.92;
       ctx.font = cn(fs);
     }
-    ctx.fillText(opt ? opt.z : '', tx, midY + h * 0.012);
+    (ctx.__rawFillText || ctx.fillText).call(ctx, opt ? opt.z : '', tx, midY + h * 0.012);
 
     // 对错角标
     if (phase === 'right' && isRight) {
