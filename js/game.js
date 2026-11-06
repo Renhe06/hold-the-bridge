@@ -1458,7 +1458,9 @@ export class Game {
     e.form = 2;
     e.maxHp = Math.max(1, Math.round(e.maxHp * B.hpMul));
     e.hp = e.maxHp;
-    e.size = K.size * B.sizeMul;
+    // 【用户】关卡级体尺覆盖（第四关 bossSize）也要带到第二形态，
+    // 不然恶龙狂暴变身的瞬间会突然缩回去一圈。
+    e.size = (CFG.level && CFG.level.bossSize ? K.size * CFG.level.bossSize : K.size) * B.sizeMul;
     // 【m02128】博士比第一形态再快一点（它只走一半就得停下，得赶紧到岗）
     if (B.speedMul) e.speed *= B.speedMul;
     e.color = B.color;
@@ -1570,6 +1572,12 @@ export class Game {
     // 占满屏幕，玩家连自己在哪条车道都看不见），其他怪按基础值 + 一点随机。
     const stopGap = K.stopGap != null ? K.stopGap : K.spit ? CFG.spitter.gap : W.stopGap;
     const stopJit = K.spit || K.stopGap != null ? 0 : rand(0, W.stopJitter);
+    // 【用户】恶龙体尺的关卡级覆盖（只有第四关配了 bossSize/bossStopGap）：
+    // 换皮不改数值是本仓库的规矩，但"满屏压迫感"是恶龙独有的视觉需求，
+    // 所以走 CFG.level 覆盖而不是改 kinds.boss —— 前三关的 BOSS 一根汗毛都不动。
+    const bossLv = kind === 'boss' && CFG.level ? CFG.level : null;
+    const size = bossLv && bossLv.bossSize ? K.size * bossLv.bossSize : K.size;
+    const stopGapLv = bossLv && bossLv.bossStopGap != null ? bossLv.bossStopGap : stopGap;
 
     // 第二关（海洋皮肤）：同一种怪换成"僵尸 + 海洋动物"的融合体 ——
     // 主色/暗色来自该怪海洋配色，animal 决定 render 里追加哪些动物部件
@@ -1599,7 +1607,7 @@ export class Game {
       hp,
       maxHp: hp,
       speed,
-      size: K.size,
+      size,
       color: skin ? skin.color : K.color,
       dark: skin ? skin.dark : K.dark,
       animal: skin ? skin.animal : null,
@@ -1608,19 +1616,19 @@ export class Game {
       skinTag: SK || null,
       // 名字（血条上写什么）：只有恶龙这类有专属名字的才会用到
       title: skin && skin.name ? skin.name : null,
-      halfW: K.size * 0.32,
+      halfW: size * 0.32,
       // 能"咬到"你的宽度。默认跟体型走，但 BOSS 体型太大（1.2 → 0.38）
       // 会盖满整条桥，所以它单独给一个窄值：身体很大很好打，想咬你只有中间一小段
-      biteHalfW: K.biteHalfW != null ? K.biteHalfW : K.size * 0.32,
+      biteHalfW: K.biteHalfW != null ? K.biteHalfW : size * 0.32,
       // 能咬到你的纵向距离。**故意和 stopGap 解耦**：站在哪 vs 够不够得着是两件事 ——
       // 人海站在 2.6~4.2（一堵尸墙）够不着你，BOSS 站在 7 更够不着，
       // 它们的伤害来源分别是"被割"和"放崽子"，不是咬人。
       biteReach: W.stopGap + 0.6,
-      zdepth: K.size * 0.45,
+      zdepth: size * 0.45,
       score: Math.round(K.score * ((M && M.scoreMul) || 1)),
       stopJit,
-      stopGap,
-      stopZ: CFG.zNear + stopGap + stopJit,
+      stopGap: stopGapLv,
+      stopZ: CFG.zNear + stopGapLv + stopJit,
       addT: K.spawnEvery || 0,
       // BOSS 的技能（用户 m01503）：出场放一次（casts 0→1）、半血再放一次（1→2）。
       // 以前是 missileFired 布尔量（整场只放一发），现在要放两次，所以改成计数器。

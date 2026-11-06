@@ -29,6 +29,13 @@
 -->
 <script type="module">
 const Q = new URLSearchParams(location.search);
+// 出错了别只给一张黑图：把异常直接写在画面上，截图就能读到
+window.addEventListener('error', (ev) => {
+  const d = document.createElement('pre');
+  d.style.cssText = 'position:fixed;left:0;top:0;right:0;z-index:99999;background:#300;color:#ffb3b3;font:13px monospace;padding:10px;white-space:pre-wrap';
+  d.textContent = 'SHOT ERROR\n' + (ev.error && ev.error.stack ? ev.error.stack : ev.message);
+  document.body.appendChild(d);
+});
 const rafQ = [];
 const realRAF = window.requestAnimationFrame.bind(window);
 window.requestAnimationFrame = (cb) => { rafQ.push(cb); return rafQ.length; };
@@ -44,6 +51,18 @@ document.body.insertAdjacentHTML('beforeend', strip(doc.body.innerHTML));
 await import('/js/main.js');
 const H = window.__HBT;
 const { game, cam, renderer, frame, STATE } = H;
+const { CFG, setLevel } = await import('/js/config.js');
+// 按皮肤名选关（?skin=fantasy），比写死下标稳 —— 关卡数组往后还会加
+// 注意：main.js 的启动进度条自己也吃 rAF，主循环要等它走完才挂进来。
+// 所以摆场景之前必须先空跑一段（默认 320 帧），否则截图就是一张没画过的黑画布。
+function runSkin() {
+  step(+(Q.get('warm') || 320));
+  const skin = Q.get('skin');
+  if (!skin) return;
+  const i = CFG.levels.findIndex((l) => l.skin === skin);
+  if (i >= 0) game.newRun(i);
+  game.state = STATE.FIGHT;
+}
 
 // ---- 3. 虚拟时钟 ----
 let t = 1000;
@@ -68,9 +87,21 @@ function put(kind, x, z, hpMul = 1) {
   return e;
 }
 
+// 模型拍摄模式：不开火、不飙血、不自动补怪、不画英雄 —— 否则每张特写都被受击白闪糊住
+function studio() {
+  renderer._drawHero = () => {};
+  const gu = game.update.bind(game);
+  game.update = (dt) => {
+    gu(dt);
+    game.bullets.length = 0;
+    game.particles.length = 0;
+    game.spawnQueue.length = 0;
+    for (const en of game.enemies) { en.hurtT = 0; en.burnT = 0; en.slowT = 0; }
+  };
+}
+
 const SCENES = {
   start: () => { step(4); },
-
   play: () => { game.newRun(); step(+(Q.get('frames') || 300)); },
 
   // 手工摆一排敌人，专门量体型和辨识度
@@ -108,6 +139,45 @@ const SCENES = {
     step(+(Q.get('frames') || 30));
   },
 
+  // 单只模型特写：?scene=unit&skin=fantasy&kind=walker&z=10.6&phase=0.9
+  // 用来对着"改前 / 改后"逐只比对，phase 固定才能看出走路姿势的差别
+  unit: () => {
+    runSkin();
+    studio();
+    game.state = STATE.FIGHT;
+    clearEnemies();
+    const e = put(Q.get('kind') || 'walker', +(Q.get('x') || 0), +(Q.get('z') || 10.6));
+    e.phase = +(Q.get('phase') || 0);
+    step(+(Q.get('frames') || 2));
+  },
+
+  // 一屏摆齐这一关的怪：?scene=lineup&skin=fantasy
+  lineup: () => {
+    runSkin();
+    studio();
+    game.state = STATE.FIGHT;
+    clearEnemies();
+    const kinds = (Q.get('kinds') || 'walker,runner,brute,spitter,splitter,boss').split(',');
+    const ph = +(Q.get('phase') || 0.9);
+    kinds.forEach((k, i) => {
+      const row = Math.floor(i / 3);
+      const x = (i % 3 - 1) * 0.30;
+      const e = put(k, x, row ? 17.5 : 11.8);
+      e.phase = ph + i * 0.7;
+    });
+    step(2);
+  },
+
+  // 这一关的真实战场：?scene=field&skin=fantasy&n=3
+  field: () => {
+    runSkin();
+    game.state = STATE.FIGHT;
+    clearEnemies();
+    game.wave = +(Q.get('n') || 3) - 1;
+    game.startWave();
+    step(+(Q.get('frames') || 300));
+  },
+
   over: () => {
     game.newRun();
     game.score = 1280; game.wave = 9; game.kills = 137;
@@ -133,6 +203,15 @@ pre.id = 'report';
 pre.style.cssText = 'position:fixed;left:0;top:0;z-index:-1;color:#0f0;font:11px monospace;white-space:pre';
 pre.textContent = rows.join('\n');
 document.body.appendChild(pre);
+
+// 拍"纯画面"用：?clean=1 把所有 .overlay 的 .show 摘掉。
+// main.js 是照真流程启动的，所以首次访问会自动弹说明、首页遮罩也挂着；
+// 想只看桥面和尸群就带这个参数（不影响游戏逻辑，只是截图前藏掉 DOM 弹窗）。
+if (Q.get('clean')) {
+  document.querySelectorAll('.overlay.show').forEach((n) => n.classList.remove('show'));
+  const boot = document.getElementById('bootOverlay');
+  if (boot) boot.style.display = 'none';
+}
 
 // 让合成器提交一帧（真实 RAF），截图才有内容
 await new Promise((r) => realRAF(() => realRAF(r)));

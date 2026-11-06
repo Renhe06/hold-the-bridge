@@ -314,38 +314,40 @@ export class Renderer {
         g.fill();
       }
       g.restore();
-      // ── 带环行星（左上方）：本体 + 一圈斜环 ──
-      const px = w * 0.24;
-      const py = h * 0.3;
-      const pr = Math.max(16, w * 0.085);
-      const pglow = g.createRadialGradient(px, py, pr * 0.5, px, py, pr * 2.6);
-      pglow.addColorStop(0, 'rgba(190,170,255,0.26)');
-      pglow.addColorStop(1, 'rgba(150,130,230,0)');
-      g.fillStyle = pglow;
-      g.fillRect(px - pr * 2.6, py - pr * 2.6, pr * 5.2, pr * 5.2);
-      const planet = g.createRadialGradient(px - pr * 0.35, py - pr * 0.4, pr * 0.2, px, py, pr);
-      planet.addColorStop(0, '#e9dcff');
-      planet.addColorStop(0.55, '#b9a2e8');
-      planet.addColorStop(1, '#6b5494');
-      g.fillStyle = planet;
-      g.beginPath();
-      g.arc(px, py, pr, 0, TAU);
-      g.fill();
-      // 环：一段被本体挡住的感觉靠两笔弧线做出来
-      g.save();
-      g.translate(px, py);
-      g.rotate(-0.42);
-      for (const [rr, aw, alpha] of [[pr * 1.55, pr * 0.2, 0.5], [pr * 1.85, pr * 0.12, 0.3]]) {
-        g.strokeStyle = `rgba(232,222,255,${alpha})`;
-        g.lineWidth = aw;
-        g.beginPath();
-        g.ellipse(0, 0, rr, rr * 0.3, 0, Math.PI * 0.02, Math.PI * 0.98);
-        g.stroke();
-        g.beginPath();
-        g.ellipse(0, 0, rr, rr * 0.3, 0, Math.PI * 1.02, Math.PI * 1.98);
-        g.stroke();
+      // ── 一簇聚拢的亮星（古典星象感， replacing 原来的带环行星：那是科幻元素 ──
+      // 【用户】西幻世界不要土星环；改成七颗绕着同一片天区的亮星，
+      // 像一张小小的星图，比单颗行星含蓄，也不抢两颗月亮的戏。
+      {
+        let sseed = 9021;
+        const srnd = () => {
+          sseed = (sseed * 1103515245 + 12345) & 0x7fffffff;
+          return sseed / 0x7fffffff;
+        };
+        const cx2 = w * 0.22;
+        const cy2 = h * 0.26;
+        for (let i = 0; i < 7; i++) {
+          const a2 = (i / 7) * TAU + srnd() * 0.5;
+          const rr = w * (0.02 + srnd() * 0.055);
+          const sx = cx2 + Math.cos(a2) * rr;
+          const sy = cy2 + Math.sin(a2) * rr * 0.6;
+          const ss = 0.7 + srnd() * 1.3;
+          g.fillStyle = `rgba(232,226,255,${0.5 + srnd() * 0.4})`;
+          g.beginPath();
+          g.arc(sx, sy, ss, 0, TAU);
+          g.fill();
+          // 亮星给一道十字星光
+          if (ss > 1.5) {
+            g.strokeStyle = `rgba(232,226,255,${0.28 * ss * 0.5})`;
+            g.lineWidth = 0.7;
+            g.beginPath();
+            g.moveTo(sx - ss * 3, sy);
+            g.lineTo(sx + ss * 3, sy);
+            g.moveTo(sx, sy - ss * 3);
+            g.lineTo(sx, sy + ss * 3);
+            g.stroke();
+          }
+        }
       }
-      g.restore();
       // ── 远处一颗小月亮（异世界的第二颗）──
       const mx2 = w * 0.58;
       const my2 = h * 0.17;
@@ -1008,6 +1010,72 @@ export class Renderer {
     g.addColorStop(1, T.sea[2]);
     ctx.fillStyle = g;
     ctx.fillRect(0, horizon, w, h - horizon);
+
+    // 【用户】第四关两岸升级：原来就是一条渐变，空得像两块色板。
+    // 烘焙一层月光草甸 —— 深浅不一的草地色块按透视疏密（近大远小）、
+    // 一条被人踩出来的土路弯向桥头、地平线两侧压一圈远树剪影。
+    // 只烘焙一次（_syncBaked），每帧零开销。
+    if (CFG.level.skin === 'fantasy') {
+      let mseed = 55667;
+      const mrnd = () => {
+        mseed = (mseed * 1103515245 + 12345) & 0x7fffffff;
+        return mseed / 0x7fffffff;
+      };
+      const tones = ['#24402c', '#2f4f36', '#1c3026', '#365940', '#20392a'];
+      // 草地色块：深度 d 越小越靠近地平线，色块越小越密（透视）。
+      // 件数多、单件淡，叠出来的"色斑感"才像月光下的草甸而不是一堆椭圆。
+      for (let i = 0; i < 150; i++) {
+        const side = i % 2 ? 1 : -1;
+        const d = mrnd();
+        const y = horizon + (h - horizon) * Math.pow(d, 1.45);
+        const spread = 0.5 + d * 0.5; // 越近铺得越开
+        const cx3 = w * 0.5 + side * w * (0.28 + mrnd() * 0.42) * spread;
+        const rw = w * (0.03 + mrnd() * 0.09) * (0.35 + d);
+        const rh2 = rw * (0.3 + mrnd() * 0.3);
+        ctx.fillStyle = tones[(mrnd() * tones.length) | 0];
+        ctx.globalAlpha = 0.28 + mrnd() * 0.3;
+        ctx.beginPath();
+        ctx.ellipse(cx3, y, rw, rh2, (mrnd() - 0.5) * 0.6, 0, TAU);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      // 土路：两道车辙从画面底角弯向桥两头（近宽远窄，透视收敛）
+      for (const side of [-1, 1]) {
+        ctx.strokeStyle = 'rgba(96,82,58,0.5)';
+        ctx.lineWidth = Math.max(2, w * 0.018);
+        ctx.beginPath();
+        const bx = w * (0.5 + side * 0.42);
+        ctx.moveTo(bx, h + 4);
+        ctx.quadraticCurveTo(
+          w * (0.5 + side * 0.3), horizon + (h - horizon) * 0.42,
+          w * (0.5 + side * 0.06), horizon + 2
+        );
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(70,60,42,0.4)';
+        ctx.lineWidth = Math.max(1, w * 0.008);
+        ctx.beginPath();
+        ctx.moveTo(bx + side * w * 0.045, h + 4);
+        ctx.quadraticCurveTo(
+          w * (0.5 + side * 0.32), horizon + (h - horizon) * 0.45,
+          w * (0.5 + side * 0.075), horizon + 2
+        );
+        ctx.stroke();
+      }
+      // 远树剪影：贴着地平线两侧的一排小三角，颜色比草地更深
+      for (let i = 0; i < 46; i++) {
+        const side = i % 2 ? 1 : -1;
+        const tx = w * 0.5 + side * w * (0.06 + mrnd() * 0.46);
+        const th2 = 6 + mrnd() * 16;
+        ctx.fillStyle = mrnd() < 0.5 ? 'rgba(16,28,22,0.9)' : 'rgba(22,36,28,0.85)';
+        ctx.beginPath();
+        ctx.moveTo(tx, horizon + 2);
+        ctx.lineTo(tx - th2 * 0.32, horizon + 2);
+        ctx.lineTo(tx, horizon + 2 - th2);
+        ctx.lineTo(tx + th2 * 0.32, horizon + 2);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
   }
 
   _drawWater(ctx, w, h) {
@@ -1054,16 +1122,31 @@ export class Renderer {
       const list = [];
       const zNear = CFG.deckNearZ + 1.5;
       const zFar = CFG.deckFarZ * 0.72;
-      for (let i = 0; i < 34; i++) {
+      // 【用户】两岸加密 + 换古典荒野的道具表：松树/巨石/断柱/蕨丛顶替掉
+      // 一部分晶簇（晶簇太"魔法"，古典西幻里只能是点缀）。
+      // 90 件 / 每帧：每件就是一次投影 + 几笔 path，实测无感。
+      for (let i = 0; i < 90; i++) {
         const side = i % 2 ? 1 : -1;
         const kindR = rnd2();
         list.push({
           x: side * (cam.roadHalf * (1.3 + rnd2() * 2.8)),
           z: zNear + rnd2() * (zFar - zNear),
-          kind: kindR < 0.4 ? 'crystal' : kindR < 0.66 ? 'mushroom' : kindR < 0.85 ? 'stone' : 'reed',
+          kind: kindR < 0.16 ? 'crystal' : kindR < 0.36 ? 'mushroom' : kindR < 0.5 ? 'stone'
+            : kindR < 0.7 ? 'reed' : kindR < 0.84 ? 'pine' : kindR < 0.92 ? 'boulder' : 'ruin',
           s: 0.55 + rnd2() * 0.75,
           phase: rnd2() * TAU,
           warm: rnd2() < 0.5,
+        });
+      }
+      // 萤火虫：不占道具格，单独一组，每帧按 sin/cos 漂（贴着两岸低飞）
+      this._fireflies = [];
+      for (let i = 0; i < 14; i++) {
+        this._fireflies.push({
+          side: i % 2 ? 1 : -1,
+          x: (i % 2 ? 1 : -1) * (cam.roadHalf * (1.6 + rnd2() * 2.2)),
+          z: zNear + rnd2() * (zFar - zNear) * 0.8,
+          phase: rnd2() * TAU,
+          speed: 0.5 + rnd2() * 0.9,
         });
       }
       list.sort((a, b) => b.z - a.z); // 远的先画
@@ -1135,6 +1218,74 @@ export class Renderer {
         ctx.lineTo(px - R * 0.18, py - R * 0.12);
         ctx.stroke();
         ctx.restore();
+      } else if (p.kind === 'pine') {
+        // 松树剪影：三层三角 + 短干，月光下近黑的绿
+        const th = S * (0.34 + 0.1 * Math.sin(p.phase));
+        const tw2 = S * 0.16;
+        ctx.fillStyle = 'rgba(20,30,24,0.95)';
+        ctx.fillRect(px - tw2 * 0.08, py - th * 0.22, tw2 * 0.16, th * 0.22);
+        for (let k = 0; k < 3; k++) {
+          const ry = py - th * (0.18 + k * 0.27);
+          const rw2 = tw2 * (1 - k * 0.26);
+          ctx.fillStyle = k === 2 ? 'rgba(30,46,36,0.96)' : 'rgba(22,34,27,0.96)';
+          ctx.beginPath();
+          ctx.moveTo(px, ry - th * 0.34);
+          ctx.lineTo(px - rw2, ry);
+          ctx.lineTo(px + rw2, ry);
+          ctx.closePath();
+          ctx.fill();
+        }
+        // 月光勾一道轮廓光
+        ctx.strokeStyle = 'rgba(190,220,255,0.2)';
+        ctx.lineWidth = Math.max(0.6, S * 0.004);
+        ctx.beginPath();
+        ctx.moveTo(px - tw2 * 0.92, py - th * 0.2);
+        ctx.lineTo(px, py - th * 1.2);
+        ctx.stroke();
+      } else if (p.kind === 'boulder') {
+        // 巨石：两块叠起来的圆石 + 顶上一点苔 + 落影
+        const R = S * 0.11;
+        ctx.fillStyle = 'rgba(52,52,48,0.95)';
+        ctx.beginPath();
+        ctx.ellipse(px, py - R * 0.4, R, R * 0.72, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(66,66,60,0.95)';
+        ctx.beginPath();
+        ctx.ellipse(px + R * 0.55, py - R * 0.2, R * 0.55, R * 0.42, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(58,88,46,0.55)';
+        ctx.beginPath();
+        ctx.ellipse(px - R * 0.15, py - R * 0.95, R * 0.4, R * 0.14, -0.2, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.beginPath();
+        ctx.ellipse(px, py, R * 1.05, R * 0.16, 0, 0, TAU);
+        ctx.fill();
+      } else if (p.kind === 'ruin') {
+        // 断柱：古典遗迹感 —— 半截石柱 + 锯齿裂口 + 倒地柱身 + 缝里青苔
+        const ph2 = S * 0.3;
+        const pw2 = S * 0.05;
+        ctx.fillStyle = 'rgba(120,110,90,0.95)';
+        ctx.fillRect(px - pw2, py - ph2, pw2 * 2, ph2);
+        ctx.fillStyle = 'rgba(88,80,64,0.95)';
+        ctx.fillRect(px - pw2, py - ph2, pw2 * 0.7, ph2);
+        ctx.fillStyle = 'rgba(120,110,90,0.95)';
+        ctx.beginPath();
+        ctx.moveTo(px - pw2, py - ph2);
+        ctx.lineTo(px - pw2 * 0.4, py - ph2 - pw2 * 0.9);
+        ctx.lineTo(px + pw2 * 0.2, py - ph2 - pw2 * 0.3);
+        ctx.lineTo(px + pw2, py - ph2 - pw2 * 1.1);
+        ctx.lineTo(px + pw2, py - ph2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.save();
+        ctx.translate(px + pw2 * 2.6, py - pw2 * 0.8);
+        ctx.rotate(0.12);
+        ctx.fillStyle = 'rgba(104,96,78,0.9)';
+        ctx.fillRect(-pw2 * 1.6, -pw2 * 0.7, pw2 * 3.2, pw2 * 1.4);
+        ctx.restore();
+        ctx.fillStyle = 'rgba(58,88,46,0.5)';
+        ctx.fillRect(px - pw2, py - ph2 * 0.4, pw2 * 2, ph2 * 0.12);
       } else {
         // 芦苇/枯草：几根细线，随风轻摆
         ctx.strokeStyle = 'rgba(58,86,60,0.9)';
@@ -1149,6 +1300,23 @@ export class Renderer {
         }
       }
     }
+    // 萤火虫：贴着两岸低飞的小光点，忽明忽暗、慢慢漂
+    // （加色叠加画在雾前面，雾把它们衬得更亮）
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const f of this._fireflies || []) {
+      const fx = f.x + Math.sin(t * f.speed + f.phase) * 0.12;
+      const fz = f.z + Math.cos(t * f.speed * 0.7 + f.phase * 2) * 0.5;
+      const pr2 = cam.project(fx, fz);
+      if (pr2.y < horizon + 1 || pr2.y > h) continue;
+      const blink = 0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.sin(t * 2.2 + f.phase * 3), 2);
+      this._drawGlow(pr2.x, pr2.y - pr2.s * 0.02, Math.max(2, pr2.s * 0.012), '#d8ffb0', 0.5 * blink);
+      ctx.fillStyle = `rgba(235,255,200,${0.85 * blink})`;
+      ctx.beginPath();
+      ctx.arc(pr2.x, pr2.y - pr2.s * 0.02, Math.max(0.8, pr2.s * 0.003), 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
     // 贴地雾：两层从地平线下压的淡紫/淡青薄雾
     ctx.save();
     const fogH = Math.min(h - horizon, 260);
@@ -2763,7 +2931,6 @@ export class Renderer {
     // 第四关：换成异世界那几种怪（哥布林 / 郊狼 / 兽人 / 鹰身女妖 / 史莱姆 / 恶龙）
     if (e.animal && lod > 0) {
       if (eSkin === 'pvz') this._pvzBits(ctx, H, e, col, dark);
-      else if (eSkin === 'fantasy') this._fantasyBits(ctx, H, e, col, dark);
       else this._oceanBits(ctx, H, e, col, dark);
     }
 
@@ -5002,978 +5169,1566 @@ export class Renderer {
     if (a === 'orc') { this._fgOrc(ctx, H, e, col, dark); return true; }
     if (a === 'harpy') { this._fgHarpy(ctx, H, e, col, dark); return true; }
     if (a === 'coyote') { this._fgCoyote(ctx, H, e, col, dark); return true; }
-    return false; // 史莱姆 / 恶龙：仍走 _zombieBody + _fantasyBits
+    if (a === 'slime') { this._fgSlime(ctx, H, e, col, dark); return true; }
+    if (a === 'dragon') { this._fgDragon(ctx, H, e, col, dark); return true; }
+    return false;
+  }
+
+  // ============================================================
+  //  第四关「穿越异世界」怪物：古典西幻造型 + 真实步态
+  //
+  //  【用户 m11097】整只重绘，不要贴图。
+  //  【2026-11-06 重建】三件事：
+  //   1) 走路：旧版只有身体上下浮动、两条腿画死在固定位置，整只像在滑。
+  //      现在步态全部由 e.phase 驱动（game.js 里 e.phase 随移动速度累加），
+  //      腿有髋-膝-踝三段、手臂反摆、躯干起伏、耳朵/头发/尾巴带滞后跟随。
+  //   2) 体积：平涂色块 → 渐变 + 明暗交界 + 冷色轮廓光（月光）+ 暖色反光（桥灯）。
+  //   3) 造型：古典西幻（哥布林 / 兽人 / 鹰身女妖 / 座狼 / 史莱姆 / 恶龙），
+  //      去掉卡通感，强调剪影辨识度 —— 40px 高时也认得出谁是谁。
+  //
+  //  性能：主循环不新建渐变对象（沿用 _fgLin 按 H 取整缓存），
+  //       中远景自动减少毛发/鳞片等细笔画。
+  // ============================================================
+
+  /** 渐变缓存：主循环里不能反复 createLinearGradient（真机上很疼） */
+  _fgLin(id, H, x0, y0, x1, y1, c0, c1, cMid) {
+    const cache = this._fgG || (this._fgG = new Map());
+    if (cache.size > 600) cache.clear();
+    const key = id + '|' + Math.round(H);
+    let g = cache.get(key);
+    if (g) return g;
+    g = this.ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, c0);
+    if (cMid) g.addColorStop(0.52, cMid);
+    g.addColorStop(1, c1);
+    cache.set(key, g);
+    return g;
+  }
+
+  /** 两节肢体（髋→膝→踝）：圆头描边，宽度即肉厚 */
+  _fgLimb(ctx, ax, ay, bx, by, cx, cy, w, col) {
+    ctx.strokeStyle = col;
+    ctx.lineWidth = w;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.quadraticCurveTo(bx, by, cx, cy);
+    ctx.stroke();
   }
 
   /**
-   * 哥布林（参考图：绿皮、招风大耳、咧嘴露尖牙、驼背、破布围裙、锯齿短刃）。
-   * 剪影三件套：大耳朵 / 大嘴 / 驼背小个子 —— 40px 高的时候只剩这三样能被认出来。
+   * 双足步态：返回左右两条腿的关键点。
+   * 远腿（s=-1）先画、用暗色，近腿（s=+1）后画、用亮色 —— 前后关系靠颜色也靠遮挡。
+   * lift>0 的那条腿处于"抬起前迈"，脚掌离地、膝盖前顶；另一条撑地后蹬。
+   */
+  _fgGait(H, ph, hipY, spread, amp) {
+    const sw = Math.sin(ph);
+    const out = [];
+    for (const s of [-1, 1]) {
+      const lift = s * sw;
+      const hipX = s * spread * H;
+      const footX = hipX - lift * amp * H + s * 0.012 * H;
+      const footY = -0.012 * H - Math.max(0, lift) * 0.075 * H;
+      // 膝盖始终往前顶（朝玩家），抬起的那条顶得更多
+      const kneeX = (hipX + footX) * 0.5 + (0.022 + Math.max(0, lift) * 0.05) * H;
+      const kneeY = (hipY + footY) * 0.5 + 0.012 * H;
+      out.push({ s, lift, hipX, hipY, kneeX, kneeY, footX, footY });
+    }
+    return out;
+  }
+
+  /**
+   * 哥布林：驼背、招风耳、鹰钩鼻、破皮裙、锈匕首。
+   * 走路是"猫着腰小碎步"，耳朵比身体慢半拍地甩。
    */
   _fgGoblin(ctx, H, e, col, dark) {
-    const t = this.time * 3.4 + (e.phase || 0);
-    const bob = Math.sin(t * 2) * 0.012 * H;
-    const armSw = Math.sin(t) * 0.04 * H;
+    const ph = e.phase || 0;
+    const sw = Math.sin(ph);
+    const det = H >= 46;
     const skin = col;
-    const sh = mix(col, '#000000', 0.32);
-    const hi = mix(col, '#ffffff', 0.26);
-    const rug = mix(dark, '#000000', 0.15);
+    const sh = mix(col, '#101a0c', 0.42);
+    const hi = mix(col, '#f2ffd8', 0.34);
+    const rim = mix(col, '#cfe6ff', 0.55);      // 月光轮廓
+    const leather = '#4a3a26';
+    const leatherHi = '#7a6240';
+
+    const bob = Math.abs(Math.cos(ph)) * 0.022 * H;
+    const legs = this._fgGait(H, ph, -0.32 * H, 0.058, 0.115);
 
     ctx.save();
-    ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
-
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 0.19 * H, 0.05 * H, 0, 0, TAU);
-    ctx.fill();
-
-    ctx.translate(0, bob);
-
-    // —— 短粗腿：膝盖外撇，脚大
-    for (const s of [-1, 1]) {
-      const lx = s * 0.07 * H;
-      ctx.fillStyle = s < 0 ? sh : skin;
-      ctx.beginPath();
-      ctx.moveTo(lx - 0.05 * H, -0.3 * H);
-      ctx.quadraticCurveTo(lx - 0.065 * H, -0.16 * H, lx - 0.055 * H, -0.02 * H);
-      ctx.lineTo(lx + 0.062 * H, -0.02 * H);
-      ctx.quadraticCurveTo(lx + 0.07 * H, -0.17 * H, lx + 0.05 * H, -0.3 * H);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = mix(skin, '#000000', 0.12);
-      ctx.beginPath();
-      ctx.ellipse(lx + 0.006 * H, -0.02 * H, 0.062 * H, 0.026 * H, 0, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = '#e8dcc0';
-      for (let i = -1; i <= 1; i++) {
-        ctx.beginPath();
-        ctx.moveTo(lx + i * 0.028 * H, -0.028 * H);
-        ctx.lineTo(lx + i * 0.03 * H + 0.01 * H, -0.048 * H);
-        ctx.lineTo(lx + i * 0.03 * H + 0.02 * H, -0.026 * H);
-        ctx.closePath();
-        ctx.fill();
-      }
-    }
-
-    // —— 破布围裙
-    ctx.fillStyle = rug;
-    ctx.beginPath();
-    ctx.moveTo(-0.105 * H, -0.42 * H);
-    ctx.lineTo(0.105 * H, -0.42 * H);
-    ctx.lineTo(0.085 * H, -0.27 * H);
-    for (let i = 0; i < 4; i++) {
-      const x0 = 0.085 * H - i * 0.048 * H;
-      ctx.lineTo(x0 - 0.024 * H, -0.33 * H);
-      ctx.lineTo(x0 - 0.048 * H, -0.27 * H);
-    }
-    ctx.lineTo(-0.105 * H, -0.27 * H);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = mix('#6b4a2a', '#000000', 0.12);
-    ctx.beginPath();
-    ctx.rect(-0.108 * H, -0.445 * H, 0.216 * H, 0.032 * H);
-    ctx.fill();
-
-    // —— 驼背躯干（前倾，肩比胯宽）
-    ctx.fillStyle = skin;
-    ctx.beginPath();
-    ctx.moveTo(-0.1 * H, -0.43 * H);
-    ctx.quadraticCurveTo(-0.165 * H, -0.56 * H, -0.115 * H, -0.65 * H);
-    ctx.quadraticCurveTo(0.005 * H, -0.715 * H, 0.12 * H, -0.65 * H);
-    ctx.quadraticCurveTo(0.165 * H, -0.56 * H, 0.1 * H, -0.43 * H);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = sh;
-    ctx.beginPath();
-    ctx.moveTo(0.02 * H, -0.43 * H);
-    ctx.quadraticCurveTo(0.15 * H, -0.55 * H, 0.12 * H, -0.65 * H);
-    ctx.quadraticCurveTo(0.06 * H, -0.695 * H, 0.03 * H, -0.67 * H);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = hi;
-    ctx.globalAlpha = 0.32;
-    ctx.beginPath();
-    ctx.ellipse(-0.045 * H, -0.57 * H, 0.048 * H, 0.032 * H, -0.3, 0, TAU);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    // —— 骨齿项链
-    ctx.fillStyle = '#efe6cf';
-    for (let i = -1; i <= 1; i++) {
-      ctx.beginPath();
-      ctx.moveTo(i * 0.04 * H, -0.655 * H);
-      ctx.lineTo(i * 0.04 * H + 0.011 * H, -0.605 * H);
-      ctx.lineTo(i * 0.04 * H + 0.022 * H, -0.655 * H);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // —— 左臂：爪子张开往前抓
-    ctx.strokeStyle = sh;
-    ctx.lineWidth = 0.05 * H;
-    ctx.beginPath();
-    ctx.moveTo(-0.095 * H, -0.6 * H);
-    ctx.quadraticCurveTo(-0.185 * H, -0.545 * H + armSw * 0.5, -0.215 * H, -0.47 * H + armSw);
-    ctx.stroke();
-    ctx.fillStyle = mix(skin, '#ffffff', 0.1);
-    ctx.beginPath();
-    ctx.arc(-0.218 * H, -0.465 * H + armSw, 0.03 * H, 0, TAU);
-    ctx.fill();
-    ctx.strokeStyle = '#e8dcc0';
-    ctx.lineWidth = 0.011 * H;
-    for (let i = -1; i <= 1; i++) {
-      ctx.beginPath();
-      ctx.moveTo(-0.222 * H, -0.45 * H + armSw);
-      ctx.lineTo(-0.25 * H + i * 0.012 * H, -0.41 * H + armSw);
-      ctx.stroke();
-    }
-
-    // —— 右臂：攥着锯齿短刃（刀身斜举过肩，握把正好在手里）
-    const hx = 0.135 * H;
-    const hy = -0.5 * H - armSw * 0.5;
-    ctx.strokeStyle = skin;
-    ctx.lineWidth = 0.05 * H;
-    ctx.beginPath();
-    ctx.moveTo(0.095 * H, -0.6 * H);
-    ctx.quadraticCurveTo(0.15 * H, -0.56 * H, hx, hy);
-    ctx.stroke();
-    ctx.save();
-    ctx.translate(hx, hy);
-    ctx.rotate(-1.15);
-    const bl = 0.26 * H;
-    const bw = 0.05 * H;
-    // 握把
-    ctx.fillStyle = '#4a3320';
-    ctx.beginPath();
-    ctx.rect(-0.075 * H, -bw * 0.32, 0.085 * H, bw * 0.64);
-    ctx.fill();
-    // 刀身（粗制断刃，刃口有缺口）
-    ctx.fillStyle = '#767064';
-    ctx.beginPath();
-    ctx.moveTo(0.005 * H, -bw * 0.55);
-    ctx.lineTo(bl * 0.66, -bw * 0.85);
-    ctx.lineTo(bl * 0.78, -bw * 0.35);
-    ctx.lineTo(bl * 0.7, bw * 0.1);
-    ctx.lineTo(bl * 0.6, -bw * 0.2);
-    ctx.lineTo(bl * 0.52, bw * 0.3);
-    ctx.lineTo(bl * 0.44, -bw * 0.1);
-    ctx.lineTo(bl, bw * 0.35);
-    ctx.lineTo(bl * 0.66, bw * 0.95);
-    ctx.lineTo(0.005 * H, bw * 0.6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(235,232,215,0.45)';
-    ctx.lineWidth = 0.009 * H;
-    ctx.stroke();
-    ctx.restore();
-
-    // —— 头：大、前伸；耳朵向外下方耷拉
-    const hcx = 0.035 * H;
-    const hcy = -0.76 * H;
-    const hr = 0.125 * H;
-    for (const s of [-1, 1]) {
-      const ex = hcx + s * hr * 0.6;
-      const ey = hcy - hr * 0.05;
-      ctx.fillStyle = s < 0 ? mix(skin, '#000000', 0.1) : mix(skin, '#ffffff', 0.06);
-      ctx.beginPath();
-      ctx.moveTo(ex, ey - hr * 0.35);
-      ctx.quadraticCurveTo(ex + s * hr * 1.5, ey - hr * 0.75, ex + s * hr * 2.2, ey - hr * 0.2);
-      ctx.quadraticCurveTo(ex + s * hr * 1.4, ey + hr * 0.45, ex, ey + hr * 0.5);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = 'rgba(122,62,62,0.4)';
-      ctx.beginPath();
-      ctx.moveTo(ex + s * hr * 0.12, ey - hr * 0.22);
-      ctx.quadraticCurveTo(ex + s * hr * 1.25, ey - hr * 0.5, ex + s * hr * 1.8, ey - hr * 0.18);
-      ctx.quadraticCurveTo(ex + s * hr * 1.1, ey + hr * 0.28, ex + s * hr * 0.12, ey + hr * 0.36);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.fillStyle = skin;
-    ctx.beginPath();
-    ctx.ellipse(hcx, hcy, hr * 0.92, hr, 0, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = hi;
-    ctx.globalAlpha = 0.4;
-    ctx.beginPath();
-    ctx.ellipse(hcx - hr * 0.26, hcy - hr * 0.42, hr * 0.4, hr * 0.24, -0.35, 0, TAU);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    // 长鼻
-    ctx.fillStyle = mix(skin, '#000000', 0.06);
-    ctx.beginPath();
-    ctx.moveTo(hcx + hr * 0.08, hcy - hr * 0.05);
-    ctx.quadraticCurveTo(hcx + hr * 0.78, hcy + hr * 0.22, hcx + hr * 0.2, hcy + hr * 0.46);
-    ctx.closePath();
-    ctx.fill();
-    // 黄眼 + 竖瞳 + 眉骨
-    for (const s of [-1, 1]) {
-      ctx.fillStyle = '#ffd45e';
-      ctx.beginPath();
-      ctx.ellipse(hcx + s * hr * 0.36, hcy - hr * 0.16, hr * 0.18, hr * 0.13, 0, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = '#221a12';
-      ctx.beginPath();
-      ctx.ellipse(hcx + s * hr * 0.36, hcy - hr * 0.16, hr * 0.055, hr * 0.11, 0, 0, TAU);
-      ctx.fill();
-      ctx.strokeStyle = mix(skin, '#000000', 0.45);
-      ctx.lineWidth = 0.012 * H;
-      ctx.beginPath();
-      ctx.moveTo(hcx + s * hr * 0.52, hcy - hr * 0.42);
-      ctx.lineTo(hcx + s * hr * 0.18, hcy - hr * 0.3);
-      ctx.stroke();
-    }
-    // 咧嘴 + 尖牙
-    const my = hcy + hr * 0.44;
-    ctx.fillStyle = '#3a1f1f';
-    ctx.beginPath();
-    ctx.moveTo(hcx - hr * 0.58, my);
-    ctx.quadraticCurveTo(hcx, my + hr * 0.4, hcx + hr * 0.6, my - hr * 0.06);
-    ctx.quadraticCurveTo(hcx, my + hr * 0.12, hcx - hr * 0.58, my);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#f2ecd8';
-    for (let i = 0; i < 5; i++) {
-      const k = i / 4;
-      const tx = hcx - hr * 0.46 + k * hr * 0.9;
-      const ty = my + hr * (0.15 - 0.19 * Math.sin(k * Math.PI));
-      ctx.beginPath();
-      ctx.moveTo(tx, ty);
-      ctx.lineTo(tx + hr * 0.055, ty + hr * 0.19);
-      ctx.lineTo(tx + hr * 0.11, ty - hr * 0.02);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    ctx.restore();
-  }
-
-  /**
-   * 兽人（参考图：灰绿巨躯、黑发辫、獠牙、兽毛围脖 + 骷髅肩甲、大石斧）。
-   * 剪影靠"肩宽 + 围脖毛边"撑；斧子挎在他右侧（画面左）**不要横过脸**，
-   * 第一版就是斧柄从脸前穿过去，远看像脸上贴了根棍子。
-   */
-  _fgOrc(ctx, H, e, col, dark) {
-    const t = this.time * 2.2 + (e.phase || 0);
-    const bob = Math.sin(t * 2) * 0.008 * H;
-    const swing = Math.sin(t) * 0.03 * H;
-    const skin = col;
-    const sh = mix(col, '#000000', 0.34);
-    const hi = mix(col, '#ffffff', 0.2);
-    const fur = '#8d7a5f';
-    const furDark = '#5d4f3a';
-    const leather = '#4b3524';
-
-    ctx.save();
     ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
 
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    // 贴地阴影（随抬脚收紧）
+    ctx.fillStyle = 'rgba(0,0,0,0.34)';
     ctx.beginPath();
-    ctx.ellipse(0, 0, 0.26 * H, 0.07 * H, 0, 0, TAU);
-    ctx.fill();
-
-    ctx.translate(0, bob);
-
-    // —— 腿：粗，毛边靴口
-    for (const s of [-1, 1]) {
-      const lx = s * 0.115 * H;
-      ctx.fillStyle = s < 0 ? sh : skin;
-      ctx.beginPath();
-      ctx.moveTo(lx - 0.072 * H, -0.4 * H);
-      ctx.lineTo(lx + 0.072 * H, -0.4 * H);
-      ctx.quadraticCurveTo(lx + 0.064 * H, -0.2 * H, lx + 0.072 * H, -0.04 * H);
-      ctx.lineTo(lx - 0.074 * H, -0.04 * H);
-      ctx.quadraticCurveTo(lx - 0.08 * H, -0.2 * H, lx - 0.072 * H, -0.4 * H);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = fur;
-      ctx.beginPath();
-      ctx.moveTo(lx - 0.078 * H, -0.29 * H);
-      ctx.lineTo(lx + 0.078 * H, -0.29 * H);
-      ctx.lineTo(lx + 0.064 * H, -0.245 * H);
-      ctx.lineTo(lx - 0.066 * H, -0.248 * H);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = mix(skin, '#000000', 0.16);
-      ctx.beginPath();
-      ctx.ellipse(lx, -0.03 * H, 0.084 * H, 0.032 * H, 0, 0, TAU);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(20,16,10,0.45)';
-      ctx.lineWidth = 0.008 * H;
-      for (let i = -1; i <= 1; i++) {
-        ctx.beginPath();
-        ctx.moveTo(lx + i * 0.032 * H, -0.046 * H);
-        ctx.lineTo(lx + i * 0.036 * H, -0.008 * H);
-        ctx.stroke();
-      }
-    }
-
-    // —— 兽毛腰裙 + 宽腰带 + 圆扣
-    ctx.fillStyle = furDark;
-    ctx.beginPath();
-    ctx.moveTo(-0.145 * H, -0.43 * H);
-    ctx.lineTo(0.145 * H, -0.43 * H);
-    ctx.lineTo(0.115 * H, -0.3 * H);
-    ctx.lineTo(-0.115 * H, -0.3 * H);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = fur;
-    for (let i = -3; i <= 3; i++) {
-      const fx = i * 0.038 * H;
-      ctx.beginPath();
-      ctx.moveTo(fx - 0.02 * H, -0.31 * H);
-      ctx.lineTo(fx, -0.252 * H);
-      ctx.lineTo(fx + 0.02 * H, -0.31 * H);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.fillStyle = leather;
-    ctx.beginPath();
-    ctx.rect(-0.15 * H, -0.475 * H, 0.3 * H, 0.05 * H);
-    ctx.fill();
-    ctx.fillStyle = '#7d7466';
-    ctx.beginPath();
-    ctx.arc(0, -0.45 * H, 0.036 * H, 0, TAU);
-    ctx.fill();
-    ctx.strokeStyle = '#3a352c';
-    ctx.lineWidth = 0.008 * H;
-    ctx.stroke();
-
-    // —— 巨躯
-    ctx.fillStyle = skin;
-    ctx.beginPath();
-    ctx.moveTo(-0.155 * H, -0.45 * H);
-    ctx.quadraticCurveTo(-0.27 * H, -0.63 * H, -0.3 * H, -0.75 * H);
-    ctx.quadraticCurveTo(0, -0.86 * H, 0.3 * H, -0.75 * H);
-    ctx.quadraticCurveTo(0.27 * H, -0.63 * H, 0.155 * H, -0.45 * H);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = sh;
-    ctx.beginPath();
-    ctx.moveTo(0.03 * H, -0.45 * H);
-    ctx.quadraticCurveTo(0.25 * H, -0.6 * H, 0.3 * H, -0.75 * H);
-    ctx.quadraticCurveTo(0.16 * H, -0.8 * H, 0.06 * H, -0.78 * H);
-    ctx.closePath();
-    ctx.fill();
-    // 胸肌两块 + 腹肌三道（用形状说"壮"，比涂几道亮条更立得住）
-    ctx.fillStyle = mix(skin, '#ffffff', 0.12);
-    ctx.globalAlpha = 0.75;
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.ellipse(s * 0.085 * H, -0.68 * H, 0.075 * H, 0.05 * H, s * 0.18, 0, TAU);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 0.5;
-    for (let i = 0; i < 3; i++) {
-      ctx.beginPath();
-      ctx.ellipse(0, -0.6 * H + i * 0.045 * H, 0.055 * H, 0.016 * H, 0, 0, TAU);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = 'rgba(30,26,20,0.35)';
-    ctx.lineWidth = 0.01 * H;
-    ctx.beginPath();
-    ctx.moveTo(0, -0.72 * H);
-    ctx.lineTo(0, -0.46 * H);
-    ctx.stroke();
-
-    // —— 兽毛围脖：一圈毛尖把肩线再撑宽
-    ctx.fillStyle = fur;
-    ctx.beginPath();
-    ctx.moveTo(-0.31 * H, -0.72 * H);
-    for (let i = 0; i <= 12; i++) {
-      const k = i / 12;
-      const x = -0.31 * H + k * 0.62 * H;
-      const y = -0.77 * H - Math.sin(k * Math.PI) * 0.06 * H + (i % 2 ? -0.028 * H : 0.004 * H);
-      ctx.lineTo(x, y);
-    }
-    ctx.lineTo(0.31 * H, -0.71 * H);
-    ctx.quadraticCurveTo(0, -0.8 * H, -0.31 * H, -0.71 * H);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = furDark;
-    ctx.beginPath();
-    ctx.moveTo(-0.3 * H, -0.73 * H);
-    for (let i = 0; i <= 12; i++) {
-      const k = i / 12;
-      const x = -0.3 * H + k * 0.6 * H;
-      const y = -0.76 * H - Math.sin(k * Math.PI) * 0.045 * H + (i % 2 ? 0.002 * H : -0.016 * H);
-      ctx.lineTo(x, y);
-    }
-    ctx.lineTo(0.3 * H, -0.72 * H);
-    ctx.closePath();
-    ctx.fill();
-
-    // —— 左肩（画面左）骷髅肩甲：压在围脖上
-    ctx.save();
-    ctx.translate(-0.235 * H, -0.785 * H);
-    ctx.rotate(-0.16);
-    ctx.fillStyle = '#e6ddc4';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 0.062 * H, 0.072 * H, 0, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = '#2a2520';
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.ellipse(s * 0.023 * H, -0.01 * H, 0.016 * H, 0.02 * H, 0, 0, TAU);
-      ctx.fill();
-    }
-    ctx.fillStyle = '#d8cfb4';
-    ctx.beginPath();
-    ctx.moveTo(-0.024 * H, 0.045 * H);
-    ctx.lineTo(0.024 * H, 0.045 * H);
-    ctx.lineTo(0.01 * H, 0.078 * H);
-    ctx.lineTo(-0.01 * H, 0.078 * H);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-
-    // —— 手臂
-    ctx.strokeStyle = sh;
-    ctx.lineWidth = 0.088 * H;
-    ctx.beginPath();
-    ctx.moveTo(-0.25 * H, -0.69 * H);
-    ctx.quadraticCurveTo(-0.33 * H, -0.57 * H, -0.3 * H, -0.47 * H + swing);
-    ctx.stroke();
-    ctx.strokeStyle = skin;
-    ctx.lineWidth = 0.088 * H;
-    ctx.beginPath();
-    ctx.moveTo(0.25 * H, -0.69 * H);
-    ctx.quadraticCurveTo(0.33 * H, -0.58 * H, 0.31 * H, -0.47 * H - swing);
-    ctx.stroke();
-    ctx.fillStyle = mix(skin, '#000000', 0.1);
-    ctx.beginPath();
-    ctx.arc(0.31 * H, -0.455 * H - swing, 0.05 * H, 0, TAU);
-    ctx.fill();
-
-    // —— 大石斧：挎在画面左，**在身体外侧**，柄从手往斜上方，刃在最高处
-    ctx.save();
-    ctx.translate(-0.32 * H, -0.47 * H + swing);
-    ctx.rotate(0.2);
-    ctx.strokeStyle = '#5a4128';
-    ctx.lineWidth = 0.034 * H;
-    ctx.beginPath();
-    ctx.moveTo(0, 0.06 * H);
-    ctx.lineTo(-0.06 * H, -0.42 * H);
-    ctx.stroke();
-    // 缠绳
-    ctx.strokeStyle = '#3b2c1c';
-    ctx.lineWidth = 0.012 * H;
-    for (let i = 0; i < 3; i++) {
-      const yy = 0.02 * H - i * 0.05 * H;
-      ctx.beginPath();
-      ctx.moveTo(-0.038 * H, yy);
-      ctx.lineTo(0.014 * H, yy - 0.018 * H);
-      ctx.stroke();
-    }
-    // 半月石刃
-    const ax = -0.06 * H;
-    const ay = -0.44 * H;
-    ctx.fillStyle = '#8b8578';
-    ctx.beginPath();
-    ctx.moveTo(ax + 0.02 * H, ay - 0.1 * H);
-    ctx.quadraticCurveTo(ax - 0.26 * H, ay - 0.03 * H, ax - 0.19 * H, ay + 0.14 * H);
-    ctx.quadraticCurveTo(ax - 0.08 * H, ay + 0.02 * H, ax + 0.02 * H, ay + 0.07 * H);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(235,232,220,0.5)';
-    ctx.lineWidth = 0.008 * H;
-    ctx.stroke();
-    ctx.restore();
-
-    // —— 头：相对身体小，黑发 + 两根辫子 + 上扬獠牙
-    const hcx = 0.02 * H;
-    const hcy = -0.87 * H;
-    const hr = 0.1 * H;
-    ctx.fillStyle = skin;
-    ctx.beginPath();
-    ctx.ellipse(hcx, hcy, hr * 0.9, hr, 0, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = '#241f1c';
-    ctx.beginPath();
-    ctx.ellipse(hcx, hcy - hr * 0.42, hr * 1.08, hr * 0.7, 0, Math.PI * 0.95, Math.PI * 2.05);
-    ctx.fill();
-    // 两根粗辫子垂到胸前
-    ctx.strokeStyle = '#241f1c';
-    ctx.lineWidth = 0.026 * H;
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(hcx + s * hr * 0.8, hcy - hr * 0.05);
-      ctx.quadraticCurveTo(hcx + s * hr * 1.15, hcy + hr * 0.6, hcx + s * hr * 0.85, hcy + hr * 1.25);
-      ctx.stroke();
-    }
-    ctx.fillStyle = '#ffd45e';
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.ellipse(hcx + s * hr * 0.33, hcy - hr * 0.04, hr * 0.16, hr * 0.11, 0, 0, TAU);
-      ctx.fill();
-    }
-    ctx.fillStyle = '#221a12';
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.arc(hcx + s * hr * 0.33, hcy - hr * 0.04, hr * 0.06, 0, TAU);
-      ctx.fill();
-    }
-    // 下颌
-    ctx.fillStyle = mix(skin, '#000000', 0.1);
-    ctx.beginPath();
-    ctx.ellipse(hcx, hcy + hr * 0.5, hr * 0.62, hr * 0.42, 0, 0, TAU);
-    ctx.fill();
-    // 獠牙（从下唇往上翘）
-    ctx.fillStyle = '#f4eedc';
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(hcx + s * hr * 0.26, hcy + hr * 0.62);
-      ctx.quadraticCurveTo(hcx + s * hr * 0.4, hcy + hr * 0.2, hcx + s * hr * 0.44, hcy + hr * 0.02);
-      ctx.quadraticCurveTo(hcx + s * hr * 0.52, hcy + hr * 0.4, hcx + s * hr * 0.5, hcy + hr * 0.62);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    ctx.restore();
-  }
-
-  /**
-   * 鹰身女妖（参考图：长发女相 + 宽羽翼 + 羽臂 + 鸟腿利爪 + 羽毛短裙）。
-   * 翅膀第一版画成了几根"触须"—— 因为羽片用的是细长二次曲线，控制点全叠在一起。
-   * 现在改成：外缘沿弧线排 5 个羽尖、羽尖之间插内凹点，得到一个**实心扇形**，
-   * 再叠一层浅色覆羽，远看就是"一片翅膀"而不是几根毛。
-   */
-  _fgHarpy(ctx, H, e, col, dark) {
-    const t = this.time * 2.6 + (e.phase || 0);
-    const flap = Math.sin(t) * 0.18;
-    const bob = Math.sin(t * 2) * 0.012 * H;
-    // 参考图是金发+暖白皮肤：肤色只吃一点点关卡主色（紫/绿/蓝都试过，
-    // 混多了她会变成一团紫泥），其余全靠固定暖色。
-    const skinC = mix('#f7e3cd', col, 0.14);
-    const wingA = '#c2a887';
-    const wingB = '#8a7358';
-    const wingC = '#43362a';
-    const hairC = '#9d7a42';
-
-    ctx.save();
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-
-    ctx.fillStyle = 'rgba(0,0,0,0.26)';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 0.2 * H, 0.05 * H, 0, 0, TAU);
-    ctx.fill();
-
-    ctx.translate(0, bob);
-
-    // —— 翅膀（在身体后面）
-    const drawWing = (s, R0, coatCol) => {
-      const rootX = s * 0.055 * H;
-      const rootY = -0.72 * H;
-      // 外缘只放三个大羽尖：羽毛要"少而大"，五个小尖远看就是锯齿
-      const angs = [1.16, 0.72, 0.28];
-      const tips = angs.map((a, idx) => {
-        const R = R0 * (1 + idx * 0.08);
-        return [rootX + s * Math.cos(a) * R, rootY - Math.sin(a) * R];
-      });
-      ctx.fillStyle = coatCol;
-      ctx.beginPath();
-      ctx.moveTo(rootX, rootY + 0.03 * H);
-      ctx.lineTo(tips[0][0], tips[0][1]);
-      for (let idx = 1; idx < tips.length; idx++) {
-        const px = tips[idx - 1][0];
-        const py = tips[idx - 1][1];
-        const cx2 = tips[idx][0];
-        const cy2 = tips[idx][1];
-        ctx.quadraticCurveTo(px + (cx2 - px) * 0.72, py + (cy2 - py) * 0.72, cx2, cy2);
-      }
-      ctx.quadraticCurveTo(rootX + s * R0 * 0.3, rootY + R0 * 0.5, rootX, rootY + 0.07 * H);
-      ctx.closePath();
-      ctx.fill();
-      // 羽轴
-      ctx.strokeStyle = 'rgba(250,244,230,0.16)';
-      ctx.lineWidth = 0.008 * H;
-      for (let idx = 0; idx < tips.length; idx++) {
-        ctx.beginPath();
-        ctx.moveTo(rootX, rootY);
-        ctx.lineTo(tips[idx][0], tips[idx][1]);
-        ctx.stroke();
-      }
-    };
-    for (const s of [-1, 1]) {
-      ctx.save();
-      ctx.translate(0, 0);
-      ctx.translate(s * 0.02 * H, 0);
-      ctx.rotate(s * flap * 0.3);
-      drawWing(s, 0.36 * H, wingB);
-      drawWing(s, 0.25 * H, wingA);
-      // 翼前缘亮线
-      ctx.strokeStyle = 'rgba(246,238,220,0.28)';
-      ctx.lineWidth = 0.012 * H;
-      ctx.beginPath();
-      ctx.moveTo(s * 0.055 * H, -0.72 * H);
-      ctx.quadraticCurveTo(s * 0.24 * H, -0.94 * H, s * 0.4 * H, -0.86 * H);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // —— 鸟腿 + 利爪
-    for (const s of [-1, 1]) {
-      const lx = s * 0.05 * H;
-      ctx.strokeStyle = '#c0a468';
-      ctx.lineWidth = 0.042 * H;
-      ctx.beginPath();
-      ctx.moveTo(lx, -0.34 * H);
-      ctx.quadraticCurveTo(lx + s * 0.016 * H, -0.2 * H, lx - s * 0.004 * H, -0.055 * H);
-      ctx.stroke();
-      // 鳞片暗纹
-      ctx.strokeStyle = 'rgba(80,60,30,0.35)';
-      ctx.lineWidth = 0.006 * H;
-      for (let i = 0; i < 3; i++) {
-        const yy = -0.28 * H + i * 0.08 * H;
-        ctx.beginPath();
-        ctx.moveTo(lx - 0.018 * H, yy);
-        ctx.lineTo(lx + 0.018 * H, yy - 0.01 * H);
-        ctx.stroke();
-      }
-      // 爪
-      ctx.strokeStyle = '#2c2620';
-      ctx.lineWidth = 0.014 * H;
-      for (let i = -1; i <= 1; i++) {
-        ctx.beginPath();
-        ctx.moveTo(lx - s * 0.004 * H, -0.05 * H);
-        ctx.quadraticCurveTo(lx + i * 0.032 * H, -0.035 * H, lx + i * 0.046 * H, -0.002 * H);
-        ctx.stroke();
-      }
-      // 大腿羽
-      ctx.fillStyle = wingA;
-      ctx.beginPath();
-      ctx.moveTo(lx - 0.055 * H, -0.37 * H);
-      ctx.quadraticCurveTo(lx - 0.075 * H, -0.26 * H, lx - 0.02 * H, -0.22 * H);
-      ctx.quadraticCurveTo(lx + 0.045 * H, -0.26 * H, lx + 0.055 * H, -0.37 * H);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // —— 羽毛短裙
-    ctx.fillStyle = wingB;
-    ctx.beginPath();
-    ctx.moveTo(-0.1 * H, -0.5 * H);
-    ctx.lineTo(0.1 * H, -0.5 * H);
-    ctx.lineTo(0.13 * H, -0.34 * H);
-    for (let i = 4; i >= 0; i--) {
-      const x = -0.13 * H + (i / 4) * 0.26 * H;
-      ctx.lineTo(x + 0.016 * H, -0.27 * H);
-      ctx.lineTo(x - 0.016 * H, -0.35 * H);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = wingC;
-    for (let i = 0; i < 6; i++) {
-      const x = -0.11 * H + (i / 5) * 0.22 * H;
-      ctx.beginPath();
-      ctx.moveTo(x, -0.48 * H);
-      ctx.lineTo(x + 0.032 * H, -0.33 * H);
-      ctx.lineTo(x - 0.032 * H, -0.33 * H);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // —— 躯干（细腰）
-    ctx.fillStyle = skinC;
-    ctx.beginPath();
-    ctx.moveTo(-0.088 * H, -0.5 * H);
-    ctx.quadraticCurveTo(-0.105 * H, -0.62 * H, -0.078 * H, -0.71 * H);
-    ctx.quadraticCurveTo(0, -0.755 * H, 0.078 * H, -0.71 * H);
-    ctx.quadraticCurveTo(0.105 * H, -0.62 * H, 0.088 * H, -0.5 * H);
-    ctx.closePath();
-    ctx.fill();
-    // 黑羽胸衣
-    ctx.fillStyle = wingC;
-    ctx.beginPath();
-    ctx.moveTo(-0.082 * H, -0.71 * H);
-    ctx.quadraticCurveTo(0, -0.66 * H, 0.082 * H, -0.71 * H);
-    ctx.quadraticCurveTo(0.062 * H, -0.62 * H, 0, -0.6 * H);
-    ctx.quadraticCurveTo(-0.062 * H, -0.62 * H, -0.082 * H, -0.71 * H);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(226,190,120,0.8)';
-    ctx.lineWidth = 0.011 * H;
-    ctx.beginPath();
-    ctx.moveTo(-0.086 * H, -0.52 * H);
-    ctx.quadraticCurveTo(0, -0.49 * H, 0.086 * H, -0.52 * H);
-    ctx.stroke();
-    // 颈饰
-    ctx.strokeStyle = 'rgba(226,190,120,0.7)';
-    ctx.beginPath();
-    ctx.moveTo(-0.03 * H, -0.72 * H);
-    ctx.quadraticCurveTo(0, -0.755 * H, 0.03 * H, -0.72 * H);
-    ctx.stroke();
-
-    // —— 手臂：上臂裸、前臂羽毛、末端爪
-    for (const s of [-1, 1]) {
-      const sy = -0.68 * H;
-      ctx.strokeStyle = skinC;
-      ctx.lineWidth = 0.032 * H;
-      ctx.beginPath();
-      ctx.moveTo(s * 0.078 * H, sy);
-      ctx.quadraticCurveTo(s * 0.155 * H, sy + 0.03 * H, s * 0.19 * H, -0.56 * H);
-      ctx.stroke();
-      ctx.fillStyle = wingC;
-      ctx.beginPath();
-      ctx.ellipse(s * 0.196 * H, -0.55 * H, 0.03 * H, 0.052 * H, s * 0.28, 0, TAU);
-      ctx.fill();
-      ctx.strokeStyle = '#2c2620';
-      ctx.lineWidth = 0.009 * H;
-      for (let i = -1; i <= 1; i++) {
-        ctx.beginPath();
-        ctx.moveTo(s * 0.2 * H, -0.518 * H);
-        ctx.lineTo(s * (0.21 * H + i * 0.011 * H), -0.485 * H);
-        ctx.stroke();
-      }
-    }
-
-    // —— 头：长发 + 羽耳 + 人相
-    const hcx = 0;
-    const hcy = -0.79 * H;
-    const hr = 0.062 * H;
-    // 长发（脑后一团 + 两侧垂到肩的发束）：只有脑后一团时，远看是个"圆脑袋鸡蛋"
-    ctx.fillStyle = hairC;
-    ctx.beginPath();
-    ctx.ellipse(hcx, hcy + hr * 0.62, hr * 1.34, hr * 1.5, 0, 0, TAU);
-    ctx.fill();
-    for (const s2 of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(hcx + s2 * hr * 0.72, hcy - hr * 0.55);
-      ctx.quadraticCurveTo(hcx + s2 * hr * 1.5, hcy + hr * 0.35, hcx + s2 * hr * 1.16, hcy + hr * 1.6);
-      ctx.quadraticCurveTo(hcx + s2 * hr * 0.9, hcy + hr * 0.9, hcx + s2 * hr * 0.6, hcy + hr * 0.3);
-      ctx.closePath();
-      ctx.fill();
-    }
-    // 脸
-    ctx.fillStyle = mix(skinC, '#ffffff', 0.35);
-    ctx.beginPath();
-    ctx.ellipse(hcx, hcy, hr * 0.82, hr, 0, 0, TAU);
-    ctx.fill();
-    // 刘海
-    ctx.fillStyle = hairC;
-    ctx.beginPath();
-    ctx.ellipse(hcx, hcy - hr * 0.5, hr * 0.95, hr * 0.66, 0, Math.PI * 0.92, Math.PI * 2.08);
-    ctx.fill();
-    // 羽耳（两撮向上斜的羽尖）
-    ctx.fillStyle = wingC;
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(hcx + s * hr * 0.6, hcy - hr * 0.55);
-      ctx.quadraticCurveTo(hcx + s * hr * 1.5, hcy - hr * 1.35, hcx + s * hr * 1.62, hcy - hr * 1.05);
-      ctx.quadraticCurveTo(hcx + s * hr * 1.05, hcy - hr * 0.6, hcx + s * hr * 0.72, hcy - hr * 0.2);
-      ctx.closePath();
-      ctx.fill();
-    }
-    // 眼（琥珀）
-    for (const s of [-1, 1]) {
-      ctx.fillStyle = '#e0a33c';
-      ctx.beginPath();
-      ctx.ellipse(hcx + s * hr * 0.31, hcy - hr * 0.02, hr * 0.16, hr * 0.13, 0, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = '#2a1f18';
-      ctx.beginPath();
-      ctx.arc(hcx + s * hr * 0.31, hcy - hr * 0.02, hr * 0.065, 0, TAU);
-      ctx.fill();
-    }
-    // 眉 + 嘴角（参考图是那种不太好惹的神情）
-    ctx.strokeStyle = 'rgba(120,96,70,0.8)';
-    ctx.lineWidth = 0.008 * H;
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(hcx + s * hr * 0.12, hcy - hr * 0.3);
-      ctx.lineTo(hcx + s * hr * 0.48, hcy - hr * 0.22);
-      ctx.stroke();
-    }
-    ctx.strokeStyle = 'rgba(150,100,90,0.85)';
-    ctx.beginPath();
-    ctx.moveTo(hcx - hr * 0.14, hcy + hr * 0.42);
-    ctx.quadraticCurveTo(hcx, hcy + hr * 0.5, hcx + hr * 0.16, hcy + hr * 0.4);
-    ctx.stroke();
-    // 小鼻
-    ctx.strokeStyle = 'rgba(150,110,90,0.6)';
-    ctx.beginPath();
-    ctx.moveTo(hcx, hcy + hr * 0.12);
-    ctx.lineTo(hcx + hr * 0.06, hcy + hr * 0.28);
-    ctx.stroke();
-
-    ctx.restore();
-  }
-
-  /**
-   * 郊狼（参考图：四足、竖耳、黑尖大尾、琥珀眼）。
-   * 原来是"人形躯干 + 狼头 + 尾巴"，最不像；现在整只四足重画。
-   * 视角 3/4 正面：躯干在后、头前探、四条腿交替抬。
-   * 第二版调了比例 —— 第一版躯干太圆、腿太细，远看像一张"桌子"。
-   */
-  _fgCoyote(ctx, H, e, col, dark) {
-    const t = this.time * 5.2 + (e.phase || 0);
-    const bob = Math.abs(Math.sin(t)) * 0.018 * H;
-    const fur = col;
-    const furD = mix(col, '#000000', 0.34);
-    const furL = mix(col, '#ffffff', 0.32);
-
-    ctx.save();
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 0.27 * H, 0.05 * H, 0, 0, TAU);
+    ctx.ellipse(0, 0.004 * H, 0.17 * H - Math.abs(sw) * 0.014 * H, 0.042 * H, 0, 0, TAU);
     ctx.fill();
 
     ctx.translate(0, -bob);
 
-    // —— 尾巴：粗、翘起、黑尖
-    const wag = Math.sin(t * 0.7) * 0.05 * H;
-    ctx.strokeStyle = furD;
-    ctx.lineWidth = 0.085 * H;
+    // ---- 腿（先远后近）----
+    for (const L of legs) {
+      const c = L.s < 0 ? sh : skin;
+      this._fgLimb(ctx, L.hipX, L.hipY, L.kneeX, L.kneeY, L.footX, L.footY, 0.062 * H, c);
+      // 脚：大脚掌 + 三个趾头
+      ctx.fillStyle = L.s < 0 ? sh : mix(skin, '#000000', 0.1);
+      ctx.beginPath();
+      ctx.ellipse(L.footX + 0.012 * H, L.footY, 0.052 * H, 0.024 * H, 0, 0, TAU);
+      ctx.fill();
+      if (det) {
+        ctx.strokeStyle = mix(skin, '#e8dcc0', 0.55);
+        ctx.lineWidth = 0.009 * H;
+        for (let i = -1; i <= 1; i++) {
+          ctx.beginPath();
+          ctx.moveTo(L.footX + 0.03 * H + i * 0.017 * H, L.footY - 0.006 * H);
+          ctx.lineTo(L.footX + 0.046 * H + i * 0.018 * H, L.footY + 0.006 * H);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // ---- 驼背躯干：前倾，肩比髋低（哥布林的招牌）----
+    const hipY = -0.32 * H;
+    const shY = -0.62 * H;
+    const lean = 0.035 * H + sw * 0.012 * H;
+    ctx.fillStyle = this._fgLin('gbT', H, -0.1 * H, shY, 0.12 * H, hipY, hi, sh, skin);
     ctx.beginPath();
-    ctx.moveTo(-0.05 * H, -0.44 * H);
-    ctx.quadraticCurveTo(-0.23 * H + wag, -0.46 * H, -0.29 * H + wag * 1.4, -0.6 * H);
-    ctx.stroke();
-    ctx.fillStyle = '#2b2622';
-    ctx.beginPath();
-    ctx.ellipse(-0.29 * H + wag * 1.4, -0.605 * H, 0.055 * H, 0.04 * H, 0.55, 0, TAU);
+    ctx.moveTo(-0.085 * H, hipY + 0.02 * H);
+    ctx.bezierCurveTo(-0.15 * H, hipY - 0.1 * H, -0.15 * H + lean, shY + 0.02 * H, -0.07 * H + lean, shY - 0.01 * H);
+    ctx.quadraticCurveTo(0.02 * H + lean, shY - 0.06 * H, 0.1 * H + lean, shY + 0.03 * H);
+    ctx.bezierCurveTo(0.14 * H, shY + 0.16 * H, 0.11 * H, hipY - 0.04 * H, 0.075 * H, hipY + 0.02 * H);
+    ctx.closePath();
     ctx.fill();
 
-    // —— 后腿：大腿粗、后踝细（两段画，才有"犬科后腿"的折角）
+    // 破皮裙：锯齿下摆 + 腰带
+    ctx.fillStyle = this._fgLin('gbL', H, 0, hipY - 0.06 * H, 0, hipY + 0.1 * H, leatherHi, '#2c2114');
+    ctx.beginPath();
+    ctx.moveTo(-0.1 * H, hipY - 0.04 * H);
+    ctx.lineTo(0.1 * H, hipY - 0.04 * H);
+    ctx.lineTo(0.12 * H, hipY + 0.05 * H);
+    for (let i = 0; i < 5; i++) {
+      const x = 0.12 * H - (i + 0.5) * 0.048 * H;
+      ctx.lineTo(x + 0.012 * H, hipY + (i % 2 ? 0.1 : 0.062) * H);
+      ctx.lineTo(x - 0.012 * H, hipY + 0.05 * H);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#2a1f12';
+    ctx.lineWidth = 0.022 * H;
+    ctx.beginPath();
+    ctx.moveTo(-0.098 * H, hipY - 0.03 * H);
+    ctx.lineTo(0.098 * H, hipY - 0.03 * H);
+    ctx.stroke();
+
+    // ---- 手臂：反摆，右手持匕首前伸 ----
     for (const s of [-1, 1]) {
-      const lift = Math.max(0, Math.sin(t + s * 0.6)) * 0.045 * H;
-      const hockX = s * 0.2 * H;
-      const pawX = s * 0.17 * H;
-      ctx.strokeStyle = furD;
-      ctx.lineWidth = 0.082 * H;
+      const asw = -s * sw;
+      const ax = s * 0.1 * H + lean * 0.6;
+      const ay = shY + 0.03 * H;
+      const hx = ax + s * 0.07 * H + asw * 0.05 * H;
+      const hy = ay + 0.2 * H - Math.abs(asw) * 0.02 * H;
+      this._fgLimb(ctx, ax, ay, ax + s * 0.09 * H, ay + 0.11 * H, hx, hy, 0.045 * H, s < 0 ? sh : skin);
+      ctx.fillStyle = s < 0 ? sh : hi;
       ctx.beginPath();
-      ctx.moveTo(s * 0.11 * H, -0.44 * H);
-      ctx.quadraticCurveTo(s * 0.2 * H, -0.34 * H, hockX, -0.24 * H - lift);
+      ctx.arc(hx, hy, 0.026 * H, 0, TAU);
+      ctx.fill();
+      if (s > 0) {
+        // 锈匕首：刃面有明暗，刃口崩了几个小缺口
+        const ang = -0.5 + sw * 0.12;
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.rotate(ang);
+        ctx.fillStyle = this._fgLin('gbD', H, 0, 0, 0.09 * H, 0, '#c9d2d6', '#5d6a72');
+        ctx.beginPath();
+        ctx.moveTo(-0.012 * H, 0);
+        ctx.lineTo(0.016 * H, -0.01 * H);
+        ctx.lineTo(0.10 * H, -0.045 * H);
+        ctx.lineTo(0.118 * H, -0.03 * H);
+        ctx.lineTo(0.03 * H, 0.022 * H);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#3a2a18';
+        ctx.lineWidth = 0.014 * H;
+        ctx.beginPath();
+        ctx.moveTo(-0.02 * H, -0.018 * H);
+        ctx.lineTo(0.006 * H, 0.024 * H);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // ---- 头：大耳 + 鹰钩鼻 + 咧嘴尖牙 ----
+    const hx = lean * 1.5;
+    const hy = shY - 0.1 * H + sw * 0.006 * H;
+    const hr = 0.108 * H;
+    const earFl = Math.sin(ph - 0.7) * 0.05;   // 耳朵慢半拍
+    for (const s of [-1, 1]) {
+      ctx.save();
+      ctx.translate(hx + s * hr * 0.72, hy - hr * 0.1);
+      ctx.rotate(s * (0.32 + earFl));
+      ctx.fillStyle = s < 0 ? sh : skin;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(s * 0.16 * H, -0.1 * H, s * 0.2 * H, -0.075 * H);
+      ctx.quadraticCurveTo(s * 0.15 * H, 0.005 * H, s * 0.02 * H, 0.045 * H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = mix(skin, '#c07a6a', 0.5);
+      ctx.beginPath();
+      ctx.moveTo(s * 0.022 * H, 0.006 * H);
+      ctx.quadraticCurveTo(s * 0.13 * H, -0.07 * H, s * 0.16 * H, -0.062 * H);
+      ctx.quadraticCurveTo(s * 0.12 * H, -0.01 * H, s * 0.03 * H, 0.03 * H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.fillStyle = this._fgLin('gbH', H, hx - hr, hy - hr, hx + hr, hy + hr, hi, sh, skin);
+    ctx.beginPath();
+    ctx.ellipse(hx, hy, hr * 0.94, hr, 0, 0, TAU);
+    ctx.fill();
+    // 眉骨压出一道凶相
+    ctx.strokeStyle = sh;
+    ctx.lineWidth = 0.018 * H;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(hx + s * hr * 0.18, hy - hr * 0.32);
+      ctx.lineTo(hx + s * hr * 0.74, hy - hr * 0.5);
       ctx.stroke();
-      ctx.lineWidth = 0.05 * H;
+    }
+    // 眼
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = '#f6d95a';
       ctx.beginPath();
-      ctx.moveTo(hockX, -0.24 * H - lift);
-      ctx.quadraticCurveTo(pawX + s * 0.01 * H, -0.12 * H - lift, pawX, -0.02 * H - lift);
+      ctx.ellipse(hx + s * hr * 0.42, hy - hr * 0.1, hr * 0.2, hr * 0.15, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#1a1408';
+      ctx.beginPath();
+      ctx.ellipse(hx + s * hr * 0.44, hy - hr * 0.1, hr * 0.07, hr * 0.13, 0, 0, TAU);
+      ctx.fill();
+    }
+    // 钩鼻
+    ctx.fillStyle = mix(skin, '#000000', 0.08);
+    ctx.beginPath();
+    ctx.moveTo(hx - hr * 0.1, hy - hr * 0.1);
+    ctx.quadraticCurveTo(hx + hr * 0.3, hy + hr * 0.2, hx + hr * 0.12, hy + hr * 0.52);
+    ctx.quadraticCurveTo(hx - hr * 0.06, hy + hr * 0.6, hx - hr * 0.18, hy + hr * 0.34);
+    ctx.closePath();
+    ctx.fill();
+    // 咧嘴 + 两根下尖牙
+    ctx.strokeStyle = 'rgba(26,18,10,0.85)';
+    ctx.lineWidth = 0.012 * H;
+    ctx.beginPath();
+    ctx.arc(hx, hy + hr * 0.42, hr * 0.46, 0.25, Math.PI - 0.25);
+    ctx.stroke();
+    ctx.fillStyle = '#efe6cc';
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(hx + s * hr * 0.34, hy + hr * 0.78);
+      ctx.lineTo(hx + s * hr * 0.26, hy + hr * 0.42);
+      ctx.lineTo(hx + s * hr * 0.5, hy + hr * 0.66);
+      ctx.closePath();
+      ctx.fill();
+    }
+    if (det) {
+      // 轮廓光：右肩到耳后一道冷色
+      ctx.strokeStyle = rim;
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 0.011 * H;
+      ctx.beginPath();
+      ctx.arc(hx, hy, hr * 0.95, -0.9, 0.5);
       ctx.stroke();
-      ctx.fillStyle = furD;
+      ctx.globalAlpha = 1;
+      // 疣
+      ctx.fillStyle = mix(skin, '#2c3a18', 0.5);
+      for (const [wx, wy] of [[-0.06, 0.03], [0.05, 0.06], [-0.02, -0.05]]) {
+        ctx.beginPath();
+        ctx.arc(hx + wx * H, hy + wy * H, 0.008 * H, 0, TAU);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * 兽人：肩宽背厚、獠牙、铁肩甲、战斧。
+   * 步子沉：起伏大、落腿重，上身左右晃。
+   */
+  _fgOrc(ctx, H, e, col, dark) {
+    const ph = e.phase || 0;
+    const sw = Math.sin(ph);
+    const det = H >= 46;
+    const skin = col;
+    const sh = mix(col, '#141c10', 0.45);
+    const hi = mix(col, '#eef4d8', 0.28);
+    const iron = '#6b7078';
+    const ironHi = '#b9c2cc';
+    const ironDk = '#33383f';
+
+    const bob = Math.abs(Math.cos(ph)) * 0.03 * H;
+    const legs = this._fgGait(H, ph, -0.38 * H, 0.085, 0.1);
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.fillStyle = 'rgba(0,0,0,0.38)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0.004 * H, 0.24 * H, 0.05 * H, 0, 0, TAU);
+    ctx.fill();
+    ctx.translate(0, -bob);
+    ctx.rotate(sw * 0.028);   // 沉重的左右晃
+
+    // 腿 + 皮靴
+    for (const L of legs) {
+      this._fgLimb(ctx, L.hipX, L.hipY, L.kneeX, L.kneeY, L.footX, L.footY, 0.095 * H, L.s < 0 ? sh : skin);
+      ctx.fillStyle = L.s < 0 ? '#241c12' : '#3a2c1c';
       ctx.beginPath();
-      ctx.ellipse(pawX, -0.018 * H - lift, 0.045 * H, 0.021 * H, 0, 0, TAU);
+      ctx.ellipse(L.footX + 0.014 * H, L.footY - 0.012 * H, 0.062 * H, 0.038 * H, 0, 0, TAU);
       ctx.fill();
     }
 
-    // —— 躯干：前胸高、后腰低的斜面（不是正圆）
-    ctx.fillStyle = fur;
+    const hipY = -0.38 * H;
+    const shY = -0.76 * H;
+
+    // 躯干：倒三角，背阔肌鼓出来
+    ctx.fillStyle = this._fgLin('orT', H, -0.2 * H, shY, 0.22 * H, hipY, hi, sh, skin);
     ctx.beginPath();
-    ctx.moveTo(-0.24 * H, -0.44 * H);
-    ctx.quadraticCurveTo(-0.2 * H, -0.58 * H, 0.02 * H, -0.58 * H);
-    ctx.quadraticCurveTo(0.22 * H, -0.57 * H, 0.26 * H, -0.44 * H);
-    ctx.quadraticCurveTo(0.2 * H, -0.32 * H, 0, -0.32 * H);
-    ctx.quadraticCurveTo(-0.2 * H, -0.32 * H, -0.24 * H, -0.44 * H);
+    ctx.moveTo(-0.13 * H, hipY);
+    ctx.bezierCurveTo(-0.22 * H, hipY - 0.12 * H, -0.27 * H, shY + 0.06 * H, -0.21 * H, shY - 0.02 * H);
+    ctx.quadraticCurveTo(0, shY - 0.1 * H, 0.21 * H, shY - 0.02 * H);
+    ctx.bezierCurveTo(0.27 * H, shY + 0.06 * H, 0.22 * H, hipY - 0.12 * H, 0.13 * H, hipY);
     ctx.closePath();
     ctx.fill();
-    // 肩胛鼓包
-    ctx.fillStyle = mix(fur, '#ffffff', 0.08);
+    if (det) {
+      // 胸腹分块 + 一道旧疤
+      ctx.strokeStyle = mix(col, '#000000', 0.28);
+      ctx.lineWidth = 0.01 * H;
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(s * 0.02 * H, shY + 0.06 * H);
+        ctx.quadraticCurveTo(s * 0.13 * H, shY + 0.09 * H, s * 0.12 * H, shY + 0.16 * H);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(0, shY + 0.2 * H);
+      ctx.lineTo(0, hipY - 0.02 * H);
+      ctx.stroke();
+      ctx.strokeStyle = mix(col, '#e8d8c0', 0.4);
+      ctx.lineWidth = 0.014 * H;
+      ctx.beginPath();
+      ctx.moveTo(-0.1 * H, shY + 0.04 * H);
+      ctx.lineTo(-0.03 * H, shY + 0.15 * H);
+      ctx.stroke();
+    }
+
+    // 皮束带 + 腰甲
+    ctx.strokeStyle = '#3a2b1a';
+    ctx.lineWidth = 0.05 * H;
     ctx.beginPath();
-    ctx.ellipse(0.08 * H, -0.53 * H, 0.11 * H, 0.075 * H, -0.15, 0, TAU);
-    ctx.fill();
-    // 背脊深色 + 腹部浅色
-    ctx.strokeStyle = furD;
-    ctx.lineWidth = 0.035 * H;
-    ctx.beginPath();
-    ctx.moveTo(-0.14 * H, -0.55 * H);
-    ctx.quadraticCurveTo(0.02 * H, -0.585 * H, 0.16 * H, -0.54 * H);
+    ctx.moveTo(-0.2 * H, shY + 0.02 * H);
+    ctx.lineTo(0.12 * H, hipY - 0.02 * H);
     ctx.stroke();
-    ctx.fillStyle = furL;
-    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = '#4a3823';
+    ctx.fillRect(-0.14 * H, hipY - 0.05 * H, 0.28 * H, 0.075 * H);
+    ctx.fillStyle = this._fgLin('orB', H, 0, hipY - 0.05 * H, 0, hipY + 0.02 * H, ironHi, ironDk);
     ctx.beginPath();
-    ctx.ellipse(0.01 * H, -0.37 * H, 0.19 * H, 0.055 * H, -0.02, 0, TAU);
+    ctx.arc(0, hipY - 0.012 * H, 0.038 * H, 0, TAU);
+    ctx.fill();
+
+    // 手臂：粗，右手抡斧
+    for (const s of [-1, 1]) {
+      const asw = -s * sw;
+      const ax = s * 0.23 * H;
+      const ay = shY + 0.04 * H;
+      const hx = ax + s * 0.06 * H + asw * 0.055 * H;
+      const hy = ay + 0.24 * H;
+      this._fgLimb(ctx, ax, ay, ax + s * 0.1 * H, ay + 0.14 * H, hx, hy, 0.085 * H, s < 0 ? sh : skin);
+      // 护腕
+      ctx.strokeStyle = ironDk;
+      ctx.lineWidth = 0.05 * H;
+      ctx.beginPath();
+      ctx.moveTo(hx - 0.02 * H, hy - 0.07 * H);
+      ctx.lineTo(hx + 0.03 * H, hy - 0.03 * H);
+      ctx.stroke();
+      ctx.fillStyle = s < 0 ? sh : skin;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 0.042 * H, 0, TAU);
+      ctx.fill();
+      if (s > 0) {
+        // 战斧：长柄 + 月牙刃，刃口一条亮线
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.rotate(-0.34 + sw * 0.1);
+        ctx.strokeStyle = '#4a3520';
+        ctx.lineWidth = 0.028 * H;
+        ctx.beginPath();
+        ctx.moveTo(0, 0.1 * H);
+        ctx.lineTo(0, -0.42 * H);
+        ctx.stroke();
+        ctx.fillStyle = this._fgLin('orA', H, -0.16 * H, 0, 0.06 * H, 0, ironHi, ironDk, iron);
+        ctx.beginPath();
+        ctx.moveTo(0, -0.44 * H);
+        ctx.bezierCurveTo(-0.2 * H, -0.44 * H, -0.22 * H, -0.2 * H, -0.02 * H, -0.18 * H);
+        ctx.lineTo(-0.02 * H, -0.26 * H);
+        ctx.bezierCurveTo(-0.13 * H, -0.28 * H, -0.12 * H, -0.38 * H, 0, -0.38 * H);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#dfe8ef';
+        ctx.lineWidth = 0.012 * H;
+        ctx.beginPath();
+        ctx.moveTo(-0.01 * H, -0.435 * H);
+        ctx.bezierCurveTo(-0.2 * H, -0.435 * H, -0.215 * H, -0.21 * H, -0.025 * H, -0.19 * H);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // 铁肩甲 + 铆钉
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = this._fgLin('orP' + s, H, s * 0.16 * H, shY - 0.08 * H, s * 0.3 * H, shY + 0.06 * H, ironHi, ironDk, iron);
+      ctx.beginPath();
+      ctx.ellipse(s * 0.215 * H, shY - 0.01 * H, 0.105 * H, 0.075 * H, s * 0.35, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = ironDk;
+      ctx.lineWidth = 0.012 * H;
+      ctx.beginPath();
+      ctx.ellipse(s * 0.215 * H, shY + 0.02 * H, 0.1 * H, 0.05 * H, s * 0.35, 0, Math.PI);
+      ctx.stroke();
+      if (det) {
+        ctx.fillStyle = '#d6dee6';
+        for (let i = 0; i < 3; i++) {
+          const a = -0.9 + i * 0.75;
+          ctx.beginPath();
+          ctx.arc(s * 0.215 * H + Math.cos(a) * 0.07 * H, shY - 0.01 * H + Math.sin(a) * 0.05 * H, 0.009 * H, 0, TAU);
+          ctx.fill();
+        }
+      }
+    }
+
+    // 头：埋在肩里，下颌前突、獠牙上翘
+    const hy = shY - 0.085 * H + bob * 0.2;
+    const hr = 0.1 * H;
+    ctx.fillStyle = this._fgLin('orH', H, -hr, hy - hr, hr, hy + hr, hi, sh, skin);
+    ctx.beginPath();
+    ctx.ellipse(0, hy, hr * 0.95, hr * 0.86, 0, 0, TAU);
+    ctx.fill();
+    // 下颌
+    ctx.fillStyle = mix(skin, '#000000', 0.12);
+    ctx.beginPath();
+    ctx.ellipse(0, hy + hr * 0.5, hr * 0.72, hr * 0.42, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#1c140c';
+    ctx.beginPath();
+    ctx.ellipse(0, hy + hr * 0.38, hr * 0.5, hr * 0.16, 0, 0, TAU);
+    ctx.fill();
+    for (const s of [-1, 1]) {
+      // 獠牙：牙根暗、牙尖亮
+      ctx.fillStyle = this._fgLin('orT' + s, H, s * hr * 0.5, hy + hr * 0.6, s * hr * 0.6, hy - hr * 0.1, '#a89a78', '#f4ecd6');
+      ctx.beginPath();
+      ctx.moveTo(s * hr * 0.42, hy + hr * 0.6);
+      ctx.quadraticCurveTo(s * hr * 0.78, hy + hr * 0.2, s * hr * 0.56, hy - hr * 0.12);
+      ctx.quadraticCurveTo(s * hr * 0.5, hy + hr * 0.24, s * hr * 0.22, hy + hr * 0.52);
+      ctx.closePath();
+      ctx.fill();
+      // 眼：小而凶
+      ctx.fillStyle = '#e8b23c';
+      ctx.beginPath();
+      ctx.ellipse(s * hr * 0.4, hy - hr * 0.22, hr * 0.15, hr * 0.1, s * 0.2, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#160f06';
+      ctx.beginPath();
+      ctx.ellipse(s * hr * 0.4, hy - hr * 0.22, hr * 0.05, hr * 0.09, 0, 0, TAU);
+      ctx.fill();
+      // 眉骨
+      ctx.strokeStyle = sh;
+      ctx.lineWidth = 0.022 * H;
+      ctx.beginPath();
+      ctx.moveTo(s * hr * 0.12, hy - hr * 0.3);
+      ctx.lineTo(s * hr * 0.72, hy - hr * 0.46);
+      ctx.stroke();
+      // 尖耳
+      ctx.fillStyle = sh;
+      ctx.beginPath();
+      ctx.moveTo(s * hr * 0.85, hy - hr * 0.1);
+      ctx.lineTo(s * hr * 1.5, hy - hr * 0.42);
+      ctx.lineTo(s * hr * 0.95, hy + hr * 0.28);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * 鹰身女妖：羽翼即手臂、鸟腿倒关节、长发、尾羽。
+   * 她是**低空扑翼**过来的（对应远程吐酸），翅膀扇动 + 爪子张合 + 尾羽摆动。
+   */
+  _fgHarpy(ctx, H, e, col, dark) {
+    const ph = e.phase || 0;
+    const det = H >= 46;
+    const flap = Math.sin(ph * 1.35);
+    const feather = mix(col, '#8a6a4a', 0.45);      // 古典西幻：赭褐色羽毛，不是粉色
+    const featherD = mix(feather, '#1a1210', 0.5);
+    const featherL = mix(feather, '#ffe8c0', 0.4);
+    const skin = mix(col, '#e8c8a8', 0.55);
+    const skinD = mix(skin, '#3a2418', 0.4);
+    const hair = '#3a2a20';
+
+    const bob = Math.sin(ph * 1.35 + 0.6) * 0.03 * H;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.fillStyle = 'rgba(0,0,0,0.26)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 0.15 * H - bob * 0.3, 0.035 * H, 0, 0, TAU);
+    ctx.fill();
+    ctx.translate(0, -0.1 * H - bob);   // 离地悬着
+
+    // ---- 尾羽（最后层）----
+    for (let i = -1; i <= 1; i++) {
+      ctx.save();
+      ctx.translate(0, -0.3 * H);
+      ctx.rotate(i * 0.3 + flap * 0.08);
+      ctx.fillStyle = i === 0 ? feather : featherD;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(i * 0.06 * H - 0.02 * H, 0.16 * H, i * 0.1 * H, 0.3 * H);
+      ctx.quadraticCurveTo(i * 0.06 * H + 0.04 * H, 0.2 * H, 0.03 * H, 0.02 * H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // ---- 翅膀：三根翼指 + 分层飞羽 ----
+    for (const s of [-1, 1]) {
+      ctx.save();
+      ctx.translate(s * 0.1 * H, -0.62 * H);
+      ctx.rotate(s * (-0.25 - flap * 0.5));
+      // 翼膜底
+      ctx.fillStyle = this._fgLin('hpW' + s, H, 0, -0.1 * H, s * 0.4 * H, 0.2 * H, featherL, featherD, feather);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(s * 0.2 * H, -0.22 * H, s * 0.42 * H, -0.16 * H);
+      ctx.quadraticCurveTo(s * 0.36 * H, 0.02 * H, s * 0.3 * H, 0.06 * H);
+      ctx.quadraticCurveTo(s * 0.16 * H, 0.16 * H, 0, 0.1 * H);
+      ctx.closePath();
+      ctx.fill();
+      // 飞羽：5 根，末端尖、色深
+      const n = det ? 5 : 3;
+      for (let i = 0; i < n; i++) {
+        const t = i / (n - 1);
+        const bx = s * (0.08 + t * 0.3) * H;
+        const by = (-0.12 + t * 0.16) * H;
+        const L = (0.2 - t * 0.05) * H;
+        ctx.fillStyle = i % 2 ? featherD : mix(feather, '#000000', 0.22);
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.quadraticCurveTo(bx + s * 0.05 * H, by + L * 0.6, bx + s * 0.035 * H, by + L);
+        ctx.quadraticCurveTo(bx - s * 0.02 * H, by + L * 0.55, bx - s * 0.035 * H, by + 0.02 * H);
+        ctx.closePath();
+        ctx.fill();
+        if (det) {
+          ctx.strokeStyle = mix(feather, '#ffe8c0', 0.35);
+          ctx.lineWidth = 0.005 * H;
+          ctx.beginPath();
+          ctx.moveTo(bx, by + 0.02 * H);
+          ctx.lineTo(bx + s * 0.03 * H, by + L * 0.9);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    // ---- 鸟腿：倒关节 + 三趾爪 ----
+    for (const s of [-1, 1]) {
+      const lift = s * Math.sin(ph);
+      const hx = s * 0.055 * H;
+      const hy = -0.32 * H;
+      const kx = hx - 0.03 * H;
+      const ky = hy + 0.12 * H;
+      const fx = hx + lift * 0.04 * H;
+      const fy = -0.02 * H - Math.max(0, lift) * 0.04 * H;
+      this._fgLimb(ctx, hx, hy, kx, ky, fx, fy, 0.032 * H, s < 0 ? skinD : skin);
+      ctx.strokeStyle = s < 0 ? '#6a5230' : '#a8874a';
+      ctx.lineWidth = 0.014 * H;
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(fx, fy);
+        ctx.quadraticCurveTo(fx + i * 0.02 * H, fy + 0.02 * H, fx + i * 0.035 * H, fy + 0.045 * H);
+        ctx.stroke();
+      }
+    }
+
+    // ---- 躯干：胸羽覆盖 ----
+    const shY = -0.66 * H;
+    ctx.fillStyle = this._fgLin('hpT', H, -0.08 * H, shY, 0.1 * H, -0.3 * H, featherL, featherD, feather);
+    ctx.beginPath();
+    ctx.moveTo(-0.075 * H, -0.3 * H);
+    ctx.quadraticCurveTo(-0.13 * H, -0.5 * H, -0.085 * H, shY);
+    ctx.quadraticCurveTo(0, shY - 0.05 * H, 0.085 * H, shY);
+    ctx.quadraticCurveTo(0.13 * H, -0.5 * H, 0.075 * H, -0.3 * H);
+    ctx.closePath();
+    ctx.fill();
+    if (det) {
+      ctx.strokeStyle = mix(feather, '#000000', 0.3);
+      ctx.lineWidth = 0.007 * H;
+      for (let r = 0; r < 3; r++) {
+        for (let i = -1; i <= 1; i++) {
+          const y = shY + 0.06 * H + r * 0.06 * H;
+          ctx.beginPath();
+          ctx.arc(i * 0.04 * H, y, 0.025 * H, 0.15, Math.PI - 0.15);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // ---- 头与长发 ----
+    const hy = shY - 0.1 * H;
+    const hr = 0.085 * H;
+    const sway = Math.sin(ph - 0.8) * 0.03 * H;
+    ctx.fillStyle = hair;
+    ctx.beginPath();
+    ctx.moveTo(-hr, hy - hr * 0.2);
+    ctx.quadraticCurveTo(-hr * 1.5 + sway, hy + 0.1 * H, -hr * 0.8 + sway, hy + 0.22 * H);
+    ctx.quadraticCurveTo(0, hy + 0.16 * H, hr * 0.9 + sway, hy + 0.24 * H);
+    ctx.quadraticCurveTo(hr * 1.6 + sway, hy + 0.05 * H, hr, hy - hr * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = this._fgLin('hpH', H, -hr, hy - hr, hr, hy + hr, mix(skin, '#fff0dc', 0.4), skinD, skin);
+    ctx.beginPath();
+    ctx.ellipse(0, hy, hr * 0.86, hr, 0, 0, TAU);
+    ctx.fill();
+    // 额前羽冠
+    ctx.fillStyle = feather;
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * hr * 0.4, hy - hr * 0.7);
+      ctx.quadraticCurveTo(i * hr * 0.9, hy - hr * 1.5, i * hr * 1.3 + sway * 0.4, hy - hr * 1.6);
+      ctx.quadraticCurveTo(i * hr * 0.7, hy - hr * 1.2, i * hr * 0.2, hy - hr * 0.8);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // 眼：锐利
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = '#f2e2c0';
+      ctx.beginPath();
+      ctx.ellipse(s * hr * 0.38, hy - hr * 0.05, hr * 0.2, hr * 0.13, s * -0.25, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#241408';
+      ctx.beginPath();
+      ctx.ellipse(s * hr * 0.4, hy - hr * 0.05, hr * 0.08, hr * 0.12, 0, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = hair;
+      ctx.lineWidth = 0.012 * H;
+      ctx.beginPath();
+      ctx.moveTo(s * hr * 0.15, hy - hr * 0.22);
+      ctx.lineTo(s * hr * 0.66, hy - hr * 0.34);
+      ctx.stroke();
+    }
+    // 喙状鼻
+    ctx.fillStyle = '#c8a05a';
+    ctx.beginPath();
+    ctx.moveTo(-hr * 0.12, hy + hr * 0.1);
+    ctx.lineTo(hr * 0.16, hy + hr * 0.2);
+    ctx.lineTo(0, hy + hr * 0.62);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /**
+   * 座狼（原"郊狼"）：**四足**，贴地疾行。
+   * 对角步态（左前+右后同相），背脊起伏、脖颈前伸、尾巴后拖。
+   */
+  _fgCoyote(ctx, H, e, col, dark) {
+    const ph = e.phase || 0;
+    const det = H >= 46;
+    const fur = mix(col, '#6a6258', 0.5);        // 古典座狼是灰褐，不是橙黄
+    const furD = mix(fur, '#141210', 0.5);
+    const furL = mix(fur, '#e8e0d0', 0.35);
+    const belly = mix(fur, '#d8cbb2', 0.45);
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.fillStyle = 'rgba(0,0,0,0.34)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 0.24 * H, 0.045 * H, 0, 0, TAU);
+    ctx.fill();
+
+    const bob = Math.abs(Math.cos(ph)) * 0.018 * H;
+    ctx.translate(0, -bob);
+
+    // ---- 四腿：前腿在 x≈+0.12H，后腿在 x≈-0.14H ----
+    // 对角同相：前左(远)与后右(近)一组，前右(近)与后左(远)一组
+    const legDefs = [
+      { front: true, near: false, off: 0 },
+      { front: false, near: false, off: Math.PI },
+      { front: true, near: true, off: Math.PI },
+      { front: false, near: true, off: 0 },
+    ];
+    const bodyY = -0.42 * H;
+    for (const d of legDefs) {
+      const l = Math.sin(ph + d.off);
+      const hipX = (d.front ? 0.12 : -0.14) * H + (d.near ? 0.02 : -0.02) * H;
+      const hipY = bodyY + (d.front ? 0.02 : 0.03) * H;
+      const footX = hipX + l * 0.1 * H;
+      const footY = -0.01 * H - Math.max(0, l) * 0.07 * H;
+      // 前腿膝向前、后腿膝向后（飞节）
+      const kneeX = hipX + l * 0.05 * H + (d.front ? 0.02 : -0.045) * H;
+      const kneeY = (hipY + footY) * 0.55;
+      this._fgLimb(ctx, hipX, hipY, kneeX, kneeY, footX, footY, (d.front ? 0.045 : 0.055) * H, d.near ? fur : furD);
+      ctx.fillStyle = d.near ? furD : mix(furD, '#000000', 0.3);
+      ctx.beginPath();
+      ctx.ellipse(footX + 0.01 * H, footY, 0.032 * H, 0.018 * H, 0, 0, TAU);
+      ctx.fill();
+    }
+
+    // ---- 躯干：胸厚腰收 ----
+    ctx.fillStyle = this._fgLin('cyB', H, 0, bodyY - 0.14 * H, 0, bodyY + 0.12 * H, furL, furD, fur);
+    ctx.beginPath();
+    ctx.moveTo(-0.2 * H, bodyY - 0.02 * H);
+    ctx.bezierCurveTo(-0.19 * H, bodyY - 0.16 * H, 0.06 * H, bodyY - 0.19 * H, 0.17 * H, bodyY - 0.1 * H);
+    ctx.bezierCurveTo(0.25 * H, bodyY - 0.02 * H, 0.2 * H, bodyY + 0.09 * H, 0.1 * H, bodyY + 0.1 * H);
+    ctx.bezierCurveTo(-0.02 * H, bodyY + 0.12 * H, -0.16 * H, bodyY + 0.1 * H, -0.2 * H, bodyY + 0.04 * H);
+    ctx.closePath();
+    ctx.fill();
+    // 腹下亮色
+    ctx.fillStyle = belly;
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.ellipse(-0.01 * H, bodyY + 0.075 * H, 0.14 * H, 0.03 * H, 0, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // 背脊鬃毛：一根根往后倒
+    if (det) {
+      ctx.strokeStyle = furD;
+      ctx.lineWidth = 0.012 * H;
+      for (let i = 0; i < 7; i++) {
+        const x = (-0.17 + i * 0.05) * H;
+        const y = bodyY - (0.1 + Math.sin(i * 0.7) * 0.03) * H;
+        ctx.beginPath();
+        ctx.moveTo(x, y + 0.02 * H);
+        ctx.lineTo(x - 0.03 * H, y - (0.03 + (i % 3) * 0.012) * H);
+        ctx.stroke();
+      }
+    }
+
+    // ---- 尾巴：后拖 + 摆动 ----
+    const tw = Math.sin(ph * 0.9) * 0.05 * H;
+    ctx.strokeStyle = this._fgLin('cyT', H, -0.2 * H, bodyY, -0.42 * H, bodyY + tw, furL, furD);
+    ctx.lineWidth = 0.06 * H;
+    ctx.beginPath();
+    ctx.moveTo(-0.19 * H, bodyY - 0.02 * H);
+    ctx.quadraticCurveTo(-0.34 * H, bodyY - 0.06 * H + tw, -0.4 * H, bodyY + 0.12 * H + tw);
+    ctx.stroke();
+
+    // ---- 脖颈与头：前伸压低，张嘴露牙 ----
+    const nx = 0.2 * H;
+    const ny = bodyY - 0.06 * H + Math.sin(ph) * 0.012 * H;
+    ctx.fillStyle = this._fgLin('cyN', H, nx - 0.1 * H, ny - 0.1 * H, nx + 0.1 * H, ny + 0.1 * H, furL, furD, fur);
+    ctx.beginPath();
+    ctx.ellipse(nx - 0.04 * H, ny, 0.1 * H, 0.085 * H, -0.3, 0, TAU);
+    ctx.fill();
+    const hx = nx + 0.03 * H;
+    const hy = ny - 0.03 * H;
+    // 耳
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = s < 0 ? furD : fur;
+      ctx.beginPath();
+      ctx.moveTo(hx - 0.03 * H, hy - 0.02 * H);
+      ctx.lineTo(hx - 0.05 * H + s * 0.045 * H, hy - 0.12 * H);
+      ctx.lineTo(hx + 0.02 * H + s * 0.02 * H, hy - 0.03 * H);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // 头 + 吻
+    ctx.fillStyle = fur;
+    ctx.beginPath();
+    ctx.ellipse(hx, hy, 0.075 * H, 0.06 * H, 0.15, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = furL;
+    ctx.beginPath();
+    ctx.moveTo(hx + 0.02 * H, hy - 0.015 * H);
+    ctx.quadraticCurveTo(hx + 0.14 * H, hy + 0.01 * H, hx + 0.15 * H, hy + 0.045 * H);
+    ctx.lineTo(hx + 0.02 * H, hy + 0.055 * H);
+    ctx.closePath();
+    ctx.fill();
+    // 下颌张开 + 牙
+    ctx.fillStyle = '#2a1a16';
+    ctx.beginPath();
+    ctx.moveTo(hx + 0.02 * H, hy + 0.05 * H);
+    ctx.lineTo(hx + 0.13 * H, hy + 0.06 * H);
+    ctx.lineTo(hx + 0.06 * H, hy + 0.1 * H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#f0e8d4';
+    for (let i = 0; i < 3; i++) {
+      const x = hx + (0.05 + i * 0.028) * H;
+      ctx.beginPath();
+      ctx.moveTo(x, hy + 0.048 * H);
+      ctx.lineTo(x + 0.008 * H, hy + 0.075 * H);
+      ctx.lineTo(x + 0.016 * H, hy + 0.05 * H);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // 鼻 + 眼
+    ctx.fillStyle = '#1c1614';
+    ctx.beginPath();
+    ctx.ellipse(hx + 0.145 * H, hy + 0.035 * H, 0.018 * H, 0.014 * H, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#f0b44a';
+    ctx.beginPath();
+    ctx.ellipse(hx + 0.02 * H, hy - 0.012 * H, 0.016 * H, 0.011 * H, -0.2, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#140e08';
+    ctx.beginPath();
+    ctx.ellipse(hx + 0.022 * H, hy - 0.012 * H, 0.006 * H, 0.01 * H, 0, 0, TAU);
+    ctx.fill();
+    if (det) this._drawGlow(hx + 0.02 * H, hy - 0.012 * H, 0.03 * H, '#ffb03c', 0.35);
+    ctx.restore();
+  }
+
+  /**
+   * 史莱姆：半透凝胶 + 内核。
+   * 走不了路，就**蠕动**：先压缩摊开、再伸长前送，形变与 e.phase 同步。
+   */
+  _fgSlime(ctx, H, e, col, dark) {
+    const ph = e.phase || 0;
+    const det = H >= 40;
+    const sq = Math.sin(ph);                 // -1 压缩 … +1 伸长
+    const wide = 1 - sq * 0.16;
+    const tall = 1 + sq * 0.2;
+    const baseW = 0.3 * H * wide;
+    const topY = -0.78 * H * tall;
+    const gel = mix(col, '#3fae7a', 0.35);
+    const gelD = mix(gel, '#0c2a20', 0.5);
+    const gelL = mix(gel, '#eafff2', 0.55);
+
+    ctx.save();
+    ctx.lineJoin = 'round';
+    // 地面一滩
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, baseW * 1.05, 0.04 * H, 0, 0, TAU);
+    ctx.fill();
+
+    // 主体：底部宽、顶部圆的滴状
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = this._fgLin('slB', H, -baseW * 0.5, topY, baseW * 0.6, 0, gelL, gelD, gel);
+    ctx.beginPath();
+    ctx.moveTo(-baseW, 0);
+    ctx.bezierCurveTo(-baseW * 1.12, topY * 0.45, -baseW * 0.72, topY * 0.9, -baseW * 0.22, topY);
+    ctx.bezierCurveTo(baseW * 0.1, topY * 1.1, baseW * 0.72, topY * 0.92, baseW * 0.88, topY * 0.5);
+    ctx.bezierCurveTo(baseW * 1.05, topY * 0.2, baseW, 0, baseW, 0);
+    ctx.closePath();
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    // —— 前腿
-    for (const s of [-1, 1]) {
-      const lift = Math.max(0, Math.sin(t + s * 0.6 + Math.PI)) * 0.045 * H;
-      const pawX = s * 0.13 * H;
-      ctx.strokeStyle = fur;
-      ctx.lineWidth = 0.072 * H;
-      ctx.beginPath();
-      ctx.moveTo(s * 0.12 * H, -0.5 * H);
-      ctx.quadraticCurveTo(s * 0.16 * H, -0.34 * H, pawX, -0.2 * H - lift);
-      ctx.stroke();
-      ctx.lineWidth = 0.052 * H;
-      ctx.beginPath();
-      ctx.moveTo(pawX, -0.2 * H - lift);
-      ctx.quadraticCurveTo(pawX - s * 0.004 * H, -0.1 * H - lift, pawX - s * 0.008 * H, -0.02 * H - lift);
-      ctx.stroke();
-      ctx.fillStyle = fur;
-      ctx.beginPath();
-      ctx.ellipse(pawX - s * 0.008 * H, -0.018 * H - lift, 0.044 * H, 0.02 * H, 0, 0, TAU);
-      ctx.fill();
-    }
-
-    // —— 脖子：从胸口往前上探
-    ctx.strokeStyle = fur;
-    ctx.lineWidth = 0.12 * H;
+    // 边缘折光（凝胶感的关键：亮边 + 内部暗核）
+    ctx.strokeStyle = mix(gel, '#eafff2', 0.6);
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 0.012 * H;
     ctx.beginPath();
-    ctx.moveTo(0.06 * H, -0.52 * H);
-    ctx.quadraticCurveTo(0.1 * H, -0.62 * H, 0.09 * H, -0.68 * H);
+    ctx.moveTo(-baseW * 0.92, -0.02 * H);
+    ctx.bezierCurveTo(-baseW * 1.02, topY * 0.45, -baseW * 0.66, topY * 0.86, -baseW * 0.2, topY * 0.98);
     ctx.stroke();
+    ctx.globalAlpha = 1;
 
-    // —— 头（比上一版大一圈：远看"狼头"是整个剪影的关键）
-    const hcx = 0.09 * H;
-    const hcy = -0.7 * H;
-    const hr = 0.105 * H;
-    // 竖耳
+    // 内核 + 气泡（随挤压上下浮动）
+    ctx.fillStyle = mix(gel, '#123a2c', 0.55);
+    ctx.globalAlpha = 0.75;
+    ctx.beginPath();
+    ctx.ellipse(0, topY * 0.45, 0.085 * H * wide, 0.1 * H * tall, 0, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    if (det) {
+      ctx.fillStyle = mix(gel, '#ffffff', 0.6);
+      for (let i = 0; i < 4; i++) {
+        const bph = ph * 0.6 + i * 1.7;
+        const bx = Math.sin(bph) * baseW * 0.45;
+        const by = topY * (0.25 + ((i * 0.23 + ph * 0.05) % 0.6));
+        ctx.globalAlpha = 0.32;
+        ctx.beginPath();
+        ctx.arc(bx, by, (0.014 + (i % 3) * 0.008) * H, 0, TAU);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+    // 高光：左上一条弯月
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.beginPath();
+    ctx.ellipse(-baseW * 0.36, topY * 0.72, baseW * 0.16, 0.05 * H * tall, -0.7, 0, TAU);
+    ctx.fill();
+    // 眼睛（果冻里两点，别太卡通）
     for (const s of [-1, 1]) {
-      ctx.fillStyle = furD;
+      ctx.fillStyle = 'rgba(10,32,24,0.8)';
       ctx.beginPath();
-      ctx.moveTo(hcx + s * hr * 0.4, hcy - hr * 0.55);
-      ctx.lineTo(hcx + s * hr * 0.86, hcy - hr * 1.9);
-      ctx.lineTo(hcx + s * hr * 1.02, hcy - hr * 0.45);
-      ctx.closePath();
+      ctx.ellipse(s * baseW * 0.3, topY * 0.6, 0.022 * H, 0.03 * H * tall, 0, 0, TAU);
       ctx.fill();
-      ctx.fillStyle = 'rgba(235,200,175,0.5)';
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
       ctx.beginPath();
-      ctx.moveTo(hcx + s * hr * 0.5, hcy - hr * 0.6);
-      ctx.lineTo(hcx + s * hr * 0.82, hcy - hr * 1.55);
-      ctx.lineTo(hcx + s * hr * 0.88, hcy - hr * 0.52);
-      ctx.closePath();
+      ctx.arc(s * baseW * 0.3 - 0.006 * H, topY * 0.6 - 0.01 * H, 0.007 * H, 0, TAU);
       ctx.fill();
     }
-    ctx.fillStyle = fur;
+    // 滴落的小胶珠
+    ctx.fillStyle = mix(gel, '#000000', 0.12);
+    for (let i = -1; i <= 1; i++) {
+      const dx = i * baseW * 0.6;
+      const r = (0.03 + Math.abs(Math.sin(ph + i)) * 0.02) * H;
+      ctx.beginPath();
+      ctx.ellipse(dx, -r * 0.4, r * 1.4, r * 0.7, 0, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * 恶龙（精细版）：古典西方龙的解剖式画法 —— 分节长尾、四条有膝踝的兽腿、
+   * 放射骨指的膜翼、鳞甲与横腹甲、S 形长颈、带眉骨与獠牙的长吻、环纹双角。
+   *
+   * 【用户】"巨龙好丑、要精致" + "不要伸到背景上，只在桥面那一块"。
+   * 所以轮廓整体压成 高≈1.08H / 宽≈0.62H 的竖长形（脚在桥上，角尖不过地平线），
+   * 细节全部按 H 缩放；det(H>=60) 才画鳞片/羽纹/甲缝，远处的龙自动降级。
+   * 渐变一律走 _fgLin 的按 H 取整缓存，不在每帧新建渐变对象。
+   */
+  _fgDragon(ctx, H, e, col, dark) {
+    const ph = e.phase || 0;
+    const t = this.time || 0;
+    const det = H >= 60;
+    const TAU2 = TAU;
+
+    // 由 config 主色推出整套明暗：换皮肤也不会脏
+    const sc = col;
+    const scL = mix(col, '#e6a07c', 0.22);       // 迎光鳞面：暖砖红（不要太粉）
+    const scM = mix(col, '#5b1c2e', 0.28);       // 中间调：暗酒红
+    const scD = mix(col, '#0a0408', 0.74);       // 背光：近黑紫红
+    const scE = mix(col, '#060204', 0.86);       // 轮廓线
+    const skinFar = mix(col, '#0c0408', 0.78);   // 远侧肢体
+    const belly = '#d9ad6c', bellyD = '#76562f';
+    const bone = '#efe1c0', boneD = '#9a865f';
+    const wingA = mix(col, '#2a0b1c', 0.52);
+    const wingB = mix(col, '#6d2134', 0.22);
+    const rim = 'rgba(255,206,170,0.36)';
+
+    const bodyY = -0.40 * H;
+    const step = Math.sin(ph);
+    const breath = Math.sin(t * 1.6) * 0.006 * H;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // ── 地面投影（贴桥面，给"站在桥上"的重量感）──
+    ctx.fillStyle = 'rgba(6,4,8,0.5)';
     ctx.beginPath();
-    ctx.ellipse(hcx, hcy, hr * 1.05, hr * 0.94, 0, 0, TAU);
+    ctx.ellipse(0, 0, 0.29 * H, 0.055 * H, 0, 0, TAU2);
     ctx.fill();
-    // 吻部
-    ctx.fillStyle = furL;
+    ctx.fillStyle = 'rgba(6,4,8,0.28)';
     ctx.beginPath();
-    ctx.moveTo(hcx - hr * 0.3, hcy + hr * 0.12);
-    ctx.quadraticCurveTo(hcx + hr * 0.26, hcy + hr * 1.2, hcx + hr * 0.66, hcy + hr * 0.88);
-    ctx.quadraticCurveTo(hcx + hr * 0.72, hcy + hr * 0.32, hcx + hr * 0.36, hcy + hr * 0.04);
+    ctx.ellipse(0, 0, 0.36 * H, 0.075 * H, 0, 0, TAU2);
+    ctx.fill();
+
+    ctx.translate(0, -Math.abs(Math.cos(ph)) * 0.012 * H + breath);
+
+    // ── 尾巴：从后臀伸出的粗根锥形 + 分节 + 背棘 + 骨刃尾刺 ──
+    const tw = Math.sin(ph * 0.8) * 0.03 * H;
+    ctx.fillStyle = this._fgLin('drTail', H, -0.44 * H, -0.1 * H, -0.20 * H, bodyY, scL, scD, scM);
+    ctx.beginPath();
+    ctx.moveTo(-0.24 * H, bodyY - 0.06 * H);
+    ctx.bezierCurveTo(-0.32 * H, bodyY + 0.06 * H, -0.36 * H, -0.12 * H + tw, -0.44 * H, -0.035 * H + tw);
+    ctx.lineTo(-0.42 * H, -0.095 * H + tw);
+    ctx.bezierCurveTo(-0.34 * H, -0.20 * H + tw, -0.30 * H, bodyY + 0.02 * H, -0.24 * H, bodyY + 0.10 * H);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = '#2b2622';
-    ctx.beginPath();
-    ctx.ellipse(hcx + hr * 0.55, hcy + hr * 0.85, hr * 0.17, hr * 0.12, 0, 0, TAU);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(40,30,24,0.6)';
-    ctx.lineWidth = 0.008 * H;
-    ctx.beginPath();
-    ctx.moveTo(hcx + hr * 0.52, hcy + hr * 0.96);
-    ctx.lineTo(hcx + hr * 0.2, hcy + hr * 1.08);
+    ctx.strokeStyle = scD;
+    ctx.lineWidth = 0.004 * H;
     ctx.stroke();
-    // 眼
-    for (const s of [-1, 1]) {
-      ctx.fillStyle = '#e8b04a';
+    // 分节暗缝
+    for (let i = 1; i <= 5; i++) {
+      const u = i / 6;
+      const bx = -0.25 * H - 0.18 * H * u;
+      const by = bodyY + 0.02 * H + (0.36 * H) * u * u + tw * u;
+      ctx.strokeStyle = 'rgba(16,6,12,0.55)';
+      ctx.lineWidth = 0.008 * H;
       ctx.beginPath();
-      ctx.ellipse(hcx + s * hr * 0.42, hcy - hr * 0.08, hr * 0.18, hr * 0.14, s * 0.2, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = '#241c14';
+      ctx.moveTo(bx - 0.016 * H, by - 0.032 * H);
+      ctx.quadraticCurveTo(bx + 0.012 * H, by, bx - 0.010 * H, by + 0.032 * H);
+      ctx.stroke();
+    }
+    // 尾背棘
+    ctx.fillStyle = boneD;
+    for (let i = 0; i < 5; i++) {
+      const u = i / 5;
+      const bx = -0.27 * H - 0.15 * H * u;
+      const by = bodyY - 0.03 * H + 0.30 * H * u * u + tw * u;
+      const sh = (0.048 - 0.026 * u) * H;
       ctx.beginPath();
-      ctx.ellipse(hcx + s * hr * 0.42, hcy - hr * 0.08, hr * 0.06, hr * 0.12, 0, 0, TAU);
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx - sh * 0.45, by - sh);
+      ctx.lineTo(bx + sh * 0.5, by - sh * 0.15);
+      ctx.closePath();
       ctx.fill();
     }
+    // 骨刃尾刺（暗骨色，别做成一面白旗）
+    ctx.fillStyle = boneD;
+    ctx.beginPath();
+    ctx.moveTo(-0.42 * H, -0.060 * H + tw);
+    ctx.quadraticCurveTo(-0.50 * H, -0.115 * H + tw, -0.47 * H, -0.005 * H + tw);
+    ctx.quadraticCurveTo(-0.46 * H, 0.018 * H + tw, -0.40 * H, -0.090 * H + tw);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,226,190,0.55)';
+    ctx.lineWidth = 0.005 * H;
+    ctx.stroke();
 
+    // ── 兽腿：髋→膝→踝两节，带关节盘、鳞纹、三趾骨爪 ──
+    const leg = (hipX, hipY, footX, footY, isNear, lift) => {
+      const kneeX = (hipX + footX) * 0.5 + (isNear ? 0.035 : -0.02) * H;
+      const kneeY = hipY + (footY - hipY) * 0.52;
+      const ankleY = footY - 0.02 * H;
+      const grad = isNear
+        ? this._fgLin('drLegN', H, hipX - 0.08 * H, hipY, footX + 0.08 * H, footY, scM, scE, scD)
+        : this._fgLin('drLegF', H, hipX - 0.08 * H, hipY, footX + 0.08 * H, footY, scD, scE);
+      // 先描一圈深色轮廓，肢体才有边界（不然就是四根粉色柱子）
+      ctx.strokeStyle = scE;
+      ctx.lineWidth = 0.108 * H;
+      ctx.beginPath();
+      ctx.moveTo(hipX, hipY);
+      ctx.quadraticCurveTo(hipX + (kneeX - hipX) * 0.25 - 0.02 * H, (hipY + kneeY) * 0.5, kneeX, kneeY);
+      ctx.stroke();
+      ctx.strokeStyle = grad;
+      // 大腿（粗）
+      ctx.lineWidth = 0.098 * H;
+      ctx.beginPath();
+      ctx.moveTo(hipX, hipY);
+      ctx.quadraticCurveTo(hipX + (kneeX - hipX) * 0.25 - 0.02 * H, (hipY + kneeY) * 0.5, kneeX, kneeY);
+      ctx.stroke();
+      // 小腿（细）
+      ctx.lineWidth = 0.058 * H;
+      ctx.beginPath();
+      ctx.moveTo(kneeX, kneeY);
+      ctx.quadraticCurveTo(kneeX + (footX - kneeX) * 0.35, (kneeY + ankleY) * 0.5, footX, ankleY);
+      ctx.stroke();
+      // 膝部：一道暗折痕 + 一点迎光，别画成圆圆的木偶关节
+      ctx.strokeStyle = 'rgba(10,4,10,0.55)';
+      ctx.lineWidth = 0.013 * H;
+      ctx.beginPath();
+      ctx.moveTo(kneeX - 0.025 * H, kneeY - 0.012 * H);
+      ctx.quadraticCurveTo(kneeX, kneeY + 0.008 * H, kneeX + 0.030 * H, kneeY - 0.006 * H);
+      ctx.stroke();
+      if (isNear) {
+        ctx.strokeStyle = rim;
+        ctx.lineWidth = 0.006 * H;
+        ctx.beginPath();
+        ctx.moveTo(hipX - 0.02 * H, hipY + 0.02 * H);
+        ctx.quadraticCurveTo(kneeX - 0.035 * H, kneeY, footX - 0.025 * H, ankleY);
+        ctx.stroke();
+        // 大腿外侧两排叠瓦小鳞
+        if (det) {
+          ctx.strokeStyle = 'rgba(12,4,10,0.45)';
+          ctx.lineWidth = 0.004 * H;
+          for (let k = 0; k < 4; k++) {
+            const u = 0.2 + k * 0.19;
+            const sx = hipX + (kneeX - hipX) * u - 0.028 * H;
+            const sy = hipY + (kneeY - hipY) * u;
+            ctx.beginPath();
+            ctx.arc(sx, sy, 0.015 * H, 0.2, Math.PI - 0.2);
+            ctx.stroke();
+          }
+        }
+      }
+      // 脚掌 + 三根分得开的趾 + 骨白弯爪
+      ctx.fillStyle = isNear ? scD : skinFar;
+      ctx.beginPath();
+      ctx.ellipse(footX + 0.018 * H, footY - 0.004 * H, 0.072 * H, 0.025 * H, 0, 0, TAU2);
+      ctx.fill();
+      for (let d = -1; d <= 1; d++) {
+        const tx = footX + 0.055 * H + d * 0.042 * H;
+        const ty = footY - 0.002 * H + d * 0.010 * H;
+        ctx.fillStyle = isNear ? scM : skinFar;
+        ctx.beginPath();
+        ctx.ellipse(tx, ty, 0.022 * H, 0.013 * H, d * 0.18, 0, TAU2);
+        ctx.fill();
+        ctx.fillStyle = isNear ? bone : boneD;
+        ctx.beginPath();
+        ctx.moveTo(tx + 0.012 * H, ty - 0.008 * H);
+        ctx.quadraticCurveTo(tx + 0.042 * H, ty - 0.010 * H, tx + 0.050 * H, ty + 0.008 * H);
+        ctx.quadraticCurveTo(tx + 0.032 * H, ty + 0.002 * H, tx + 0.012 * H, ty + 0.008 * H);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // 抬起的脚给一点离地阴影差
+      if (lift > 0.2) {
+        ctx.fillStyle = 'rgba(6,4,8,0.25)';
+        ctx.beginPath();
+        ctx.ellipse(footX, footY + 0.01 * H, 0.06 * H, 0.012 * H, 0, 0, TAU2);
+        ctx.fill();
+      }
+    };
+
+    // 远侧两腿（对角步态）
+    const liftFar = Math.sin(ph + Math.PI);
+    leg(-0.19 * H, bodyY + 0.04 * H, -0.19 * H + liftFar * 0.05 * H, -0.01 * H - Math.max(0, liftFar) * 0.03 * H, false, Math.max(0, liftFar));
+    leg(0.17 * H, bodyY + 0.03 * H, 0.17 * H - liftFar * 0.05 * H, -0.01 * H - Math.max(0, -liftFar) * 0.03 * H, false, Math.max(0, -liftFar));
+
+    // ── 膜翼：上臂骨 + 四根放射骨指 + 扇贝状翼膜 + 静脉纹 ──
+    for (const s of [-1, 1]) {
+      const fl = Math.sin(ph * 0.9 + (s < 0 ? 0.4 : 0)) * 0.08;
+      ctx.save();
+      ctx.translate(s * 0.02 * H, bodyY - 0.10 * H);
+      ctx.rotate(s * (0.03 + fl));
+      // 腕往外上方撑开 —— 翼展够大才像龙，不要收成两只驴耳
+      const wristX = s * 0.24 * H;
+      const wristY = -0.31 * H;
+      // 翼膜（四指之间扇贝状收边）
+      ctx.fillStyle = this._fgLin('drWing' + s, H, 0, -0.55 * H, s * 0.36 * H, 0.06 * H, wingB, wingA, mix(wingA, '#ff9a70', 0.10));
+      ctx.globalAlpha = 0.97;
+      ctx.beginPath();
+      ctx.moveTo(0, 0.06 * H);
+      ctx.quadraticCurveTo(s * 0.10 * H, -0.24 * H, wristX, wristY);
+      const fingers = [
+        [s * 0.36 * H, -0.47 * H],
+        [s * 0.44 * H, -0.27 * H],
+        [s * 0.37 * H, -0.09 * H],
+        [s * 0.20 * H, 0.02 * H],
+      ];
+      for (let i = 0; i < fingers.length; i++) {
+        const [fx, fy] = fingers[i];
+        const [nx2, ny2] = fingers[i + 1] || [0, 0.06 * H];
+        // 两根指骨之间向内凹的膜边（扇贝），比直线有生命感
+        ctx.quadraticCurveTo((fx + nx2) * 0.5 + s * 0.005 * H, (fy + ny2) * 0.5 + 0.045 * H, nx2, ny2);
+      }
+      ctx.lineTo(0, 0.06 * H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // 膜边暗线
+      ctx.strokeStyle = scE;
+      ctx.lineWidth = 0.008 * H;
+      ctx.stroke();
+      // 上臂骨 + 四根骨指
+      ctx.strokeStyle = mix(scD, '#000000', 0.2);
+      ctx.lineWidth = 0.019 * H;
+      ctx.beginPath();
+      ctx.moveTo(0, 0.06 * H);
+      ctx.quadraticCurveTo(s * 0.10 * H, -0.24 * H, wristX, wristY);
+      ctx.stroke();
+      for (const [fx, fy] of fingers) {
+        ctx.lineWidth = 0.012 * H;
+        ctx.beginPath();
+        ctx.moveTo(wristX, wristY);
+        ctx.lineTo(fx, fy);
+        ctx.stroke();
+        if (det) {
+          ctx.fillStyle = boneD;
+          ctx.beginPath();
+          ctx.arc(fx, fy, 0.009 * H, 0, TAU2);
+          ctx.fill();
+        }
+      }
+      // 静脉纹 + 膜内暖色透光
+      if (det) {
+        ctx.strokeStyle = 'rgba(255,170,140,0.14)';
+        ctx.lineWidth = 0.005 * H;
+        for (let i = 0; i < 4; i++) {
+          const [fx, fy] = fingers[i];
+          ctx.beginPath();
+          ctx.moveTo(s * 0.02 * H, 0.03 * H - i * 0.02 * H);
+          ctx.quadraticCurveTo(s * 0.20 * H, (fy + wristY) * 0.5, fx * 0.94, fy * 0.97);
+          ctx.stroke();
+        }
+      }
+      // 翼腕小爪 + 前缘轮廓光
+      ctx.fillStyle = bone;
+      ctx.beginPath();
+      ctx.moveTo(wristX, wristY);
+      ctx.lineTo(wristX + s * 0.028 * H, wristY - 0.03 * H);
+      ctx.lineTo(wristX + s * 0.010 * H, wristY - 0.004 * H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = rim;
+      ctx.lineWidth = 0.007 * H;
+      ctx.beginPath();
+      ctx.moveTo(0, 0.05 * H);
+      ctx.quadraticCurveTo(s * 0.10 * H, -0.24 * H, wristX, wristY);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // ── 躯干：低伏的长躯 + 体积渐变 + 菱形细鳞 + 弧形腹甲 + 一排背棘 ──
+    const bodyPath = () => {
+      ctx.beginPath();
+      ctx.moveTo(-0.30 * H, bodyY + 0.02 * H);
+      ctx.bezierCurveTo(-0.31 * H, bodyY - 0.16 * H, -0.10 * H, bodyY - 0.22 * H, 0.10 * H, bodyY - 0.19 * H);
+      ctx.bezierCurveTo(0.24 * H, bodyY - 0.17 * H, 0.28 * H, bodyY - 0.04 * H, 0.25 * H, bodyY + 0.10 * H);
+      ctx.bezierCurveTo(0.20 * H, bodyY + 0.20 * H, -0.08 * H, bodyY + 0.21 * H, -0.22 * H, bodyY + 0.15 * H);
+      ctx.bezierCurveTo(-0.29 * H, bodyY + 0.12 * H, -0.30 * H, bodyY + 0.07 * H, -0.30 * H, bodyY + 0.02 * H);
+      ctx.closePath();
+    };
+    ctx.fillStyle = this._fgLin('drBody', H, -0.30 * H, bodyY - 0.22 * H, 0.24 * H, bodyY + 0.24 * H, scL, scE, mix(scM, '#000000', 0.25));
+    bodyPath();
+    ctx.fill();
+    ctx.strokeStyle = scD;
+    ctx.lineWidth = 0.005 * H;
+    ctx.stroke();
+    ctx.save();
+    bodyPath();
+    ctx.clip();
+    // 下腹与后臀压暗：把体积从"一片粉"里拉出来
+    ctx.fillStyle = 'rgba(8,3,9,0.42)';
+    ctx.beginPath();
+    ctx.ellipse(-0.02 * H, bodyY + 0.22 * H, 0.36 * H, 0.15 * H, 0, 0, TAU2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,206,170,0.10)';
+    ctx.beginPath();
+    ctx.ellipse(-0.02 * H, bodyY - 0.19 * H, 0.26 * H, 0.07 * H, -0.12, 0, TAU2);
+    ctx.fill();
+    // 腹甲：顺着下腹弧线排的九道横甲，宽度中间宽两头窄，不再是一块条纹贴纸
+    for (let i = 0; i < 9; i++) {
+      const u = (i + 0.5) / 9;
+      const yy = bodyY - 0.015 * H + i * 0.026 * H;
+      const wide = 0.10 * H + 0.13 * H * Math.sin(u * Math.PI);
+      const x0 = 0.24 * H - wide;
+      ctx.fillStyle = i % 2 ? belly : bellyD;
+      ctx.globalAlpha = 0.92;
+      ctx.beginPath();
+      ctx.moveTo(x0, yy);
+      ctx.quadraticCurveTo(0.24 * H, yy + 0.012 * H, 0.29 * H, yy - 0.006 * H);
+      ctx.lineTo(0.29 * H, yy + 0.016 * H);
+      ctx.quadraticCurveTo(0.24 * H, yy + 0.034 * H, x0, yy + 0.021 * H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = 'rgba(52,30,14,0.6)';
+      ctx.lineWidth = 0.004 * H;
+      ctx.beginPath();
+      ctx.moveTo(x0, yy);
+      ctx.quadraticCurveTo(0.24 * H, yy + 0.012 * H, 0.29 * H, yy - 0.006 * H);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,226,180,0.28)';
+      ctx.lineWidth = 0.003 * H;
+      ctx.beginPath();
+      ctx.moveTo(x0 + 0.012 * H, yy + 0.022 * H);
+      ctx.quadraticCurveTo(0.24 * H, yy + 0.034 * H, 0.28 * H, yy + 0.016 * H);
+      ctx.stroke();
+    }
+    // 细鳞：叠瓦状弧鳞（错排的小弧 + 一点迎光），比菱形棋盘像真鳞
+    if (det) {
+      for (let r = 0; r < 7; r++) {
+        for (let c = 0; c < 10; c++) {
+          const sx = (-0.28 + c * 0.036 + (r % 2) * 0.018) * H;
+          const sy = bodyY - 0.175 * H + r * 0.027 * H;
+          const sr = 0.017 * H;
+          ctx.strokeStyle = 'rgba(12,4,10,0.38)';
+          ctx.lineWidth = 0.0035 * H;
+          ctx.beginPath();
+          ctx.arc(sx, sy, sr, 0.12, Math.PI - 0.12);
+          ctx.stroke();
+          ctx.strokeStyle = 'rgba(255,214,190,0.16)';
+          ctx.lineWidth = 0.0028 * H;
+          ctx.beginPath();
+          ctx.arc(sx, sy - 0.003 * H, sr * 0.86, 0.28, Math.PI - 0.28);
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.restore();
+    // 肩胛与前胸的肌肉面（一小块软高光，别整块糊上去）
+    ctx.fillStyle = 'rgba(255,206,170,0.12)';
+    ctx.beginPath();
+    ctx.ellipse(0.16 * H, bodyY - 0.10 * H, 0.085 * H, 0.042 * H, -0.32, 0, TAU2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(10,4,8,0.22)';
+    ctx.beginPath();
+    ctx.ellipse(-0.20 * H, bodyY + 0.02 * H, 0.075 * H, 0.095 * H, 0.1, 0, TAU2);
+    ctx.fill();
+    // 背棘：由颈根到尾根一排整齐的骨刺（带亮边，越往两端越小）
+    for (let i = 0; i < 9; i++) {
+      const u = i / 8;
+      const bx = (-0.24 + u * 0.42) * H;
+      const by = bodyY - 0.20 * H + Math.sin(u * Math.PI) * -0.022 * H;
+      const sh = (0.026 + 0.042 * Math.sin(u * Math.PI)) * H;
+      ctx.fillStyle = boneD;
+      ctx.beginPath();
+      ctx.moveTo(bx - 0.014 * H, by + 0.010 * H);
+      ctx.lineTo(bx + 0.002 * H, by - sh);
+      ctx.lineTo(bx + 0.020 * H, by + 0.010 * H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,226,196,0.42)';
+      ctx.lineWidth = 0.004 * H;
+      ctx.beginPath();
+      ctx.moveTo(bx - 0.014 * H, by + 0.010 * H);
+      ctx.lineTo(bx + 0.002 * H, by - sh);
+      ctx.stroke();
+    }
+
+
+    // ── 近侧两腿（压在躯干上，前后关系靠颜色与遮挡）──
+    const liftNear = Math.sin(ph);
+    leg(0.18 * H, bodyY + 0.04 * H, 0.18 * H + liftNear * 0.05 * H, -0.01 * H - Math.max(0, liftNear) * 0.03 * H, true, Math.max(0, liftNear));
+    leg(-0.18 * H, bodyY + 0.04 * H, -0.18 * H - liftNear * 0.05 * H, -0.01 * H - Math.max(0, -liftNear) * 0.03 * H, true, Math.max(0, -liftNear));
+
+    // ── S 形长颈：细长的锥体，底宽顶窄，五道颈环甲 ──
+    const sway = Math.sin(ph * 0.7) * 0.014 * H;
+    const nx = 0.11 * H + sway;
+    const ny = bodyY - 0.47 * H + breath;
+    ctx.fillStyle = this._fgLin('drNeck', H, 0.02 * H, bodyY - 0.12 * H, nx + 0.07 * H, ny, scL, scE, scM);
+    ctx.beginPath();
+    ctx.moveTo(0.08 * H, bodyY - 0.16 * H);
+    ctx.bezierCurveTo(0.01 * H, bodyY - 0.30 * H, 0.0 * H + sway, ny + 0.14 * H, nx - 0.030 * H, ny + 0.02 * H);
+    ctx.lineTo(nx + 0.045 * H, ny + 0.025 * H);
+    ctx.bezierCurveTo(0.11 * H + sway, ny + 0.16 * H, 0.20 * H, bodyY - 0.24 * H, 0.21 * H, bodyY - 0.11 * H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = scD;
+    ctx.lineWidth = 0.004 * H;
+    ctx.stroke();
+    // 颈侧暗面（右半压暗，脖子不再是条纹圆柱）
+    ctx.fillStyle = 'rgba(8,3,9,0.32)';
+    ctx.beginPath();
+    ctx.moveTo(nx + 0.01 * H, ny + 0.03 * H);
+    ctx.bezierCurveTo(0.11 * H + sway, ny + 0.16 * H, 0.20 * H, bodyY - 0.24 * H, 0.21 * H, bodyY - 0.11 * H);
+    ctx.lineTo(0.13 * H, bodyY - 0.12 * H);
+    ctx.bezierCurveTo(0.09 * H, bodyY - 0.28 * H, 0.06 * H + sway, ny + 0.12 * H, nx + 0.01 * H, ny + 0.03 * H);
+    ctx.closePath();
+    ctx.fill();
+    // 颈环甲：四道细弧（少而精，别做成毛毛虫）
+    for (let i = 0; i < 4; i++) {
+      const u = (i + 0.5) / 4;
+      const cy = bodyY - 0.14 * H + (ny - bodyY + 0.02 * H) * u;
+      const cx = 0.09 * H + (nx - 0.09 * H) * u * 0.5 + sway * u;
+      const half = (0.065 - 0.022 * u) * H;
+      ctx.strokeStyle = 'rgba(18,6,12,0.42)';
+      ctx.lineWidth = 0.007 * H;
+      ctx.beginPath();
+      ctx.moveTo(cx - half, cy);
+      ctx.quadraticCurveTo(cx, cy + 0.016 * H, cx + half, cy - 0.008 * H);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,214,180,0.20)';
+      ctx.lineWidth = 0.003 * H;
+      ctx.beginPath();
+      ctx.moveTo(cx - half, cy - 0.010 * H);
+      ctx.quadraticCurveTo(cx, cy + 0.006 * H, cx + half, cy - 0.018 * H);
+      ctx.stroke();
+    }
+    // 喉侧一道暖亮（月光/火光的反射）
+    ctx.strokeStyle = rim;
+    ctx.lineWidth = 0.008 * H;
+    ctx.beginPath();
+    ctx.moveTo(0.06 * H, bodyY - 0.15 * H);
+    ctx.bezierCurveTo(0.02 * H, bodyY - 0.30 * H, 0.01 * H + sway, ny + 0.14 * H, nx - 0.035 * H, ny + 0.02 * H);
+    ctx.stroke();
+
+    // ── 正面龙首：对称双角 + 双金瞳 + 短阔吻 + 张口獠牙（正视玩家才有压迫感）──
+    const hx = nx + 0.005 * H;
+    const hy = ny - 0.015 * H;
+    // 颊侧鳃棘：左右各三根，往外后方支
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        const cy = hy + 0.005 * H + i * 0.024 * H;
+        ctx.fillStyle = boneD;
+        ctx.beginPath();
+        ctx.moveTo(hx + s * 0.075 * H, cy - 0.01 * H);
+        ctx.lineTo(hx + s * (0.135 + i * 0.006) * H, cy + 0.008 * H);
+        ctx.lineTo(hx + s * 0.072 * H, cy + 0.020 * H);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    // 颅骨：盾形，中间宽、下颌收
+    ctx.fillStyle = this._fgLin('drSkull', H, hx - 0.10 * H, hy - 0.08 * H, hx + 0.10 * H, hy + 0.08 * H, scL, scE, mix(scM, '#000000', 0.18));
+    ctx.beginPath();
+    ctx.moveTo(hx - 0.095 * H, hy - 0.025 * H);
+    ctx.quadraticCurveTo(hx - 0.105 * H, hy - 0.075 * H, hx - 0.045 * H, hy - 0.078 * H);
+    ctx.lineTo(hx + 0.045 * H, hy - 0.078 * H);
+    ctx.quadraticCurveTo(hx + 0.105 * H, hy - 0.075 * H, hx + 0.095 * H, hy - 0.025 * H);
+    ctx.quadraticCurveTo(hx + 0.088 * H, hy + 0.030 * H, hx + 0.040 * H, hy + 0.055 * H);
+    ctx.lineTo(hx - 0.040 * H, hy + 0.055 * H);
+    ctx.quadraticCurveTo(hx - 0.088 * H, hy + 0.030 * H, hx - 0.095 * H, hy - 0.025 * H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = scD;
+    ctx.lineWidth = 0.004 * H;
+    ctx.stroke();
+    // 眉骨：左右两道压低的暗脊
+    for (const s of [-1, 1]) {
+      ctx.strokeStyle = scE;
+      ctx.lineWidth = 0.018 * H;
+      ctx.beginPath();
+      ctx.moveTo(hx + s * 0.018 * H, hy - 0.048 * H);
+      ctx.quadraticCurveTo(hx + s * 0.055 * H, hy - 0.072 * H, hx + s * 0.092 * H, hy - 0.036 * H);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,214,180,0.3)';
+      ctx.lineWidth = 0.004 * H;
+      ctx.beginPath();
+      ctx.moveTo(hx + s * 0.020 * H, hy - 0.058 * H);
+      ctx.quadraticCurveTo(hx + s * 0.055 * H, hy - 0.080 * H, hx + s * 0.088 * H, hy - 0.044 * H);
+      ctx.stroke();
+    }
+    // 双金瞳（竖瞳 + 高光 + 一点火光反射）
+    for (const s of [-1, 1]) {
+      const ex = hx + s * 0.050 * H;
+      const ey = hy - 0.022 * H;
+      ctx.fillStyle = '#ffd45a';
+      ctx.beginPath();
+      ctx.ellipse(ex, ey, 0.026 * H, 0.018 * H, s * 0.12, 0, TAU2);
+      ctx.fill();
+      ctx.fillStyle = '#ef8f28';
+      ctx.beginPath();
+      ctx.ellipse(ex, ey, 0.016 * H, 0.014 * H, 0, 0, TAU2);
+      ctx.fill();
+      ctx.fillStyle = '#150806';
+      ctx.beginPath();
+      ctx.ellipse(ex, ey, 0.0048 * H, 0.015 * H, 0, 0, TAU2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.arc(ex - s * 0.008 * H, ey - 0.007 * H, 0.0045 * H, 0, TAU2);
+      ctx.fill();
+      this._drawGlow(ex, ey, 0.030 * H, '#ffb03c', 0.24);
+    }
+    // 颊鳞：每侧三道小弧
+    if (det) {
+      ctx.strokeStyle = 'rgba(255,214,190,0.18)';
+      ctx.lineWidth = 0.004 * H;
+      for (const s of [-1, 1]) {
+        for (let i = 0; i < 3; i++) {
+          const sx = hx + s * (0.050 + i * 0.008) * H;
+          const sy = hy + 0.005 * H + i * 0.016 * H;
+          ctx.beginPath();
+          ctx.arc(sx, sy, 0.014 * H, s > 0 ? 0.2 : Math.PI - 0.2, s > 0 ? Math.PI - 0.2 : Math.PI + 0.2);
+          ctx.stroke();
+        }
+      }
+    }
+    // 短阔吻 + 鼻梁亮线 + 两个鼻孔
+    ctx.fillStyle = this._fgLin('drMuzzle', H, hx, hy + 0.01 * H, hx, hy + 0.09 * H, scL, scD, scM);
+    ctx.beginPath();
+    ctx.moveTo(hx - 0.048 * H, hy + 0.010 * H);
+    ctx.quadraticCurveTo(hx, hy - 0.005 * H, hx + 0.048 * H, hy + 0.010 * H);
+    ctx.lineTo(hx + 0.042 * H, hy + 0.070 * H);
+    ctx.quadraticCurveTo(hx, hy + 0.084 * H, hx - 0.042 * H, hy + 0.070 * H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = scD;
+    ctx.lineWidth = 0.004 * H;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,214,180,0.32)';
+    ctx.lineWidth = 0.006 * H;
+    ctx.beginPath();
+    ctx.moveTo(hx, hy + 0.005 * H);
+    ctx.lineTo(hx, hy + 0.065 * H);
+    ctx.stroke();
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = scE;
+      ctx.beginPath();
+      ctx.ellipse(hx + s * 0.026 * H, hy + 0.052 * H, 0.010 * H, 0.007 * H, s * 0.3, 0, TAU2);
+      ctx.fill();
+    }
+    // 张开的血盆大口：暗腔 + 火光 + 上下獠牙
+    ctx.fillStyle = scD;
+    ctx.beginPath();
+    ctx.moveTo(hx - 0.070 * H, hy + 0.062 * H);
+    ctx.quadraticCurveTo(hx, hy + 0.058 * H, hx + 0.070 * H, hy + 0.062 * H);
+    ctx.quadraticCurveTo(hx + 0.055 * H, hy + 0.125 * H, hx, hy + 0.132 * H);
+    ctx.quadraticCurveTo(hx - 0.055 * H, hy + 0.125 * H, hx - 0.070 * H, hy + 0.062 * H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#26090c';
+    ctx.beginPath();
+    ctx.moveTo(hx - 0.060 * H, hy + 0.066 * H);
+    ctx.quadraticCurveTo(hx, hy + 0.062 * H, hx + 0.060 * H, hy + 0.066 * H);
+    ctx.quadraticCurveTo(hx + 0.046 * H, hy + 0.116 * H, hx, hy + 0.120 * H);
+    ctx.quadraticCurveTo(hx - 0.046 * H, hy + 0.116 * H, hx - 0.060 * H, hy + 0.066 * H);
+    ctx.closePath();
+    ctx.fill();
+    this._drawGlow(hx, hy + 0.098 * H, 0.048 * H, '#ff8a3c', 0.34 + 0.22 * Math.sin(t * 5));
+    // 上排：两根长犬齿 + 中间四颗小牙
+    ctx.fillStyle = bone;
+    for (const s of [-1, 1]) {
+      const x = hx + s * 0.050 * H;
+      ctx.beginPath();
+      ctx.moveTo(x - 0.010 * H, hy + 0.066 * H);
+      ctx.lineTo(x + s * 0.002 * H, hy + 0.108 * H);
+      ctx.lineTo(x + 0.010 * H, hy + 0.066 * H);
+      ctx.closePath();
+      ctx.fill();
+    }
+    for (let i = -2; i <= 2; i++) {
+      if (i === 0) continue;
+      const x = hx + i * 0.018 * H;
+      ctx.beginPath();
+      ctx.moveTo(x - 0.006 * H, hy + 0.066 * H);
+      ctx.lineTo(x, hy + 0.081 * H);
+      ctx.lineTo(x + 0.006 * H, hy + 0.066 * H);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // 下排三颗
+    for (let i = -1; i <= 1; i++) {
+      const x = hx + i * 0.026 * H;
+      ctx.beginPath();
+      ctx.moveTo(x - 0.006 * H, hy + 0.120 * H);
+      ctx.lineTo(x, hy + 0.103 * H);
+      ctx.lineTo(x + 0.006 * H, hy + 0.120 * H);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // 对称双角：粗根后弯上扬，环纹 + 亮边
+    for (const s of [-1, 1]) {
+      const baseX = hx + s * 0.050 * H;
+      const baseY = hy - 0.068 * H;
+      const tipX = hx + s * 0.185 * H;
+      const tipY = hy - 0.185 * H;
+      ctx.fillStyle = this._fgLin('drHorn' + s, H, baseX, baseY, tipX, tipY, '#fff1d4', mix(bone, boneD, 0.55));
+      ctx.beginPath();
+      ctx.moveTo(baseX - s * 0.050 * H, baseY + 0.020 * H);
+      ctx.quadraticCurveTo(hx + s * 0.105 * H, hy - 0.165 * H, tipX, tipY);
+      ctx.lineTo(tipX - s * 0.012 * H, tipY + 0.014 * H);
+      ctx.quadraticCurveTo(hx + s * 0.050 * H, hy - 0.070 * H, baseX + s * 0.045 * H, baseY + 0.016 * H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = scD;
+      ctx.lineWidth = 0.005 * H;
+      ctx.stroke();
+      if (det) {
+        ctx.strokeStyle = 'rgba(80,60,40,0.55)';
+        ctx.lineWidth = 0.004 * H;
+        for (let k = 1; k <= 4; k++) {
+          const u = k / 5;
+          const rx = baseX + (tipX - baseX) * u;
+          const ry = baseY + (tipY - baseY) * u;
+          ctx.beginPath();
+          ctx.moveTo(rx - s * 0.010 * H, ry - 0.012 * H);
+          ctx.lineTo(rx + s * 0.014 * H, ry + 0.004 * H);
+          ctx.stroke();
+        }
+      }
+      ctx.strokeStyle = 'rgba(255,240,210,0.6)';
+      ctx.lineWidth = 0.007 * H;
+      ctx.beginPath();
+      ctx.moveTo(baseX - s * 0.044 * H, baseY - 0.012 * H);
+      ctx.quadraticCurveTo(hx + s * 0.105 * H, hy - 0.165 * H, tipX, tipY);
+      ctx.stroke();
+    }
+    // 额心一枚骨鳞（正视时给个视觉中心）
+    ctx.fillStyle = boneD;
+    ctx.beginPath();
+    ctx.moveTo(hx, hy - 0.070 * H);
+    ctx.lineTo(hx + 0.018 * H, hy - 0.038 * H);
+    ctx.lineTo(hx, hy - 0.012 * H);
+    ctx.lineTo(hx - 0.018 * H, hy - 0.038 * H);
+    ctx.closePath();
+    ctx.fill();
+
+    // ── 轮廓光：只勾左上受月光的那几段，别整圈描 ──
+    ctx.strokeStyle = rim;
+    ctx.lineWidth = 0.008 * H;
+    ctx.beginPath();
+    ctx.moveTo(-0.30 * H, bodyY + 0.02 * H);
+    ctx.bezierCurveTo(-0.31 * H, bodyY - 0.16 * H, -0.10 * H, bodyY - 0.22 * H, 0.10 * H, bodyY - 0.19 * H);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -6013,866 +6768,6 @@ export class Renderer {
     this._drawGlow(0, baseY - H * 0.12, H * 0.22, '#ff9fd0', 0.16);
   }
 
-  /**
-   * 第四关「穿越异世界」的怪物部件（用户 m04749）。
-   * 和 _pvzBits / _oceanBits 一样：身体骨架仍由 _zombieBody 画，这里只往
-   * 头/背/手上挂"这件事物之所以是它"的部件 ——
-   *   goblin 哥布林（walker / shielded）：尖耳 + 木棒（盾兵再加一顶锈铁盔）
-   *   coyote 郊狼（runner）：狼吻 + 耳朵 + 大尾巴
-   *   orc 兽人（brute）：獠牙 + 肩甲 + 大斧
-   *   harpy 鹰身女妖（spitter）：羽毛翅膀 + 喙 + 爪
-   *   slime 史莱姆（splitter）：把下半身盖成果冻
-   *   dragon 恶龙（boss）：龙翼 + 龙角 + 长吻 + 尾巴
-   */
-  _fantasyBits(ctx, H, e, col, dark) {
-    const a = e.animal;
-    // 这四只已经整只重绘（见 _fantasyBody），再叠通用部件就会长出"两对耳朵"。
-    if (a === 'goblin' || a === 'orc' || a === 'harpy' || a === 'coyote') return;
-    const headY = -0.815 * H;
-    const headR = 0.11 * H;
-    const t = this.time * 2.4 + (e.phase || 0);
-    const F = (CFG.theme && CFG.theme.fantasy) || {};
-
-    ctx.save();
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-
-    if (a === 'goblin') {
-      // 尖耳朵（哥布林最好认的特征）
-      ctx.fillStyle = mix(col, '#000000', 0.24);
-      for (const s of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(s * headR * 0.7, headY - headR * 0.15);
-        ctx.quadraticCurveTo(s * headR * 2.5, headY - headR * 1.0, s * headR * 2.7, headY - headR * 1.9);
-        ctx.quadraticCurveTo(s * headR * 1.5, headY - headR * 0.9, s * headR * 0.5, headY + headR * 0.35);
-        ctx.closePath();
-        ctx.fill();
-      }
-      // 木棒：一只手往前抡（随走路摆）。做成"上粗下细 + 三个疙瘩 + 高光"的狼牙棒，
-      // 一根等粗的线加一个椭圆近看就是"拿了个苍蝇拍"。
-      const sw = Math.sin(t) * 0.05 * H;
-      const cx0 = 0.15 * H;
-      const cy0 = -0.47 * H + sw;
-      const cx1 = 0.3 * H;
-      const cy1 = -0.92 * H + sw;
-      const wood = F.stoneA || '#7a5a34';
-      const cg = ctx.createLinearGradient(cx0 - 0.05 * H, cy0, cx1 + 0.05 * H, cy1);
-      cg.addColorStop(0, mix(wood, '#000000', 0.35));
-      cg.addColorStop(0.45, wood);
-      cg.addColorStop(1, mix(wood, '#ffffff', 0.3));
-      ctx.fillStyle = cg;
-      ctx.beginPath();
-      ctx.moveTo(cx0 - 0.016 * H, cy0);
-      ctx.lineTo(cx1 - 0.042 * H, cy1);
-      ctx.quadraticCurveTo(cx1 + 0.005 * H, cy1 - 0.03 * H, cx1 + 0.05 * H, cy1 + 0.01 * H);
-      ctx.lineTo(cx0 + 0.016 * H, cy0 + 0.02 * H);
-      ctx.closePath();
-      ctx.fill();
-      // 疙瘩
-      ctx.fillStyle = mix(wood, '#000000', 0.15);
-      for (let i = 0; i < 3; i++) {
-        const k = 0.62 + i * 0.16;
-        ctx.beginPath();
-        ctx.arc(cx0 + (cx1 - cx0) * k + 0.02 * H, cy0 + (cy1 - cy0) * k - 0.02 * H, 0.017 * H, 0, TAU);
-        ctx.fill();
-      }
-      // 缠绳握把
-      ctx.strokeStyle = '#4a3320';
-      ctx.lineWidth = 0.012 * H;
-      for (let i = 0; i < 3; i++) {
-        const k = 0.06 + i * 0.1;
-        ctx.beginPath();
-        ctx.moveTo(cx0 + (cx1 - cx0) * k - 0.02 * H, cy0 + (cy1 - cy0) * k + 0.012 * H);
-        ctx.lineTo(cx0 + (cx1 - cx0) * k + 0.02 * H, cy0 + (cy1 - cy0) * k - 0.012 * H);
-        ctx.stroke();
-      }
-      ctx.strokeStyle = 'rgba(255,232,190,0.3)';
-      ctx.lineWidth = 0.008 * H;
-      ctx.beginPath();
-      ctx.moveTo(cx0 + 0.008 * H, cy0 - 0.01 * H);
-      ctx.lineTo(cx1 + 0.03 * H, cy1 + 0.005 * H);
-      ctx.stroke();
-      // 破布腰带
-      ctx.fillStyle = mix(dark, '#000000', 0.25);
-      ctx.beginPath();
-      ctx.moveTo(-0.11 * H, -0.42 * H);
-      ctx.lineTo(0.11 * H, -0.42 * H);
-      ctx.lineTo(0.09 * H, -0.28 * H);
-      ctx.lineTo(-0.09 * H, -0.28 * H);
-      ctx.closePath();
-      ctx.fill();
-      if (e.maxShield > 0) {
-        // 持盾哥布林：头上一顶锈铁盔
-        ctx.fillStyle = '#8a8f7a';
-        ctx.beginPath();
-        ctx.arc(0, headY - headR * 0.15, headR * 1.22, Math.PI * 1.02, Math.PI * 1.98);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(40,44,30,0.7)';
-        ctx.lineWidth = 0.012 * H;
-        ctx.stroke();
-      }
-    } else if (a === 'coyote') {
-      // 狼吻 + 尖耳 + 大尾巴
-      ctx.fillStyle = mix(col, '#ffffff', 0.1);
-      ctx.beginPath();
-      ctx.moveTo(-headR * 0.34, headY + headR * 0.1);
-      ctx.lineTo(headR * 0.7, headY + headR * 0.28);
-      ctx.lineTo(headR * 0.62, headY + headR * 0.62);
-      ctx.lineTo(-headR * 0.3, headY + headR * 0.5);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#2c2420';
-      ctx.beginPath();
-      ctx.arc(headR * 0.66, headY + headR * 0.32, headR * 0.14, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = mix(col, '#000000', 0.3);
-      for (const s of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(s * headR * 0.5, headY - headR * 0.7);
-        ctx.lineTo(s * headR * 1.0, headY - headR * 1.75);
-        ctx.lineTo(s * headR * 1.25, headY - headR * 0.65);
-        ctx.closePath();
-        ctx.fill();
-      }
-      // 尾巴：从身后翘起来，随走路左右摆
-      const wag = Math.sin(t * 1.2) * 0.06 * H;
-      ctx.strokeStyle = mix(col, '#000000', 0.18);
-      ctx.lineWidth = 0.07 * H;
-      ctx.beginPath();
-      ctx.moveTo(-0.1 * H, -0.5 * H);
-      ctx.quadraticCurveTo(-0.34 * H, -0.62 * H + wag, -0.3 * H, -0.95 * H + wag);
-      ctx.stroke();
-      ctx.fillStyle = mix(col, '#ffffff', 0.28);
-      ctx.beginPath();
-      ctx.arc(-0.3 * H, -0.95 * H + wag, 0.055 * H, 0, TAU);
-      ctx.fill();
-    } else if (a === 'orc') {
-      // 獠牙：从下颌往上翘，带一点牙釉质的高光
-      for (const s of [-1, 1]) {
-        ctx.fillStyle = '#f2ecd8';
-        ctx.beginPath();
-        ctx.moveTo(s * headR * 0.28, headY + headR * 0.62);
-        ctx.lineTo(s * headR * 0.5, headY + headR * 1.15);
-        ctx.lineTo(s * headR * 0.62, headY + headR * 0.55);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        ctx.beginPath();
-        ctx.moveTo(s * headR * 0.3, headY + headR * 0.66);
-        ctx.lineTo(s * headR * 0.44, headY + headR * 1.0);
-        ctx.lineTo(s * headR * 0.5, headY + headR * 0.66);
-        ctx.closePath();
-        ctx.fill();
-      }
-      // 肩甲：圆盖 + 顶面高光 + 两颗铆钉（原来是两块灰方片，近看像贴了两张纸）
-      for (const s of [-1, 1]) {
-        const px = s * 0.24 * H;
-        const py = -0.68 * H;
-        const g2 = ctx.createRadialGradient(px - 0.05 * H, py - 0.07 * H, 0.01 * H, px, py, 0.17 * H);
-        g2.addColorStop(0, mix(F.stoneB || '#5f6b52', '#ffffff', 0.45));
-        g2.addColorStop(0.55, F.stoneB || '#5f6b52');
-        g2.addColorStop(1, mix(dark, '#000000', 0.45));
-        ctx.fillStyle = g2;
-        ctx.beginPath();
-        ctx.ellipse(px, py, 0.135 * H, 0.1 * H, s * 0.22, 0, TAU);
-        ctx.fill();
-        ctx.strokeStyle = mix(dark, '#000000', 0.55);
-        ctx.lineWidth = 0.012 * H;
-        ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,0.3)';
-        ctx.beginPath();
-        ctx.ellipse(px - 0.02 * H, py - 0.035 * H, 0.075 * H, 0.028 * H, s * 0.22, 0, TAU);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(40,36,26,0.7)';
-        for (const k of [-0.045, 0.045]) {
-          ctx.beginPath();
-          ctx.arc(px + k * H, py + 0.045 * H, 0.011 * H, 0, TAU);
-          ctx.fill();
-        }
-      }
-      // 大斧：木柄带锥度和缠绳，斧头是月牙刃 + 背刺（第一版是一块方片，远看像举着块牌子）
-      const ax = Math.sin(t) * 0.02 * H;
-      const handX = 0.0 * H;
-      const handY = -0.6 * H + ax;
-      const headX = 0.3 * H;
-      const headY2 = -1.14 * H + ax;
-      ctx.strokeStyle = '#6b4a2a';
-      ctx.lineWidth = 0.03 * H;
-      ctx.beginPath();
-      ctx.moveTo(handX, handY);
-      ctx.lineTo(headX, headY2);
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,225,180,0.28)';
-      ctx.lineWidth = 0.01 * H;
-      ctx.beginPath();
-      ctx.moveTo(handX + 0.012 * H, handY - 0.005 * H);
-      ctx.lineTo(headX + 0.012 * H, headY2 + 0.005 * H);
-      ctx.stroke();
-      // 缠绳
-      ctx.strokeStyle = '#4a3320';
-      ctx.lineWidth = 0.012 * H;
-      for (let i = 0; i < 3; i++) {
-        const k = 0.28 + i * 0.1;
-        ctx.beginPath();
-        ctx.moveTo(handX + (headX - handX) * k - 0.022 * H, handY + (headY2 - handY) * k + 0.012 * H);
-        ctx.lineTo(handX + (headX - handX) * k + 0.022 * H, handY + (headY2 - handY) * k - 0.012 * H);
-        ctx.stroke();
-      }
-      // 刃面：金属渐变
-      // 出图发现整把斧头（0.23H×0.66H 的亮金属）比兽人本身还抢眼、远看像举着面帆，
-      // 所以刃头整体缩到 0.66 倍再画（锚点在斧头根部，缩放不会让它离开斧柄）。
-      ctx.save();
-      ctx.translate(headX, headY2);
-      ctx.scale(0.66, 0.66);
-      ctx.translate(-headX, -headY2);
-      const mg = ctx.createLinearGradient(headX - 0.16 * H, headY2 + 0.16 * H, headX + 0.06 * H, headY2 - 0.02 * H);
-      mg.addColorStop(0, '#f2f7fb');
-      mg.addColorStop(0.42, '#b9c6d2');
-      mg.addColorStop(0.72, '#7d8b98');
-      mg.addColorStop(1, '#4e5a66');
-      ctx.fillStyle = mg;
-      ctx.beginPath();
-      ctx.moveTo(headX - 0.03 * H, headY2 - 0.03 * H);
-      ctx.quadraticCurveTo(headX + 0.1 * H, headY2 - 0.14 * H, headX + 0.2 * H, headY2 - 0.05 * H);
-      ctx.quadraticCurveTo(headX + 0.23 * H, headY2 + 0.14 * H, headX + 0.22 * H, headY2 + 0.3 * H);
-      ctx.quadraticCurveTo(headX + 0.12 * H, headY2 + 0.22 * H, headX + 0.02 * H, headY2 + 0.36 * H);
-      ctx.quadraticCurveTo(headX - 0.02 * H, headY2 + 0.14 * H, headX - 0.03 * H, headY2 - 0.03 * H);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(46,56,66,0.85)';
-      ctx.lineWidth = 0.012 * H;
-      ctx.stroke();
-      // 开刃高光：沿刃口一条亮线
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = 0.014 * H;
-      ctx.beginPath();
-      ctx.moveTo(headX + 0.19 * H, headY2 - 0.04 * H);
-      ctx.quadraticCurveTo(headX + 0.225 * H, headY2 + 0.14 * H, headX + 0.21 * H, headY2 + 0.29 * H);
-      ctx.stroke();
-      // 背刺
-      ctx.fillStyle = '#5e6a76';
-      ctx.beginPath();
-      ctx.moveTo(headX - 0.03 * H, headY2 + 0.0 * H);
-      ctx.lineTo(headX - 0.15 * H, headY2 + 0.14 * H);
-      ctx.lineTo(headX - 0.02 * H, headY2 + 0.2 * H);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(46,56,66,0.8)';
-      ctx.lineWidth = 0.01 * H;
-      ctx.stroke();
-      ctx.restore();
-    } else if (a === 'harpy') {
-      // 羽毛翅膀（三层羽片）+ 喙 + 爪。
-      // 注意：翅膀别画太大 —— 第一版 spread 到 0.94H（左右各一张身高的翅膀），
-      // 凑近看像一只挂在天上的紫色滑翔翼；收到 0.62H 并把羽尖往下收才对。
-      const flap = Math.sin(t * 1.6) * 0.16;
-      for (const s of [-1, 1]) {
-        // 指羽：四根扇形排开、越外侧越长越下垂 —— 分成四片才看得出是"羽毛翅膀"，
-        // 三层同心弧会糊成一整片紫滑翔翼（第一版就是这样）。
-        for (let i = 0; i < 4; i++) {
-          const spread = 0.3 + i * 0.1;
-          const droop = 0.02 + i * 0.075;
-          const w = 0.52 - i * 0.06;
-          ctx.fillStyle =
-            i === 3
-              ? mix(col, '#ffffff', 0.3)
-              : i === 2
-                ? mix(col, '#ffffff', 0.12)
-                : i === 0
-                  ? mix(col, '#000000', 0.2)
-                  : col;
-          ctx.beginPath();
-          ctx.moveTo(s * 0.07 * H, -0.72 * H);
-          ctx.quadraticCurveTo(
-            s * spread * H * w,
-            -0.94 * H - flap * 0.5 * H,
-            s * spread * H,
-            (-0.66 + droop) * H + flap * 0.3 * H,
-          );
-          ctx.quadraticCurveTo(s * spread * H * 0.4, (-0.7 + droop * 0.5) * H - flap * 0.2 * H, s * 0.06 * H, -0.64 * H);
-          ctx.closePath();
-          ctx.fill();
-        }
-        // 覆羽：肩上一小块，把四根羽根盖住
-        ctx.fillStyle = mix(col, '#ffffff', 0.2);
-        ctx.beginPath();
-        ctx.moveTo(s * 0.04 * H, -0.74 * H);
-        ctx.quadraticCurveTo(s * 0.2 * H, -0.78 * H, s * 0.2 * H, -0.66 * H);
-        ctx.quadraticCurveTo(s * 0.12 * H, -0.6 * H, s * 0.04 * H, -0.62 * H);
-        ctx.closePath();
-        ctx.fill();
-      }
-      // 尾羽：几片从腰后往下垂
-      ctx.fillStyle = mix(col, '#000000', 0.24);
-      for (let i = -1; i <= 1; i++) {
-        ctx.beginPath();
-        ctx.moveTo(i * 0.05 * H, -0.34 * H);
-        ctx.lineTo(i * 0.1 * H + 0.02 * H, -0.06 * H + Math.abs(i) * 0.03 * H);
-        ctx.lineTo(i * 0.05 * H + 0.05 * H, -0.32 * H);
-        ctx.closePath();
-        ctx.fill();
-      }
-      // 头（正对玩家）：把通用僵尸头整个盖掉，换成鸟头 —— 顶羽 + 面盘 + 钩喙
-      // 为什么必须盖：通用头是"圆球 + 两只发光眼"，鹰身女妖凑近看就变成紫色雪人。
-      const faceY = headY;
-      const hg = ctx.createRadialGradient(-headR * 0.3, faceY - headR * 0.5, headR * 0.1, 0, faceY, headR * 1.7);
-      hg.addColorStop(0, mix(col, '#ffffff', 0.3));
-      hg.addColorStop(0.6, col);
-      hg.addColorStop(1, mix(dark, '#000000', 0.25));
-      ctx.fillStyle = hg;
-      ctx.beginPath();
-      ctx.ellipse(0, faceY, headR * 1.18, headR * 1.1, 0, 0, TAU);
-      ctx.fill();
-      // 颈羽：一圈锯齿领子，把头和人身子接上
-      ctx.fillStyle = mix(col, '#ffffff', 0.16);
-      ctx.beginPath();
-      ctx.moveTo(-headR * 1.1, faceY + headR * 0.75);
-      for (let i = 0; i < 5; i++) {
-        const x0 = -headR * 1.1 + (i + 0.5) * (headR * 2.2 / 5) * 1.0;
-        ctx.lineTo(x0, faceY + headR * 1.35);
-        ctx.lineTo(x0 + headR * 0.2, faceY + headR * 0.72);
-      }
-      ctx.lineTo(headR * 1.1, faceY + headR * 0.8);
-      ctx.closePath();
-      ctx.fill();
-      // 顶羽：三根往后翘的羽冠
-      ctx.fillStyle = mix(col, '#000000', 0.3);
-      for (let i = -1; i <= 1; i++) {
-        ctx.beginPath();
-        ctx.moveTo(i * headR * 0.3, faceY - headR * 0.95);
-        ctx.quadraticCurveTo(i * headR * 0.75, faceY - headR * 1.85, i * headR * 0.35, faceY - headR * 2.15);
-        ctx.quadraticCurveTo(i * headR * 0.35, faceY - headR * 1.5, i * headR * 0.05, faceY - headR * 0.95);
-        ctx.closePath();
-        ctx.fill();
-      }
-      // 面盘：浅色的一圈，鸟脸的味道全在这里
-      ctx.fillStyle = mix(col, '#ffffff', 0.45);
-      ctx.beginPath();
-      ctx.ellipse(0, faceY + headR * 0.12, headR * 0.78, headR * 0.72, 0, 0, TAU);
-      ctx.fill();
-      // 眼睛：琥珀色 + 竖瞳 + 高光点
-      for (const s of [-1, 1]) {
-        const ex = s * headR * 0.42;
-        const ey = faceY + headR * 0.02;
-        ctx.fillStyle = '#2a1a10';
-        ctx.beginPath();
-        ctx.ellipse(ex, ey, headR * 0.3, headR * 0.27, 0, 0, TAU);
-        ctx.fill();
-        ctx.fillStyle = '#ffc23a';
-        ctx.beginPath();
-        ctx.ellipse(ex, ey, headR * 0.24, headR * 0.22, 0, 0, TAU);
-        ctx.fill();
-        ctx.fillStyle = '#241409';
-        ctx.beginPath();
-        ctx.ellipse(ex, ey, headR * 0.09, headR * 0.19, 0, 0, TAU);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.92)';
-        ctx.beginPath();
-        ctx.arc(ex - headR * 0.09, ey - headR * 0.09, headR * 0.07, 0, TAU);
-        ctx.fill();
-      }
-      // 喙：上喙带钩 + 下喙 + 鼻孔
-      ctx.fillStyle = '#f0b02c';
-      ctx.beginPath();
-      ctx.moveTo(-headR * 0.26, faceY + headR * 0.34);
-      ctx.quadraticCurveTo(0, faceY + headR * 0.22, headR * 0.26, faceY + headR * 0.34);
-      ctx.lineTo(headR * 0.1, faceY + headR * 0.78);
-      ctx.quadraticCurveTo(0, faceY + headR * 1.02, -headR * 0.1, faceY + headR * 0.78);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(122,74,10,0.75)';
-      ctx.lineWidth = 0.012 * H;
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.beginPath();
-      ctx.ellipse(-headR * 0.05, faceY + headR * 0.42, headR * 0.1, headR * 0.16, 0.2, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = '#8a5a12';
-      for (const s of [-1, 1]) {
-        ctx.beginPath();
-        ctx.arc(s * headR * 0.11, faceY + headR * 0.4, headR * 0.035, 0, TAU);
-        ctx.fill();
-      }
-      // 爪：三趾 + 黑色趾甲
-      for (let i = -1; i <= 1; i++) {
-        const tx = i * 0.055 * H;
-        ctx.strokeStyle = '#e0a020';
-        ctx.lineWidth = 0.016 * H;
-        ctx.beginPath();
-        ctx.moveTo(tx, -0.045 * H);
-        ctx.lineTo(tx + i * 0.02 * H, -0.005 * H);
-        ctx.stroke();
-        ctx.fillStyle = '#2a2118';
-        ctx.beginPath();
-        ctx.moveTo(tx + i * 0.02 * H - 0.011 * H, -0.005 * H);
-        ctx.lineTo(tx + i * 0.02 * H + 0.012 * H, -0.002 * H);
-        ctx.lineTo(tx + i * 0.02 * H, 0.024 * H);
-        ctx.closePath();
-        ctx.fill();
-      }
-    } else if (a === 'slime') {
-      // 果冻身体：整个盖住通用身子和头（第一版把头留在外面，看着像"绿果冻里插了个雪人"）
-      const wob = Math.sin(t * 1.4) * 0.02 * H;
-      const wob2 = Math.sin(t * 1.1 + 1.7) * 0.015 * H;
-      const topY = -0.99 * H - wob;
-      const halfW = 0.315 * H + wob2 * 0.5;
-      const sg = ctx.createLinearGradient(0, topY, 0, 0);
-      sg.addColorStop(0, mix(col, '#ffffff', 0.42));
-      sg.addColorStop(0.45, col);
-      sg.addColorStop(1, mix(col, '#000000', 0.3));
-      ctx.globalAlpha = 0.84;
-      ctx.fillStyle = sg;
-      ctx.beginPath();
-      ctx.moveTo(-halfW, 0);
-      // 侧面带一点鼓包，不是标准椭圆
-      ctx.bezierCurveTo(-halfW * 1.12, -0.42 * H, -halfW * 0.86, -0.72 * H, -0.12 * H, topY);
-      ctx.bezierCurveTo(0.1 * H, topY - 0.03 * H, halfW * 0.8, -0.74 * H, halfW * 0.96, -0.4 * H);
-      ctx.bezierCurveTo(halfW * 1.06, -0.18 * H, halfW, -0.05 * H, halfW, 0);
-      ctx.closePath();
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      // 底部一圈滴落的小鼓包
-      ctx.globalAlpha = 0.7;
-      ctx.fillStyle = mix(col, '#000000', 0.12);
-      for (let i = -1; i <= 1; i++) {
-        ctx.beginPath();
-        ctx.ellipse(i * 0.16 * H, -0.02 * H, 0.075 * H, 0.035 * H, 0, 0, TAU);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-      // 内部气泡
-      ctx.globalAlpha = 0.4;
-      ctx.fillStyle = mix(col, '#ffffff', 0.65);
-      for (const [bx, by, br] of [
-        [-0.12 * H, -0.5 * H, 0.035 * H],
-        [0.13 * H, -0.3 * H, 0.026 * H],
-        [-0.05 * H, -0.68 * H, 0.02 * H],
-      ]) {
-        ctx.beginPath();
-        ctx.arc(bx + wob * 0.5, by, br, 0, TAU);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-      // 核（史莱姆的"心脏"，也是它分裂的种子）
-      ctx.fillStyle = F.slimeCore || '#1f6b5c';
-      ctx.beginPath();
-      ctx.ellipse(0, -0.36 * H, 0.1 * H, 0.13 * H, 0, 0, TAU);
-      ctx.fill();
-      // 眼睛：果冻里的两个亮点，凑近看才像生物
-      for (const s of [-1, 1]) {
-        ctx.fillStyle = 'rgba(14,32,26,0.9)';
-        ctx.beginPath();
-        ctx.ellipse(s * 0.105 * H, -0.52 * H, 0.045 * H, 0.055 * H, 0, 0, TAU);
-        ctx.fill();
-        ctx.fillStyle = '#eaffe6';
-        ctx.beginPath();
-        ctx.arc(s * 0.095 * H, -0.545 * H, 0.018 * H, 0, TAU);
-        ctx.fill();
-      }
-      // 高光：左上大 + 右下小（一颗就够，两颗才有"透明"的感觉）
-      ctx.globalAlpha = 0.62;
-      ctx.fillStyle = mix(col, '#ffffff', 0.75);
-      ctx.beginPath();
-      ctx.ellipse(-0.14 * H, -0.66 * H, 0.09 * H, 0.055 * H, -0.55, 0, TAU);
-      ctx.fill();
-      ctx.globalAlpha = 0.34;
-      ctx.beginPath();
-      ctx.ellipse(0.15 * H, -0.2 * H, 0.035 * H, 0.05 * H, 0.4, 0, TAU);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    } else if (a === 'dragon') {
-      // 恶龙（BOSS）。第一版出图像"南瓜插两根天线"：圆脑袋 + 细角 + 一大坨没有细节的身体。
-      // 这里按参考图的思路重画一只低伏前扑的龙：
-      //   高扬的膜翅（后缘三个扇贝 + 四根指骨 + 翼尖爪）
-      //   → 甩到画面左侧的长尾（带背棘 + 剑状尾锤）
-      //   → 桶状胸的躯干（月光左上打光，边缘一圈冷高光）
-      //   → 胸腹甲（五片暖金色横板，让"正面一大块暗红"有层次）
-      //   → 前伸的粗壮前肢（三根骨爪，离身体有暗缝，不然会糊成一坨）
-      //   → 粗脖颈 + 颈背棘刺
-      //   → 楔形长吻的头骨（压低的眉骨 + 橙色火光眼 + 鼻孔 + 上下獠牙）
-      //   → 后掠的双角（带三道棱）
-      const flap = Math.sin(t * 0.9) * 0.22;
-      const breathe = 1 + Math.sin(t * 1.5) * 0.012;
-      const bone = F.dragonBelly || '#e8c07a';
-      const wingCol = F.dragonWing || '#6d2436';
-      const fire = F.fire || '#ffb257';
-      const fireCore = F.fireCore || '#fff0b0';
-      const ink = mix(col, '#000000', 0.62);
-      const rim = mix(col, '#cfe4ff', 0.4);
-
-      // ---- 膜翅（在身体后面；要拱到肩膀上方才像翼，垂在身侧会看成"多长了一对手"）----
-      for (const s of [-1, 1]) {
-        const spread = 1.32;
-        const sx0 = s * 0.18 * H;
-        const sy0 = -0.92 * H;
-        const tipX = s * spread * H;
-        const tipY = -1.02 * H + flap * 0.22 * H;
-        const wg = ctx.createLinearGradient(sx0, sy0, tipX, tipY);
-        wg.addColorStop(0, mix(wingCol, '#000000', 0.42));
-        wg.addColorStop(0.45, wingCol);
-        wg.addColorStop(1, mix(col, '#ffc2cf', 0.55));
-        ctx.fillStyle = wg;
-        ctx.beginPath();
-        ctx.moveTo(sx0, sy0);
-        ctx.quadraticCurveTo(s * spread * H * 0.6, -1.92 * H - flap * 0.3 * H, tipX, tipY);
-        ctx.quadraticCurveTo(s * spread * H * 0.8, tipY + 0.26 * H, s * spread * H * 0.54, -0.66 * H + flap * 0.1 * H);
-        ctx.quadraticCurveTo(s * spread * H * 0.58, tipY + 0.42 * H, s * spread * H * 0.34, -0.56 * H + flap * 0.08 * H);
-        ctx.quadraticCurveTo(s * spread * H * 0.34, tipY + 0.54 * H, s * 0.2 * H, -0.5 * H);
-        ctx.closePath();
-        ctx.fill();
-        // 上缘月光勾边
-        ctx.strokeStyle = mix(col, '#ffd9e2', 0.5);
-        ctx.globalAlpha = 0.4;
-        ctx.lineWidth = 0.016 * H;
-        ctx.beginPath();
-        ctx.moveTo(sx0, sy0);
-        ctx.quadraticCurveTo(s * spread * H * 0.6, -1.92 * H - flap * 0.3 * H, tipX, tipY);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-        // 指骨
-        ctx.strokeStyle = mix(bone, '#000000', 0.5);
-        ctx.lineWidth = 0.013 * H;
-        ctx.lineCap = 'round';
-        for (let k = 0; k < 4; k++) {
-          const kk = k / 3;
-          ctx.beginPath();
-          ctx.moveTo(sx0, sy0 + 0.03 * H);
-          ctx.quadraticCurveTo(
-            s * spread * H * (0.38 + 0.12 * kk),
-            -1.5 * H + 0.3 * H * kk - flap * 0.22 * H,
-            s * spread * H * (0.58 + 0.4 * kk),
-            tipY + (0.2 - 0.3 * kk) * H,
-          );
-          ctx.stroke();
-        }
-        // 翼尖爪
-        ctx.fillStyle = mix(bone, '#000000', 0.28);
-        ctx.beginPath();
-        ctx.moveTo(tipX, tipY - 0.03 * H);
-        ctx.lineTo(tipX + s * 0.05 * H, tipY - 0.11 * H);
-        ctx.lineTo(tipX + s * 0.08 * H, tipY + 0.02 * H);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // ---- 长尾（甩到画面左侧，两根背棘 + 剑状尾锤）----
-      const tail = Math.sin(t * 0.8) * 0.055 * H;
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = mix(col, '#000000', 0.28);
-      ctx.lineWidth = 0.2 * H;
-      ctx.beginPath();
-      ctx.moveTo(-0.08 * H, -0.34 * H);
-      ctx.quadraticCurveTo(-0.5 * H, -0.42 * H + tail, -0.66 * H, -0.14 * H + tail);
-      ctx.stroke();
-      ctx.lineWidth = 0.11 * H;
-      ctx.beginPath();
-      ctx.moveTo(-0.62 * H, -0.18 * H + tail);
-      ctx.quadraticCurveTo(-0.88 * H, -0.06 * H + tail, -1.0 * H, -0.3 * H + tail);
-      ctx.stroke();
-      ctx.fillStyle = mix(col, '#000000', 0.1);
-      ctx.beginPath();
-      ctx.moveTo(-1.0 * H, -0.32 * H + tail);
-      ctx.lineTo(-1.12 * H, -0.46 * H + tail);
-      ctx.lineTo(-1.1 * H, -0.2 * H + tail);
-      ctx.lineTo(-1.22 * H, -0.3 * H + tail);
-      ctx.lineTo(-1.1 * H, -0.1 * H + tail);
-      ctx.lineTo(-1.0 * H, -0.2 * H + tail);
-      ctx.closePath();
-      ctx.fill();
-
-      // ---- 躯干（桶状胸，月光从左上打）----
-      const bodyG = ctx.createRadialGradient(-0.22 * H, -1.0 * H, 0.08 * H, 0, -0.72 * H, 0.9 * H);
-      bodyG.addColorStop(0, mix(col, '#ffffff', 0.16));
-      bodyG.addColorStop(0.45, col);
-      bodyG.addColorStop(1, mix(col, '#000000', 0.42));
-      ctx.fillStyle = bodyG;
-      ctx.beginPath();
-      ctx.moveTo(-0.34 * H, -0.06 * H);
-      ctx.bezierCurveTo(-0.58 * H, -0.4 * H, -0.62 * H * breathe, -0.78 * H, -0.46 * H, -1.06 * H);
-      ctx.bezierCurveTo(-0.24 * H, -1.26 * H, 0.24 * H, -1.26 * H, 0.46 * H, -1.06 * H);
-      ctx.bezierCurveTo(0.62 * H * breathe, -0.78 * H, 0.58 * H, -0.4 * H, 0.34 * H, -0.06 * H);
-      ctx.closePath();
-      ctx.fill();
-      // 边缘冷高光（月光勾边）
-      ctx.strokeStyle = rim;
-      ctx.globalAlpha = 0.32;
-      ctx.lineWidth = 0.02 * H;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-
-      // ---- 胸腹甲：一条上宽下窄的暖色腹板 + 五道横缝（原先是五片大椭圆，出图像一摞煎饼）----
-      const belly = mix(bone, '#000000', 0.12);
-      const bg2 = ctx.createLinearGradient(0, -1.02 * H, 0, -0.32 * H);
-      bg2.addColorStop(0, mix(bone, '#ffffff', 0.16));
-      bg2.addColorStop(0.6, belly);
-      bg2.addColorStop(1, mix(belly, '#000000', 0.2));
-      ctx.fillStyle = bg2;
-      ctx.beginPath();
-      ctx.moveTo(-0.3 * H, -1.04 * H);
-      ctx.bezierCurveTo(-0.33 * H, -0.7 * H, -0.24 * H, -0.44 * H, -0.12 * H, -0.33 * H);
-      ctx.lineTo(0.12 * H, -0.33 * H);
-      ctx.bezierCurveTo(0.24 * H, -0.44 * H, 0.33 * H, -0.7 * H, 0.3 * H, -1.04 * H);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = mix(bone, '#000000', 0.5);
-      ctx.lineWidth = 0.012 * H;
-      for (let i = 0; i < 5; i++) {
-        const k = i / 4;
-        const y = -0.95 * H + i * 0.13 * H;
-        const hw = (0.28 - 0.05 * k) * H;
-        ctx.beginPath();
-        ctx.moveTo(-hw, y);
-        ctx.quadraticCurveTo(0, y + 0.045 * H, hw, y);
-        ctx.stroke();
-      }
-      // ---- 鳞片：肩背到腰的几排月牙，让一大块暗红有肌理（只在够大的时候画）----
-      if (H > 40) {
-        ctx.lineWidth = 0.012 * H;
-        for (let row = 0; row < 4; row++) {
-          const y = -0.44 * H - row * 0.15 * H;
-          const n = 6 - row;
-          const hw = (0.5 - row * 0.05) * H;
-          for (let i = 0; i < n; i++) {
-            const x = -hw + ((i + 0.5) / n) * hw * 2;
-            if (Math.abs(x) < 0.32 * H) continue; // 腹板上不画鳞
-            ctx.strokeStyle = mix(col, '#000000', 0.38);
-            ctx.beginPath();
-            ctx.arc(x, y, 0.055 * H, 0.15 * Math.PI, 0.85 * Math.PI);
-            ctx.stroke();
-            ctx.strokeStyle = mix(col, '#ffffff', 0.14);
-            ctx.beginPath();
-            ctx.arc(x, y + 0.008 * H, 0.045 * H, 0.15 * Math.PI, 0.85 * Math.PI);
-            ctx.stroke();
-          }
-        }
-        // 下腹一道压暗，让躯干有"肉"的转折，不然是一整块平色
-        const shade = ctx.createLinearGradient(0, -0.5 * H, 0, -0.05 * H);
-        shade.addColorStop(0, 'rgba(0,0,0,0)');
-        shade.addColorStop(1, 'rgba(30,4,12,0.42)');
-        ctx.fillStyle = shade;
-        ctx.beginPath();
-        ctx.moveTo(-0.4 * H, -0.5 * H);
-        ctx.bezierCurveTo(-0.5 * H, -0.28 * H, -0.4 * H, -0.1 * H, -0.3 * H, -0.06 * H);
-        ctx.lineTo(0.3 * H, -0.06 * H);
-        ctx.bezierCurveTo(0.4 * H, -0.1 * H, 0.5 * H, -0.28 * H, 0.4 * H, -0.5 * H);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // ---- 前肢：肩 → 肘 → 腕，三根骨爪 ----
-      for (const s of [-1, 1]) {
-        const shX = s * 0.44 * H;
-        const shY = -0.98 * H;
-        const elX = s * 0.66 * H;
-        const elY = -0.52 * H;
-        const wrX = s * 0.6 * H;
-        const wrY = -0.2 * H + Math.sin(t * 1.1 + (s > 0 ? 1 : 0)) * 0.012 * H;
-        const ag = ctx.createLinearGradient(shX, shY, wrX, wrY);
-        ag.addColorStop(0, mix(col, '#ffffff', 0.1));
-        ag.addColorStop(0.55, mix(col, '#000000', 0.12));
-        ag.addColorStop(1, mix(col, '#000000', 0.3));
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        // 先用深色描一遍更粗的轮廓：胳膊和躯干同色系，不勾边就糊成一坨（出图后返工过）
-        ctx.strokeStyle = mix(col, '#000000', 0.62);
-        ctx.lineWidth = 0.25 * H;
-        ctx.beginPath();
-        ctx.moveTo(shX, shY);
-        ctx.quadraticCurveTo(elX, elY, wrX, wrY);
-        ctx.stroke();
-        ctx.strokeStyle = ag;
-        ctx.lineWidth = 0.2 * H;
-        ctx.beginPath();
-        ctx.moveTo(shX, shY);
-        ctx.quadraticCurveTo(elX, elY, wrX, wrY);
-        ctx.stroke();
-        // 爪：三根，中间那根长一点（深色为主、爪尖一点骨色）
-        for (let c = 0; c < 3; c++) {
-          const cc = (c - 1) * 0.42;
-          const cx = wrX + s * 0.07 * H + cc * 0.03 * H;
-          const cy = wrY + 0.12 * H;
-          const tx = wrX + s * 0.04 * H + cc * 0.05 * H;
-          const ty = wrY + (c === 1 ? 0.19 : 0.155) * H;
-          ctx.strokeStyle = mix(col, '#000000', 0.5);
-          ctx.lineWidth = 0.05 * H;
-          ctx.beginPath();
-          ctx.moveTo(wrX, wrY);
-          ctx.quadraticCurveTo(cx, cy, tx, ty);
-          ctx.stroke();
-          ctx.strokeStyle = mix(bone, '#000000', 0.3);
-          ctx.lineWidth = 0.02 * H;
-          ctx.beginPath();
-          ctx.moveTo((cx + tx) / 2, (cy + ty) / 2);
-          ctx.lineTo(tx, ty);
-          ctx.stroke();
-        }
-      }
-
-      // ---- 脖颈 + 颈背棘刺 ----
-      const neckG = ctx.createLinearGradient(-0.2 * H, -1.1 * H, 0.16 * H, -1.44 * H);
-      neckG.addColorStop(0, mix(col, '#ffffff', 0.14));
-      neckG.addColorStop(1, mix(col, '#000000', 0.2));
-      ctx.fillStyle = neckG;
-      ctx.beginPath();
-      ctx.moveTo(-0.3 * H, -1.0 * H);
-      ctx.bezierCurveTo(-0.3 * H, -1.16 * H, -0.24 * H, -1.24 * H, -0.2 * H, -1.3 * H);
-      ctx.lineTo(0.2 * H, -1.3 * H);
-      ctx.bezierCurveTo(0.24 * H, -1.24 * H, 0.3 * H, -1.16 * H, 0.3 * H, -1.0 * H);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = mix(col, '#000000', 0.5);
-      for (let i = 0; i < 4; i++) {
-        const y = -1.02 * H - i * 0.075 * H;
-        const len = (0.12 - i * 0.012) * H;
-        ctx.beginPath();
-        ctx.moveTo(-0.03 * H, y);
-        ctx.lineTo(-0.02 * H, y - len);
-        ctx.lineTo(0.05 * H, y - len * 0.4);
-        ctx.closePath();
-        ctx.fill();
-      }
-      // 肩上的背棘，往外翘
-      for (const s of [-1, 1]) {
-        for (let i = 0; i < 2; i++) {
-          const x = s * (0.34 + i * 0.14) * H;
-          const y = -1.06 * H + i * 0.1 * H;
-          ctx.fillStyle = mix(col, '#000000', 0.44);
-          ctx.beginPath();
-          ctx.moveTo(x, y);
-          ctx.lineTo(x + s * 0.06 * H, y - (0.2 - i * 0.04) * H);
-          ctx.lineTo(x + s * 0.16 * H, y - 0.02 * H);
-          ctx.closePath();
-          ctx.fill();
-        }
-      }
-
-      // ---- 头骨（楔形长吻）----
-      const hx = 0;
-      const hy = -1.28 * H;
-      const hg = ctx.createRadialGradient(hx - 0.07 * H, hy - 0.06 * H, 0.02 * H, hx, hy, 0.34 * H);
-      hg.addColorStop(0, mix(col, '#ffffff', 0.24));
-      hg.addColorStop(0.55, col);
-      hg.addColorStop(1, mix(col, '#000000', 0.38));
-      ctx.fillStyle = hg;
-      ctx.beginPath();
-      ctx.moveTo(-0.26 * H, hy - 0.02 * H);
-      ctx.bezierCurveTo(-0.3 * H, hy - 0.2 * H, -0.16 * H, hy - 0.26 * H, 0, hy - 0.26 * H);
-      ctx.bezierCurveTo(0.16 * H, hy - 0.26 * H, 0.3 * H, hy - 0.2 * H, 0.26 * H, hy - 0.02 * H);
-      // 吻部两侧收窄
-      ctx.bezierCurveTo(0.22 * H, hy + 0.12 * H, 0.16 * H, hy + 0.2 * H, 0.12 * H, hy + 0.24 * H);
-      ctx.lineTo(-0.12 * H, hy + 0.24 * H);
-      ctx.bezierCurveTo(-0.16 * H, hy + 0.2 * H, -0.22 * H, hy + 0.12 * H, -0.26 * H, hy - 0.02 * H);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = ink;
-      ctx.lineWidth = 0.014 * H;
-      ctx.stroke();
-      // 鼻孔
-      ctx.fillStyle = mix(col, '#000000', 0.6);
-      for (const s of [-1, 1]) {
-        ctx.beginPath();
-        ctx.ellipse(s * 0.055 * H, hy + 0.14 * H, 0.018 * H, 0.013 * H, s * 0.3, 0, TAU);
-        ctx.fill();
-      }
-      // 嘴线 + 上獠牙
-      ctx.strokeStyle = mix(col, '#000000', 0.55);
-      ctx.lineWidth = 0.016 * H;
-      ctx.beginPath();
-      ctx.moveTo(-0.12 * H, hy + 0.2 * H);
-      ctx.quadraticCurveTo(0, hy + 0.23 * H, 0.12 * H, hy + 0.2 * H);
-      ctx.stroke();
-      ctx.fillStyle = bone;
-      for (const s of [-1, 1]) {
-        for (let i = 0; i < 2; i++) {
-          const x = s * (0.035 + i * 0.055) * H;
-          ctx.beginPath();
-          ctx.moveTo(x - 0.017 * H, hy + 0.205 * H);
-          ctx.lineTo(x + 0.017 * H, hy + 0.205 * H);
-          ctx.lineTo(x, hy + 0.285 * H);
-          ctx.closePath();
-          ctx.fill();
-        }
-      }
-      // 眉骨 + 烧红的眼睛
-      ctx.fillStyle = mix(col, '#000000', 0.5);
-      for (const s of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(s * 0.04 * H, hy - 0.1 * H);
-        ctx.quadraticCurveTo(s * 0.14 * H, hy - 0.14 * H, s * 0.2 * H, hy - 0.05 * H);
-        ctx.quadraticCurveTo(s * 0.14 * H, hy - 0.07 * H, s * 0.04 * H, hy - 0.05 * H);
-        ctx.closePath();
-        ctx.fill();
-      }
-      for (const s of [-1, 1]) {
-        const ex = s * 0.105 * H;
-        const ey = hy - 0.01 * H;
-        const eg = ctx.createRadialGradient(ex, ey, 0.005 * H, ex, ey, 0.07 * H);
-        eg.addColorStop(0, fireCore);
-        eg.addColorStop(0.5, fire);
-        eg.addColorStop(1, mix(fire, '#5c1200', 0.75));
-        ctx.fillStyle = eg;
-        ctx.beginPath();
-        ctx.ellipse(ex, ey, 0.062 * H, 0.048 * H, s * 0.12, 0, TAU);
-        ctx.fill();
-        ctx.fillStyle = '#2a0705';
-        ctx.beginPath();
-        ctx.ellipse(ex + s * 0.004 * H, ey, 0.012 * H, 0.038 * H, s * 0.12, 0, TAU);
-        ctx.fill();
-        if (H > 60) {
-          ctx.globalAlpha = 0.5 + 0.16 * Math.sin(t * 3.1);
-          this._drawGlow(ex, ey, 0.1 * H, fire, 0.35);
-          ctx.globalAlpha = 1;
-        }
-      }
-
-      // ---- 后掠双角（带棱）+ 头顶小冠 ----
-      for (const s of [-1, 1]) {
-        const r0x = s * 0.13 * H;
-        const r0y = hy - 0.16 * H;
-        ctx.fillStyle = mix(col, '#000000', 0.3);
-        ctx.beginPath();
-        ctx.moveTo(r0x, r0y);
-        ctx.quadraticCurveTo(s * 0.32 * H, r0y - 0.26 * H, s * 0.44 * H, r0y - 0.52 * H);
-        ctx.lineTo(s * 0.38 * H, r0y - 0.54 * H);
-        ctx.quadraticCurveTo(s * 0.28 * H, r0y - 0.28 * H, r0x + s * 0.06 * H, r0y - 0.02 * H);
-        ctx.closePath();
-        ctx.fill();
-        // 角上的骨色高光，不然是两根黄吸管
-        ctx.strokeStyle = mix(bone, '#ffffff', 0.25);
-        ctx.globalAlpha = 0.5;
-        ctx.lineWidth = 0.014 * H;
-        ctx.beginPath();
-        ctx.moveTo(r0x + s * 0.03 * H, r0y - 0.04 * H);
-        ctx.quadraticCurveTo(s * 0.31 * H, r0y - 0.28 * H, s * 0.43 * H, r0y - 0.5 * H);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = mix(col, '#000000', 0.5);
-        ctx.lineWidth = 0.012 * H;
-        for (let i = 1; i <= 3; i++) {
-          const k = i / 4;
-          const x = r0x + s * 0.3 * H * (1 - (1 - k) * (1 - k)) * 0.86;
-          const y = r0y - 0.52 * H * k * 1.02;
-          ctx.beginPath();
-          ctx.moveTo(x, y);
-          ctx.lineTo(x + s * 0.045 * H, y - 0.03 * H);
-          ctx.stroke();
-        }
-      }
-      ctx.fillStyle = mix(col, '#000000', 0.34);
-      for (let i = 0; i < 3; i++) {
-        const y = hy - 0.24 * H - i * 0.05 * H;
-        ctx.beginPath();
-        ctx.moveTo(-0.03 * H, y);
-        ctx.lineTo(0, y - 0.075 * H);
-        ctx.lineTo(0.03 * H, y);
-        ctx.closePath();
-        ctx.fill();
-      }
-    }
-
-    ctx.restore();
-  }
 
   /**
    * 第二关主角：照着参考图（摊位立牌上那位大叔）画的扁平背影 ——
