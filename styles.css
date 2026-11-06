@@ -2735,3 +2735,56 @@ body.wordmode #app::after {
   0%, 100% { opacity: 0.15; transform: scale(0.7); }
   50% { opacity: 1; transform: scale(1.25); }
 }
+
+/* ============================================================
+   选关界面 · 内测功能区（单词模式 + 错词本）
+   这两个是 Beta 工具，和关卡本体关系不大：整组收小一号、压暗去饱和，
+   再用一圈低调虚线框起来 —— 跟上面的关卡卡分层，但不抢视觉、不割裂。
+   用 #levelOverlay 提特异性，压过前面 .lv.mode / .lv.book-btn 两组覆盖；
+   矮屏 @media 里的 .lv 规则也盖不到这里，两个尺寸保持一致。
+   ============================================================ */
+#levelOverlay .mode-row {
+  gap: 6px;
+  padding: 6px;
+  border: 2px dashed rgba(168, 184, 214, 0.52);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* 内部两颗按钮：再收小一号，去掉内黑描边（深色块在深底上会变成"暗洞"，
+   反而比亮色更抢眼），只留一道极淡的顶部高光 */
+#levelOverlay .mode-row .lv {
+  padding: 4px 4px;
+  gap: 1px;
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+#levelOverlay .mode-row .lv:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+#levelOverlay .mode-row .lv b {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-shadow: none;
+}
+#levelOverlay .mode-row .lv span {
+  font-size: 9px;
+  letter-spacing: 0.2px;
+}
+
+/* 两颗按钮融进虚线框的底色：只比框内底亮一层的半透明 + 细边框，
+   紫 / 绿只留极淡色相。不再做独立的深色卡片，存在感才真的降下来。 */
+#levelOverlay .mode-row .lv.mode,
+#levelOverlay .mode-row .lv.book-btn {
+  border-color: rgba(190, 200, 225, 0.20);
+  background: rgba(255, 255, 255, 0.075);
+  color: #cbc9d8;
+}
+#levelOverlay .mode-row .lv.book-btn {
+  background: rgba(205, 230, 210, 0.075);
+  color: #c8d4cb;
+}
+#levelOverlay .mode-row .lv.mode span,
+#levelOverlay .mode-row .lv.book-btn span { color: #a09faf; }

@@ -103,7 +103,7 @@ const EN = {
   // ---- 单词模式（【用户 m16141】Beta）----
   // 局内不走英语模式（用户 m16473），这里的英文只给"选词量 / 复盘 / 结算"三块 DOM 用。
   单词模式: 'Word mode',
-  'Beta 版 · 边打边背单词': 'Beta · learn words as you play',
+  'Beta 版 · 测试功能': 'Beta · test feature',
   '这 轮 背 多 少 个 ?': 'How many words this round?',
   '选一个数量，答完就结算': 'Pick a number — the round ends when you finish them',
   热身: 'Warm-up',
@@ -148,7 +148,7 @@ const EN = {
   '已背单词和错词都记在这儿': 'Learned words and missed words both live here',
   '已背 0 · 错词 0': 'Learned 0 · Missed 0',
   '这轮错了 0 个': '0 missed this round',
-  'Beta · 边打边背': 'Beta · learn as you play',
+  'Beta · 测试功能': 'Beta · test feature',
   '第 2、3 关已解锁 · 选一关开打': 'Stages 2-3 unlocked · pick one',
   '第 3 关已解锁 · 选一关开打': 'Stage 3 unlocked · pick one',
   '第 4 关已解锁 · 选一关开打': 'Stage 4 unlocked · pick one',

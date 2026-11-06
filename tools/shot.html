@@ -178,6 +178,9 @@ const SCENES = {
     step(+(Q.get('frames') || 300));
   },
 
+  // 选关界面：?scene=levels —— 遮罩在文件末尾单独挂回来（见 clean 之后那段）
+  levels: () => { step(4); },
+
   over: () => {
     game.newRun();
     game.score = 1280; game.wave = 9; game.kills = 137;
@@ -211,6 +214,23 @@ if (Q.get('clean')) {
   document.querySelectorAll('.overlay.show').forEach((n) => n.classList.remove('show'));
   const boot = document.getElementById('bootOverlay');
   if (boot) boot.style.display = 'none';
+}
+
+// 选关界面（?scene=levels）：先把启动遮罩摘干净，再单独把 levelOverlay 挂回来。
+// 不能靠 clean=1 —— 那段会把刚加的 show 一起摘掉。
+if (Q.get('scene') === 'levels') {
+  document.querySelectorAll('.overlay.show').forEach((n) => n.classList.remove('show'));
+  const boot = document.getElementById('bootOverlay');
+  if (boot) boot.style.display = 'none';
+  const lv = document.getElementById('levelOverlay');
+  if (lv) {
+    lv.classList.add('show');
+    // .overlay.show 自带 overlayIn 淡入动画；无头虚拟时钟不推进 CSS animation，
+    // 截图会停在半透明中间态。取图时直接钉死终态（只影响夹具，不碰线上样式）。
+    lv.style.animation = 'none';
+    lv.style.opacity = '1';
+    lv.style.transform = 'none';
+  }
 }
 
 // 让合成器提交一帧（真实 RAF），截图才有内容
