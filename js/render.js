@@ -1120,31 +1120,66 @@ export class Renderer {
         return seed / 0x7fffffff;
       };
       const list = [];
-      const zNear = CFG.deckNearZ + 1.5;
-      const zFar = CFG.deckFarZ * 0.72;
-      // 【用户】两岸加密 + 换古典荒野的道具表：松树/巨石/断柱/蕨丛顶替掉
-      // 一部分晶簇（晶簇太"魔法"，古典西幻里只能是点缀）。
-      // 90 件 / 每帧：每件就是一次投影 + 几笔 path，实测无感。
-      for (let i = 0; i < 90; i++) {
-        const side = i % 2 ? 1 : -1;
-        const kindR = rnd2();
-        list.push({
-          x: side * (cam.roadHalf * (1.3 + rnd2() * 2.8)),
-          z: zNear + rnd2() * (zFar - zNear),
-          kind: kindR < 0.16 ? 'crystal' : kindR < 0.36 ? 'mushroom' : kindR < 0.5 ? 'stone'
-            : kindR < 0.7 ? 'reed' : kindR < 0.84 ? 'pine' : kindR < 0.92 ? 'boulder' : 'ruin',
-          s: 0.55 + rnd2() * 0.75,
-          phase: rnd2() * TAU,
-          warm: rnd2() < 0.5,
-        });
+      // 【用户】"新加的树全堆在桥最前面两侧，太杂乱，均匀分散到桥的所有两侧"。
+      // 根因：原来 z 在 [deckNearZ+1.5, deckFarZ*0.72] = [7.7, 288] 上**世界深度均匀**撒点，
+      //   但透视下 screenY = horizon + camHeight*focal/z，近处占掉大半屏、远处全挤进
+      //   地平线一条窄带；且 z 最大 288 远超雾深 CFG.zFar=42，大半道具成了雾外看不见的小点。
+      //   另外近处桥面投影比屏宽还宽，两侧根本没有空间，元素只能叠在屏幕边缘。
+      // 改法：在**屏幕空间**做抖动网格（7 行 × 左右各 3 列），行按可见河岸的 y 均匀分布，
+      //   再用逆投影 y→z 换回世界坐标；横向按该深度的桥边自适应铺开，没空间的带直接跳过。
+      //   尺寸改按屏幕高度比例给（S = p.s*h），不再乘 pr.s，近处就不会被放成巨物。
+      const camZ = cam.camZ || 0;
+      const k = CFG.camHeight * cam.focal;
+      const zOf = (y) => camZ + k / Math.max(1e-3, y - horizon);
+      const yOf = (z) => horizon + k / Math.max(1e-3, z - camZ);
+      const zNear = CFG.deckNearZ + 3;
+      const zFar = Math.min(CFG.zFar * 0.92, CFG.deckFarZ); // 只在雾里撒，别浪费在看不见的地方
+      const yTop = yOf(zFar);
+      const yBot = Math.min(yOf(zNear), h * 0.92);
+      const ROWS = 7;
+      const COLS = 3; // 每侧每带 3 件
+      for (let r = 0; r < ROWS; r++) {
+        const v = (r + 0.18 + rnd2() * 0.64) / ROWS;
+        const y = yTop + (yBot - yTop) * v;
+        const z = zOf(y);
+        const prS = (y - horizon) / CFG.camHeight; // = cam.scaleAt(z)
+        const bridgeEdge = cam.roadHalf * prS;
+        const sideSpan = w * 0.5 - bridgeEdge;
+        if (sideSpan < 14) continue; // 这一带桥面已经比屏宽还宽，两侧没空间
+        const depth = (y - yTop) / Math.max(1, yBot - yTop);
+        // 远带放大件剪影、中带以松树为主、近带只放低矮小件；
+        // 断柱只在远带少量出现（重复项 = 权重），中近带不放，免得排成一排杆子
+        const pool = r < 2 ? ['pine', 'pine', 'boulder', 'ruin', 'stone', 'crystal']
+          : r < 5 ? ['pine', 'pine', 'stone', 'boulder', 'crystal', 'mushroom', 'reed']
+            : ['reed', 'reed', 'mushroom', 'crystal', 'stone'];
+        for (const side of [-1, 1]) {
+          for (let c = 0; c < COLS; c++) {
+            const colU = (c + 0.18 + rnd2() * 0.64) / COLS;
+            const sx = w * 0.5 + side * (bridgeEdge + sideSpan * (0.10 + colU * 0.80));
+            list.push({
+              x: cam.screenXToWorld(sx, z),
+              z,
+              kind: pool[(rnd2() * pool.length) | 0],
+              s: (0.075 + depth * 0.075) * (0.85 + rnd2() * 0.3), // 屏幕高度比例
+              phase: rnd2() * TAU,
+              warm: rnd2() < 0.5,
+            });
+          }
+        }
       }
-      // 萤火虫：不占道具格，单独一组，每帧按 sin/cos 漂（贴着两岸低飞）
+      // 萤火虫：同样按屏幕 y 均匀分带，别再全挤在近处
       this._fireflies = [];
       for (let i = 0; i < 14; i++) {
+        const y = yTop + (yBot - yTop) * ((i + 0.2 + rnd2() * 0.6) / 14);
+        const z = zOf(y);
+        const prS = (y - horizon) / CFG.camHeight;
+        const edge = cam.roadHalf * prS;
+        const span = Math.max(0, w * 0.5 - edge);
+        const side = i % 2 ? 1 : -1;
+        const sx = w * 0.5 + side * (edge + span * (0.15 + rnd2() * 0.75));
         this._fireflies.push({
-          side: i % 2 ? 1 : -1,
-          x: (i % 2 ? 1 : -1) * (cam.roadHalf * (1.6 + rnd2() * 2.2)),
-          z: zNear + rnd2() * (zFar - zNear) * 0.8,
+          x: cam.screenXToWorld(sx, z),
+          z,
           phase: rnd2() * TAU,
           speed: 0.5 + rnd2() * 0.9,
         });
@@ -1156,7 +1191,8 @@ export class Renderer {
     for (const p of this._bankProps) {
       const pr = cam.project(p.x, p.z);
       if (pr.y < horizon + 1 || pr.y > h + 60) continue;
-      const S = pr.s * p.s;
+      // S 现在是"屏幕像素尺度"（生成时按画布高度比例给出），不再乘 pr.s —— 近处不会被透视放成巨物
+      const S = p.s * h;
       const px = pr.x;
       const py = pr.y;
       if (p.kind === 'crystal') {
@@ -1263,13 +1299,14 @@ export class Renderer {
         ctx.fill();
       } else if (p.kind === 'ruin') {
         // 断柱：古典遗迹感 —— 半截石柱 + 锯齿裂口 + 倒地柱身 + 缝里青苔
-        const ph2 = S * 0.3;
-        const pw2 = S * 0.05;
-        ctx.fillStyle = 'rgba(120,110,90,0.95)';
+        // 断柱：矮一截、压暗成夜里风化的石灰岩，别在两岸立成一排白杆子
+        const ph2 = S * 0.22;
+        const pw2 = S * 0.055;
+        ctx.fillStyle = 'rgba(86,80,68,0.95)';
         ctx.fillRect(px - pw2, py - ph2, pw2 * 2, ph2);
-        ctx.fillStyle = 'rgba(88,80,64,0.95)';
+        ctx.fillStyle = 'rgba(60,56,48,0.95)';
         ctx.fillRect(px - pw2, py - ph2, pw2 * 0.7, ph2);
-        ctx.fillStyle = 'rgba(120,110,90,0.95)';
+        ctx.fillStyle = 'rgba(86,80,68,0.95)';
         ctx.beginPath();
         ctx.moveTo(px - pw2, py - ph2);
         ctx.lineTo(px - pw2 * 0.4, py - ph2 - pw2 * 0.9);
@@ -1281,7 +1318,7 @@ export class Renderer {
         ctx.save();
         ctx.translate(px + pw2 * 2.6, py - pw2 * 0.8);
         ctx.rotate(0.12);
-        ctx.fillStyle = 'rgba(104,96,78,0.9)';
+        ctx.fillStyle = 'rgba(74,70,60,0.9)';
         ctx.fillRect(-pw2 * 1.6, -pw2 * 0.7, pw2 * 3.2, pw2 * 1.4);
         ctx.restore();
         ctx.fillStyle = 'rgba(58,88,46,0.5)';
@@ -1310,10 +1347,11 @@ export class Renderer {
       const pr2 = cam.project(fx, fz);
       if (pr2.y < horizon + 1 || pr2.y > h) continue;
       const blink = 0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.sin(t * 2.2 + f.phase * 3), 2);
-      this._drawGlow(pr2.x, pr2.y - pr2.s * 0.02, Math.max(2, pr2.s * 0.012), '#d8ffb0', 0.5 * blink);
+      const gy = pr2.y - 0.012 * h;
+      this._drawGlow(pr2.x, gy, Math.max(2, 0.007 * h), '#d8ffb0', 0.5 * blink);
       ctx.fillStyle = `rgba(235,255,200,${0.85 * blink})`;
       ctx.beginPath();
-      ctx.arc(pr2.x, pr2.y - pr2.s * 0.02, Math.max(0.8, pr2.s * 0.003), 0, TAU);
+      ctx.arc(pr2.x, gy, Math.max(0.8, 0.0022 * h), 0, TAU);
       ctx.fill();
     }
     ctx.restore();
