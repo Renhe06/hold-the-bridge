@@ -27,6 +27,9 @@ const MIME = {
   '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
   '.txt': 'text/plain; charset=utf-8',
@@ -59,9 +62,13 @@ const server = http.createServer((req, res) => {
     }
     const type = MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
     console.log(`  200  ${urlPath}  (${type.split(';')[0]}, ${data.length}B)`);
+    // 图片 / 字体 / 音频这些二进制资源内容基本不变，允许本地缓存；
+    // html / css / js / manifest 仍 no-store —— 改代码要立刻生效（原作者意图）。
+    // 全量 no-store 会让本地预览每次刷新都把首屏包 + 立绘重下一遍，看着像「每次都加载很久」。
+    const cacheable = /\.(?:webp|png|jpe?g|svg|ico|woff2?|mp3|wav)$/i.test(urlPath);
     res.writeHead(200, {
       'content-type': type,
-      'cache-control': 'no-store',
+      'cache-control': cacheable ? 'public, max-age=3600' : 'no-store',
       // 允许手机从局域网 IP 访问时正常加载（同源，其实用不到，留着无害）
       'access-control-allow-origin': '*',
     });

@@ -2496,13 +2496,25 @@ try {
     // 加载页必须是"内联样式"：样式表还没到就得能画，否则先闪一下黑底白字
     ok(/\n<div class="boot" id="bootOverlay"[^>]*style="/.test(html), '加载页的关键样式是内联的（样式表之前就要能画）');
     ok(/function runBootLoader\(\)/.test(main) && /function closeBoot\(\)/.test(main), 'main.js 里有加载页的开关');
-    ok(/setTimeout\(closeBoot, BOOT_MAX_MS\)/.test(main) && /addEventListener\('pointerdown', closeBoot\)/.test(main),
-      '加载页有兜底：最多等 BOOT_MAX_MS、点一下立刻进（不会把玩家卡在加载页）');
-    // 【用户 m08644】加载页不是空壳：进度条读的是真实完成数，且开局真把资源包下完解码完
-    ok(/function bootProgress\(\)/.test(main) && /bootPackDone \/ Math\.max\(1, bootPack(Bytes|Total)\)/.test(main),
-      '加载页进度条读的是真实完成量（不是时间斜坡假装的）');
+    // 【本次】实测首屏 3s 内能加载完，所以节点默认隐藏：超过阈值且仍在首页才露出兜底；
+    // 点一下可提前收，玩家已经开打也不会突然盖一层
+    ok(/const BOOT_SLOW_MS = 3000/.test(main) && /BOOT_HARD_MS/.test(main)
+       && /id="bootOverlay"[^>]*display:none/.test(html)
+       && /addEventListener\('pointerdown', closeBoot\)/.test(main)
+       && /game\.state === STATE\.START/.test(main),
+      '加载页默认隐藏，超过 3s 才在首页兜底露出；点一下可提前收（不卡玩家、不打扰开局）');
+    // 【本次】启动进度条的假时间斜坡与最小停留都删了；
+    // 进关卡的慢速兜底只按真实完成量走
+    ok(/function setLoaderProgress\(/.test(main) && /4 \+ 92 \* loaderReal/.test(main)
+       && !/function bootProgress\(/.test(main) && !/BOOT_MIN_MS/.test(main),
+      '加载页进度条只读真实完成量（假时间斜坡与最小停留已移除）');
     ok(/function loadBootPack\(\)/.test(main) && /PORTRAIT_KEYS/.test(main) && /fontTask\(\)/.test(main),
       '开局资源包包含全部头肩立绘与字体（点「角色」不再二次加载）');
+    // 【本次】角色面板只等自己那两张卡图，不跟字体 / 对话头像的整包绑在一起
+    ok(/function heroPanelCardsReady\(/.test(main) && /if \(heroPanelReady\) return;/.test(main)
+       && !/startHeroPanelWarmup/.test(main) && !/heroPanelArtReady/.test(main)
+       && /Promise\.race\(\[/.test(main),
+      '角色面板只等两张卡图解码（旧版等整个首屏包，字体一慢就卡住面板）');
     ok(/loadBootPack\(\)\.then\(finish\)/.test(main) || /loadBootPack\(\)\.then\(/.test(main),
       '加载页确实等资源包做完才收（不是等两帧就收）');
     ok(/function warmHeroArt\(/.test(main) && /CFG\.level\.skin === 'fantasy'\) warmHeroArt/.test(main),
@@ -3169,7 +3181,9 @@ try {
   ok(/#overOverlay\.pvz/.test(css) && /\.brain\s*\{\s*display:\s*none/.test(css), '失守面板的 PvZ 皮肤在（默认不显示脑子，pvz 时才亮）');
   const main = fs.readFileSync(path.join(ROOT, 'js', 'main.js'), 'utf8');
   ok(/CFG\.level\.skin === 'pvz'/.test(main) && main.includes('你的脑子被僵尸吃掉了'), 'showGameOver() 按 pvz 皮肤切标题');
-  ok(/function warmPortraits\(\)/.test(main) && /PORTRAIT_KEYS/.test(main), '进场对话立绘在启动时预热（名单从 TALKS 自动收）');
+  ok(/function loadBootPack\(\)/.test(main) && /for \(const p of PORTRAIT_KEYS\)/.test(main)
+     && !/function warmPortraits\(/.test(main),
+    '进场对话立绘由资源包统一预热（名单从 TALKS 自动收，不再重复下载解码）');
   ok(/if \(portraitKey !== p\)/.test(main), '说话人没变就不重复写头像 src（避免重新解码）');
   const audio = fs.readFileSync(path.join(ROOT, 'js', 'audio.js'), 'utf8');
   ok(/this\.diag = \{/.test(audio) && /_watchStuck\(\)/.test(audio) && /_rebuild\(\)/.test(audio), '音效自愈在（diag 簿记 + 卡死重建）');

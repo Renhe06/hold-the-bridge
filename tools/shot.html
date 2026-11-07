@@ -181,6 +181,27 @@ const SCENES = {
   // 选关界面：?scene=levels —— 遮罩在文件末尾单独挂回来（见 clean 之后那段）
   levels: () => { step(4); },
 
+  // 角色面板：?scene=heroes —— 模拟首页点「角色」，验证两张卡图与加载页行为
+  heroes: () => {
+    step(+(Q.get('warm') || 320));
+    // 只摘掉启动期的说明弹窗，保留等下要打开的角色面板（别带 clean=1，会一起摘掉）
+    document.querySelectorAll('.overlay.show').forEach((n) => {
+      if (n.id !== 'heroOverlay') n.classList.remove('show');
+    });
+    const btn = document.getElementById('menuRole');
+    if (btn) btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    step(4);
+    // 无头虚拟时间不推进 CSS transition：.done 的淡出会卡在 opacity:1，
+    // 截图就看到一层早就该收掉的加载页。钉死终态，才能看清角色面板本体。
+    const boot = document.getElementById('bootOverlay');
+    if (boot) {
+      boot.style.transition = 'none';
+      boot.style.animation = 'none';
+      boot.style.opacity = '0';
+      boot.style.display = 'none';
+    }
+  },
+
   over: () => {
     game.newRun();
     game.score = 1280; game.wave = 9; game.kills = 137;

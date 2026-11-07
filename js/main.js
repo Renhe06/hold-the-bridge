@@ -456,42 +456,24 @@ const PORTRAIT_KEYS = (() => {
 const WEBP_PORTRAITS = { knight: 1, fairy: 1 };
 const portraitSrc = (p) => `./img/portrait-${p}.${WEBP_PORTRAITS[p] ? 'webp' : 'png'}`;
 
-function warmPortraits() {
-  for (const p of PORTRAIT_KEYS) {
-    const im = new Image();
-    im.decoding = 'async';
-    im.src = portraitSrc(p);
-    // decode() 会把"取文件"推进到"解码完"——只设 src 的话第一帧还是要等解码
-    if (typeof im.decode === 'function') {
-      const pr = im.decode();
-      if (pr && typeof pr.catch === 'function') pr.catch(() => {});
-    }
-  }
-}
-// 首屏先让渲染跑起来，空闲了再预热（不然 4 张立绘会跟首帧抢带宽）
-if (typeof requestIdleCallback === 'function') requestIdleCallback(warmPortraits, { timeout: 1500 });
-else setTimeout(warmPortraits, 600);
+// 头肩像不再单独预热：loadBootPack() 已经把这批 URL 统一下完并解码，
+// 再起一份 requestIdleCallback 只会把同一张图重复解码一遍。
 
 // ---------------------------------------------------------
-// 【用户 m06896 → m08644】加载页不是"空壳动画"，它就是下载资源的那段时间。
-//   用户的说法：素材越来越多、质量要求越来越高，及时加载会卡；所以要么开局下资源包、
-//   要么把这个加载动画的时间真正用起来。
-//   现在的做法：开局**真的**把"主界面 + 角色页 + 对话"要用的资源包下完并解码完才收加载页：
-//     · 6 张对话头肩立绘（hero/cmd/dave/uncle/knight/fairy，约 240KB）
-//     · 2 张第四关全身立绘（webp 约 430KB，面板那两个 <img> 直接就是被等的对象）
-//     · 字体 woff2（约 187KB，走 document.fonts.load，不等它文字会用回退字体抖一下）
-//   进度条跟着真实完成数走，做完才满格。
-//   兜底两条：最多等 12 秒、点一下屏幕立刻进（跳过只影响观感，包继续在后台下）。
+// 启动资源包（后台下载，不挡首屏）
+//   【用户 m06896】原设计是"加载页真的在等资源下完"；本次要求 3s 内能加载完
+//   就不显示加载动画。实测首屏包（小卡图 130KB + 对话头肩像 243KB + 字体 187KB）
+//   线上并行 1.26s 到齐，所以改成：首屏立刻可交互，资源后台下；
+//   只有超过 BOOT_SLOW_MS 仍未下完，才把加载页露出来兜底。
+//   第四关全身立绘依旧不在首屏等，仍由 warmHeroArt / LEVEL_ART 管。
 // ---------------------------------------------------------
-const BOOT_MAX_MS = 12000;
-const BOOT_MIN_MS = 650; // 太快也不能一闪而过，动画要有存在感
+const BOOT_SLOW_MS = 3000;
+const BOOT_HARD_MS = 12000; // 资源包万一卡住，也不能把玩家按在加载页上
 let bootClosed = false;
 let bootPackPromise = null;
-let bootPackDone = 0;
-let bootPackTotal = 1;
 
-/** 一张图：取文件 + 解码都做完才算完（只 load 不 decode，第一帧还得等解码） */
-function imageTask(url) {
+/** 一张图：取文件 + 解码都做完才算完；9s 兜底，单张卡住不拖累整包 */
+function preloadImage(url) {
   return new Promise((res) => {
     const im = new Image();
     im.decoding = 'async';
@@ -507,149 +489,88 @@ function imageTask(url) {
   });
 }
 
-/** 字体：document.fonts.load 会真的去取 woff2（拿不到就算了，用回退字体） */
+/** 字体：document.fonts.load 会真的去取 woff2；3s 拿不到就用回退字体（swap），
+ *  别让一个字体请求把整个资源包卡死 */
 function fontTask() {
   if (typeof document === 'undefined' || !document.fonts) return Promise.resolve();
   const done = () => Promise.resolve();
+  let p;
   if (typeof document.fonts.load === 'function') {
-    return Promise.resolve(document.fonts.load('1em "Smiley Sans"'))
+    p = Promise.resolve(document.fonts.load('1em "Smiley Sans"'))
       .then(() => (document.fonts.ready || done()))
       .catch(done);
+  } else {
+    p = Promise.resolve(document.fonts.ready || done()).catch(done);
   }
-  return Promise.resolve(document.fonts.ready || done()).catch(done);
+  return Promise.race([p, new Promise((res) => setTimeout(res, 3000))]);
 }
 
-/**
- * 开局资源包。做完把 heroPanelArtReady 置真 —— 之后点「角色」是零等待。
- * 面板里那两个 <img> 直接拿来做任务（同一个 URL 再 new Image 会白解一遍码）。
- * 进度按**字节权重**算：一张 268KB 的全身图和一张 36KB 的头肩图不该各算 1 份，
- * 否则进度条会先冲到 80% 再等最后那张大图。
- */
-const PACK_BYTES = {
-  './fonts/smiley-sans.woff2': 187392,
-  // 角色面板用的缩小卡图（用户 m12944：1.7MB 的大图拖慢了面板）
-  './img/hero-knight-card.webp': 43418,
-  './img/hero-fairy-card.webp': 92460,
-  './img/hero-knight.webp': 162058,
-  './img/hero-fairy.webp': 476636,
-  './img/hero-fairy-body.webp': 334940,
-  './img/hero-fairy-wings.webp': 53746,
-  './img/portrait-hero.png': 41261,
-  './img/portrait-cmd.png': 37167,
-  './img/portrait-dave.png': 47723,
-  './img/portrait-uncle.png': 43394,
-  './img/portrait-knight.webp': 37604,
-  './img/portrait-fairy.webp': 36312,
-};
-const packBytes = (u) => PACK_BYTES[u] || 60000; // 以后新加的素材给个均值
-
+/** 开局资源包：后台下完对话头像与字体；角色卡图走 heroPanelCardsReady 单独就绪。
+ *  两者共用同一个 Promise，不会把同一张图下载 / 解码两遍。 */
 function loadBootPack() {
   if (bootPackPromise) return bootPackPromise;
   if (typeof Image === 'undefined') { // 冒烟测试的桩环境
-    heroPanelArtReady = true;
     bootPackPromise = Promise.resolve();
     return bootPackPromise;
   }
-  const tasks = [];
   const seen = new Set();
-  const add = (u, pr) => {
-    seen.add(u);
-    tasks.push({ w: packBytes(u), p: pr });
-  };
   for (const img of heroPanelImgs()) {
     const u = img.getAttribute('data-src') || img.getAttribute('src');
-    if (u && !seen.has(u)) add(u, panelImgReady(img));
+    if (u) seen.add(u);
   }
+  const tasks = [heroPanelCardsReady()];
   for (const p of PORTRAIT_KEYS) {
     const u = portraitSrc(p);
-    if (!seen.has(u)) add(u, imageTask(u));
+    if (!seen.has(u)) { seen.add(u); tasks.push(preloadImage(u)); }
   }
   for (const u of HERO_PANEL_ART) {
-    if (!seen.has(u)) add(u, imageTask(u));
+    if (!seen.has(u)) { seen.add(u); tasks.push(preloadImage(u)); }
   }
-  const font = fontTask();
-  tasks.push({ w: packBytes('./fonts/smiley-sans.woff2'), p: font });
-  bootPackBytes = tasks.reduce((s, t) => s + t.w, 0);
-  bootPackDone = 0;
-  bootPackTotal = bootPackBytes; // 兼容旧的"完成数"口径：直接用字节当权重
-  bootPackPromise = Promise.all(
-    tasks.map((t) => t.p.then(() => { bootPackDone += t.w; })),
-  ).then(() => { heroPanelArtReady = true; });
+  tasks.push(fontTask());
+  bootPackPromise = Promise.all(tasks);
   return bootPackPromise;
 }
-
-let bootBarShown = 0.05;
-let bootPackBytes = 1;
-/** 真实进度（0..1，按字节权重）；再叠一条极慢的时间斜坡，网络卡住时条也还在动 */
-function bootProgress() {
-  const real = Math.min(1, bootPackDone / Math.max(1, bootPackBytes));
-  const ramp = 1 - Math.exp(-(performance.now() - bootT0) / 1800);
-  return Math.min(0.96, 0.05 + 0.9 * real + 0.02 * ramp);
-}
-let bootT0 = 0;
 
 function closeBoot() {
   if (bootClosed) return;
   bootClosed = true;
-  // 给自动化留个数（viz/probe-boot.mjs 用它量"玩家被拦住多久"，
-  // 页面自己的时钟才准：外面量进去还得算上无头浏览器启动那 1 秒）
+  // 给自动化留个数：页面自己的时钟才准
   try {
     if (!window.__HBT_BOOT_MS) window.__HBT_BOOT_MS = Math.round(performance.now());
   } catch (_) { /* 无 window 的桩环境 */ }
-  // 【用户 m08593】"加载页就是为了后台提前加载啊，为什么进角色页面还要等图片加载"
-  //   —— 说得对：角色页那两张立绘现在只有 430KB（webp），不该等到点开才下。
-  //   加载页一收就在后台预热（玩家这时正在看主页），等点「角色」时图已经在内存里解完码，
-  //   面板直接开、连加载页都不用再盖一层。
-  startHeroPanelWarmup();
   const el = document.getElementById('bootOverlay');
   if (!el) return;
   el.classList.add('done');
-  // 【用户 m07770】节点**不再删除**：进关卡前还要复用这块加载页（showLoader），
-  // 现成节点已经带品牌注释和翻译好的标题，重建一套反而要再写一份文案。
-  // .boot.done 是 opacity:0 + pointer-events:none，留着也吃不到点击。
+  // 节点不删：进关卡 / 角色面板的慢速兜底还要复用（用户 m07770）
 }
 
+/** 启动：3s 内下完就完全不显示加载页；真慢才露出来，点一下可提前收掉。 */
 function runBootLoader() {
   const el = document.getElementById('bootOverlay');
   if (!el) return;
-  // 无浏览器环境（tools/smoke-test.mjs 的 document 桩）：没有 rAF 就当加载完了
   if (typeof requestAnimationFrame !== 'function') {
     el.classList.add('done');
     if (el.parentNode) el.parentNode.removeChild(el);
     bootClosed = true;
     return;
   }
-  const bar = document.getElementById('bootBar');
-  bootT0 = performance.now();
-  const t0 = bootT0;
-  let packReady = false;
-  let done = false;
-  let raf = 0;
-  // 点一下就走（加载页永远是可跳过的：包继续在后台下，只是不再挡着）
+  const slowTimer = setTimeout(() => {
+    // 只有还停在首页、且没有别的加载页在用节点时才盖；
+    // 玩家已经开打 / 进了关卡就别突然挡一层
+    if (!loaderOpen && game.state === STATE.START) el.style.display = 'flex';
+  }, BOOT_SLOW_MS);
   el.addEventListener('pointerdown', closeBoot);
-  setTimeout(closeBoot, BOOT_MAX_MS);
-  // 【用户 m08644】进度条读的是**真实完成量（按字节权重）**，不是时间斜坡。
-  // 资源包真的下完（packReady）后再让条快速补到 100%，满格之后才收页 ——
-  // 不然好网络下"条还在 45% 页面就没了"，又变成假动画。
-  const paint = () => {
-    if (done) return;
-    const target = packReady ? 1 : bootProgress();
-    bootBarShown += (target - bootBarShown) * (packReady ? 0.34 : 0.3);
-    if (bar) bar.style.width = `${(Math.min(1, bootBarShown) * 100).toFixed(1)}%`;
-    if (packReady && bootBarShown > 0.985) {
-      done = true;
-      if (bar) bar.style.width = '100%';
-      // 太快的机器上也不能一闪而过（连续命中缓存时 0.15s 就下完了）
-      setTimeout(closeBoot, Math.max(0, BOOT_MIN_MS - (performance.now() - t0)));
-      return;
-    }
-    raf = requestAnimationFrame(paint);
-  };
-  raf = requestAnimationFrame(paint);
-  // 先让第一帧画出来，再开始抢带宽（不然加载页本身都要等）
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    loadBootPack().then(() => { packReady = true; });
-  }));
+  const hardTimer = setTimeout(() => { if (!loaderOpen) closeBoot(); }, BOOT_HARD_MS);
+  // 先让首帧画出来再抢带宽；同时避开 heroPanelCardsReady 里那些变量的 TDZ
+  //（定义在文件后面，同步调用会在模块还没执行完时踩 ReferenceError）
+  requestAnimationFrame(() => {
+    loadBootPack().then(() => {
+      clearTimeout(slowTimer);
+      clearTimeout(hardTimer);
+      // 已经进了关卡 / 角色面板时，加载页归 showLoader 管，别抢着关
+      if (!loaderOpen) closeBoot();
+    });
+  });
 }
 
 // 第四关的全身立绘（两张共 ~800KB）只在"真的要打那关"时才取：
@@ -689,23 +610,12 @@ const LEVEL_ART = {
   ],
 };
 
+/** 进关卡前把那一关要用的立绘备好：复用同一套「取文件 + 解码」逻辑 */
 function preloadAll(urls, onProgress) {
   if (typeof Image === 'undefined') return Promise.resolve();
   let done = 0;
   const bump = () => { done += 1; if (onProgress) onProgress(done / urls.length); };
-  return Promise.all(urls.map((u) => new Promise((res) => {
-    const im = new Image();
-    im.decoding = 'async';
-    let fin2 = false;
-    const fin = () => { if (!fin2) { fin2 = true; bump(); res(); } };
-    im.onload = () => {
-      if (typeof im.decode === 'function') im.decode().then(fin).catch(fin);
-      else fin();
-    };
-    im.onerror = fin;
-    setTimeout(fin, 9000); // 网络再差也不能把玩家按在加载页上
-    im.src = u;
-  })));
+  return Promise.all(urls.map((u) => preloadImage(u).then(bump)));
 }
 
 let loaderOpen = false;
@@ -722,19 +632,16 @@ function showLoader() {
   if (!el || loaderOpen) return;
   loaderOpen = true;
   bootClosed = false;
+  el.style.display = 'flex'; // 启动态默认 display:none，慢速兜底要显式打开
   el.classList.remove('done');
   const bar = document.getElementById('bootBar');
-  const t0 = performance.now();
   loaderReal = 0;
   if (bar) bar.style.width = '4%';
   if (typeof requestAnimationFrame !== 'function') return;
   const tick = () => {
     if (!loaderOpen) return;
-    // 真实进度为主（开局资源包已经在缓存里时它直接接近 1）；
-    // 再垫一条很慢的时间斜坡，保证"还在动"，但绝不会跑到真实进度前面把满格骗掉。
-    const ramp = 1 - Math.exp(-(performance.now() - t0) / 2000);
-    const p = Math.min(94, 4 + 90 * Math.max(loaderReal * 0.97, ramp * 0.12));
-    if (bar) bar.style.width = `${p.toFixed(1)}%`;
+    // 只跟真实完成量走，不再叠时间斜坡做「假进度」
+    if (bar) bar.style.width = (4 + 92 * loaderReal).toFixed(1) + '%';
     loaderRaf = requestAnimationFrame(tick);
   };
   loaderRaf = requestAnimationFrame(tick);
@@ -746,8 +653,7 @@ function hideLoader() {
   if (loaderRaf) cancelAnimationFrame(loaderRaf);
   const bar = document.getElementById('bootBar');
   if (bar) bar.style.width = '100%';
-  // 至少亮 260ms：本地几毫秒就下完，闪一下比不闪还难受
-  setTimeout(closeBoot, 260);
+  closeBoot();
 }
 
 /** 开局入口：有素材就先过加载页，没有就直接开 */
@@ -1001,7 +907,10 @@ const HERO_PANEL_ART = [
   './img/portrait-knight.webp',
   './img/portrait-fairy.webp',
 ];
-let heroPanelArtReady = false;
+// 角色面板的就绪状态单独跟踪（见下面的 heroPanelCardsReady）：
+// 只等面板那两张卡图，不跟字体 / 对话头像的整包绑在一起。
+let heroPanelReady = false;
+let heroPanelPromise = null;
 
 /**
  * 【用户 m08143】角色面板的体感问题：点开先看到加载页，加载页收掉后又是主页，
@@ -1018,19 +927,13 @@ function panelImgReady(img) {
   if (!img) return Promise.resolve();
   if (!img.getAttribute('src') && img.getAttribute('data-src')) img.setAttribute('src', img.getAttribute('data-src'));
   if (typeof Image === 'undefined' || typeof img.decode !== 'function') return Promise.resolve();
-  if (img.complete && img.naturalWidth > 0) {
-    // 已经解码过的图再 decode() 会很快返回
-    return img.decode().catch(() => {});
-  }
-  return new Promise((res) => {
-    const fin = () => {
-      if (typeof img.decode === 'function') img.decode().then(res).catch(res);
-      else res();
-    };
-    img.addEventListener('load', fin, { once: true });
-    img.addEventListener('error', fin, { once: true });
-    setTimeout(res, 9000);
-  });
+  // decode() 自带「等加载 + 解码」语义，不用自己挂 load 监听：
+  // 缓存命中时 load 事件可能在挂监听前就派发，Promise 会一直卡到超时才 resolve。
+  // 3s 兜底：图坏了也不能把玩家按在加载页上（原来是 9s）。
+  return Promise.race([
+    img.decode().catch(() => {}),
+    new Promise((res) => setTimeout(res, 3000)),
+  ]);
 }
 
 /** 面板里那两张全身立绘的 <img>（冒烟测试的 DOM 桩没有 querySelectorAll，要容错） */
@@ -1039,29 +942,31 @@ function heroPanelImgs() {
   return Array.prototype.slice.call(document.querySelectorAll('.lv.hero .hero-art img'));
 }
 
-let heroPanelWarm = null;
 /**
- * 【用户 m08593】加载页一收就在后台把角色页的图备好：
- *   - 面板那两张 <img> 直接把 src 挂上并 decode()（面板本身是隐藏的，不占画面）；
- *   - 对话用的头肩立绘用 new Image() 预热，不阻塞任何东西。
- * 做完把 heroPanelArtReady 置真，之后点「角色」是零等待、连加载页都不出现。
+ * 角色面板只等自己那两张卡图解码完。
+ * 【本次修复】原来 openHeroes() 等的是整个 loadBootPack()（含字体 3s 超时、
+ * 6 张对话头像），任一项慢就把面板拖住 —— 这就是「每次开角色页都要等很久」。
+ * 两张卡图共 135KB，启动后台就开始解码，玩家点到时通常已经 ready。
  */
-function startHeroPanelWarmup() {
-  // 【用户 m08644】不再另起一份下载：直接复用开局的资源包（同一批 URL 已经在下了）
-  if (heroPanelArtReady) return Promise.resolve();
-  return loadBootPack();
+function heroPanelCardsReady() {
+  if (heroPanelPromise) return heroPanelPromise;
+  if (typeof Image === 'undefined') { // 冒烟测试的桩环境
+    heroPanelReady = true;
+    heroPanelPromise = Promise.resolve();
+    return heroPanelPromise;
+  }
+  heroPanelPromise = Promise.all(heroPanelImgs().map(panelImgReady))
+    .then(() => { heroPanelReady = true; });
+  return heroPanelPromise;
 }
 
 function openHeroes() {
-  // 常见情况：开机预热早做完了 —— 直接开面板，一层加载页都不盖
-  if (heroPanelArtReady) {
-    heroPanelShow();
-    return;
-  }
-  // 极端情况：开机 0.x 秒就点进来了，图还没备好。面板先摆好 + 加载页兜一下。
+  // 面板先摆好（图若已解码，露出来的第一眼就是画完的面板 —— 用户 m08143）
   heroPanelShow();
+  if (heroPanelReady) return; // 常见情况：零等待，一层加载页都不盖
+  // 只有两张卡图真的还没解完才盖加载页，而且只等这两张，不等字体 / 对话头像
   showLoader();
-  startHeroPanelWarmup().then(() => hideLoader());
+  heroPanelCardsReady().then(() => hideLoader());
 }
 
 function heroPanelShow() {
