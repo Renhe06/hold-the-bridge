@@ -133,13 +133,43 @@ const DMG_OUTFALL = 0.10;
  *   line   这一段的一句话（只在 HUD 顶部出现，不打断操作）
  */
 export const SEA_STRATA = [
-  { d: 0.00, mate: [0.17, 0.00], name: '海洋静谧依旧', line: '洋流是暖的。它推着你走。' },
-  { d: 0.22, mate: [0.33, 0.30], name: '乳白色蜉蝣', line: '它不会腐朽，也不会走开。' },
-  { d: 0.42, mate: [0.50, -0.28], name: '是那沉没的舰', line: '又是这艘船。它比上次更深。' },
-  { d: 0.58, mate: null, name: '血引来了海鸥', line: '这一层没有回应。只有钩子。' },
-  { d: 0.70, mate: [0.74, 0.22], name: '唱贪婪的盛宴', line: '网在收。它在网里面。' },
-  { d: 0.82, mate: [0.88, -0.14], name: '看冰山在崩裂', line: '水面已经封死了。只能往下。' },
-  { d: 0.94, mate: [1.18, 0.00], name: '唱给书里的图鉴', line: '最后一个在下面。你算得出来。' },
+  {
+    d: 0.00, mate: [0.16, 0.00],
+    name: '海洋静谧依旧',
+    line: '我用背鳍裁开起伏的褶皱',
+  },
+  {
+    d: 0.20, mate: [0.34, 0.32],
+    name: '乳白色蜉蝣',
+    line: '它竟不会腐朽　总是陪我徜徉渐暖的洋流',
+  },
+  {
+    d: 0.38, mate: [0.52, -0.30],
+    name: '是那沉没的舰',
+    line: '是那盏灯塔在忽明忽灭',
+  },
+  {
+    d: 0.54, mate: [0.68, 0.20],
+    name: '血引来了海鸥',
+    line: '我在漏网之后　留下了伤口',
+  },
+  {
+    d: 0.70, mate: [0.84, -0.16],
+    name: '当泛滥的鱼钩',
+    line: '让所有变稀有　海上谁领唱满载而去的歌',
+  },
+  {
+    d: 0.84, mate: [0.96, 0.08],
+    name: '看疯狂的实验',
+    line: '看冰山在崩裂　看沥青在蔓延',
+  },
+  {
+    // 最后一段没有同类：到这里已经没有歌可以回应了，只剩下珊瑚。
+    // 这也是"6 只"的落点 —— 六只全部可达，不再有一只故意藏在 1.18。
+    d: 0.94, mate: null,
+    name: '珊瑚在海底蜿蜒',
+    line: '我看见　最美丽的花园',
+  },
 ];
 
 /** 兼容旧引用：外部只拿它当"一共有几段"。 */
@@ -173,6 +203,9 @@ export class SeaGame {
     this.echo = 0;
     this.mate = null;        // 最近的那一只：HUD 与方向提示用
     this.mates = [];
+    // 现在只有这一只"存在"。回应完它，下一只才出现在它的固定位置上。
+    // 用户的原话："找到一个再出现下一个，出现了位置就不变。"
+    this._activeMate = 0;
     this.kit = [];
     this.endT = 0;
     this.dark = 0;
@@ -251,6 +284,9 @@ export class SeaGame {
       if (!S.mate) return;
       this.mates.push({
         idx: i,
+        // order = 第几只被听见。六只按深度顺序依次出场：
+        // 回应完一只，下一只才存在（不是同时摆在海里让你挑）。
+        order: this.mates.length,
         depth: S.mate[0],
         lat: S.mate[1],
         lat0: S.mate[1],
@@ -628,7 +664,9 @@ export class SeaGame {
     // 现在"跃"是一次真正的抛物线（按到底 → 冲出去 → 落回来），一次滞空只有
     // 半秒左右，所以判定不能要求"连续 2.4 秒都在水面之上"——那永远攒不满。
     // 改成"在水面之上的时间累加，落水后缓慢回落"：按住不放，跳三四次就能走。
-    const canLeave = this.codex.length >= 5;
+    // 六只都能回应了（用户定版：不再有一只故意藏在 1.18），
+    // 所以"能走"的门槛就是全部找完 —— codex.length 现在会到 6。
+    const canLeave = this.codex.length >= this.mates.length;
     if (canLeave && this.depth < -0.10) {
       this.surfaceT += dt;
       if (this.surfaceT > 1.2) this._end('A');
@@ -639,7 +677,7 @@ export class SeaGame {
     // 终局：能找的都找到了，你也下到了自己的极限 1.00 ——
     // 最后一个在 1.18，永远差那一点。这不是"失败"，是"你到了"。
     // 没有这个判定，玩家会在底部无限循环换气，游戏没有终点。
-    if (this.codex.length >= this.mates.length - 1 && this.depth > 0.97) {
+    if (this.codex.length >= this.mates.length && this.depth > 0.97) {
       this.lastT += dt;
       if (this.lastT > 3.2) this._end('B');
     } else {
@@ -946,13 +984,23 @@ export class SeaGame {
     this._motifIn = 2.0;
     // 沉下去 = 它不会再唱第二遍。图鉴多一页，海里少一只。
     this.mate = null;
+
+    // 下一只**现在才出现**（用户定版："找到一个再出现下一个"）。
+    // 它一出现就先叫一声，否则玩家不知道"还有下一只"，会以为已经找完了。
+    const next = this.mates[m.order + 1];
+    if (next) {
+      this._activeMate = next.order;
+      next.nextCall = 1.1;   // 一秒后叫，正好接在"整首歌重放"后面
+    } else {
+      this._activeMate = this.mates.length;   // 六只都回来了
+    }
   }
 
   // 同伴的位置是**钉死的**（用户定版）。
   // 上一版每次上浮换气都会把没回应的同类随机挪一段，本意是"你记的方向会作废"，
   // 实际效果是玩家永远背不下来海图 —— 找同伴变成了碰运气，而不是"我记得
   // 0.50 那一层偏左有一只"。现在不挪了：位置固定，听见的方向就是真的。
-  // 它还会缓慢横游（见 _mate 里的 ±0.045 摆动），但那是呼吸，不是搬家。
+  // 用户第二次定版：连那点摆动也去掉 —— "出现了位置就不变"。
 
   /**
    * 献祭：整局只有一件东西可以交出去 —— 海底项链。
@@ -989,8 +1037,11 @@ export class SeaGame {
     for (const m of this.mates) {
       m.glow = Math.max(0, m.glow - dt * 0.8);
       if (m.answered) continue;
-      // 它会缓慢横游：位置不是坐标，是"刚才大概在那个方向"。
-      m.lat = clamp(m.lat0 + Math.sin(this.waveT * 0.11 + m.idx * 1.7) * 0.045, -1, 1);
+      // 位置**钉死**：出现之后它就不动了。
+      // 上一版每帧按 sin 摆 0.045，玩家记住了方向，游过去它已经偏了半个身位。
+      m.lat = m.lat0;
+      // 还没轮到它：不发声、不碰撞、不发光。它此刻不存在。
+      if (m.order > this._activeMate) continue;
 
       const dd = Math.abs(m.depth - this.depth);
       const dl = Math.abs(m.lat - this.lat);
@@ -998,8 +1049,8 @@ export class SeaGame {
       if (dist < bestD) { bestD = dist; best = m; }
 
       // 第一只靠得近一点：新手要先体验一次"找到"是什么感觉
-      const touch = m.idx === 0 ? 0.075 : 0.055;
-      const touchL = m.idx === 0 ? 0.20 : 0.16;
+      const touch = m.order === 0 ? 0.075 : 0.055;
+      const touchL = m.order === 0 ? 0.20 : 0.16;
       if (!m.found && dd < touch && dl < touchL) {
         m.found = true;
         m.resp = 0;
@@ -2649,13 +2700,20 @@ export class SeaGame {
     // 只画听得见的那一只（dist < 0.42）。远处的同类一笔都不给 ——
     // 这篇的规则是"听见才有方向"，不是"地图上有个点"。
     for (const m of this.mates) {
-      if (m.answered) continue;
+      // 还没轮到它 = 它不在海里。这是"依次出现"的另一半：
+      // 只在 _mate 里跳过是不够的，画面上也不能提前露出来。
+      if (m.order > this._activeMate) continue;
       const y = sy(m.depth);
       if (y < -h * 0.35 || y > h * 1.35) continue;
       const dist = Math.hypot((m.depth - this.depth) * 1.6, m.lat - this.lat);
-      if (dist > 0.30) continue;
+      // 已回应的：留在原地当背景（它确实还在那儿），但不再有存在感
+      if (m.answered && dist > 0.24) continue;
+      if (!m.answered && dist > 0.30) continue;
       const x = this.screenX(m.lat);
-      const vis = clamp(1.1 - dist * 1.1, 0.06, 1) * (0.26 + this.echo * 0.58 + m.glow * 0.44);
+      const vis = (m.answered ? 0.30 : 1) * clamp(1.1 - dist * 1.1, 0.06, 1)
+        // 0.26 的基础项太暗：靠近时 alpha 只有 0.23，白色提示环比它显眼三倍。
+        // 环是"可以按"，同类的形体才是"按谁"—— 后者必须更清楚。
+        * (0.50 + this.echo * 0.40 + m.glow * 0.35);
       ctx.save();
       if (this.art && this.art.ready) {
         this.art.draw(ctx, x, y, R.w * 0.42, {
@@ -2667,7 +2725,7 @@ export class SeaGame {
           depth: clamp(m.depth, 0, 1),
           screenH: h,
           mouth: 0.22,
-          alpha: clamp(vis, 0, 0.52),
+          alpha: clamp(vis * 1.7, 0, 0.72),
         });
       } else {
         R.drawWhale(x, y, R.w * 0.42, {
@@ -2679,6 +2737,27 @@ export class SeaGame {
         });
       }
       ctx.restore();
+
+      // 靠近了：三圈白环从它身上扩出去 —— 这是"长按屏幕"的手势提示。
+      // 不写字，因为那一刻玩家的眼睛在它身上，不在 HUD 上。
+      // 用椭圆不用正圆：水里的环是"躺"在空间里的，正圆会读成 UI。
+      if (!m.answered && dist < 0.26) {
+        const tt = R.time;
+        const near = clamp(1 - (dist - 0.10) / 0.16, 0.25, 1);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (let k = 0; k < 3; k++) {
+          const u = (tt * 0.5 + k / 3) % 1;
+          const rr = R.w * (0.04 + u * 0.15);
+          ctx.globalAlpha = (1 - u) * 0.44 * near;
+          ctx.strokeStyle = 'rgba(234,251,255,1)';
+          ctx.lineWidth = Math.max(1.2, R.w * 0.006) * (1 - u * 0.5);
+          ctx.beginPath();
+          ctx.ellipse(x, y, rr, rr * 0.6, 0, 0, TAU);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
     }
 
     // 方位：只给最近那一只，只给方向不给距离。
