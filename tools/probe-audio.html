@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8" /><title>probe</title></head>
+<body>
+<pre id="report"></pre>
+<script>
+const files = (new URLSearchParams(location.search)).get('f') || '';
+const list = files.split(',').filter(Boolean);
+const out = [];
+let done = 0;
+for (const f of list) {
+  const a = new Audio();
+  a.preload = 'metadata';
+  a.src = '../audio/sea/' + f;
+  a.addEventListener('loadedmetadata', () => {
+    out.push(`${f}  ${a.duration.toFixed(2)}s`);
+    if (++done === list.length) document.getElementById('report').textContent = out.join('\n');
+  });
+  a.addEventListener('error', () => {
+    out.push(`${f}  ERR`);
+    if (++done === list.length) document.getElementById('report').textContent = out.join('\n');
+  });
+}
+</script>
+</body></html>

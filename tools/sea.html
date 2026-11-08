@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>跃 · 上篇</title>
+<script>
+// 无头环境看不到 console，把未捕获错误直接写进 report / title
+window.addEventListener('error', (e) => {
+  const msg = `ERR ${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}`;
+  document.title = msg;
+  const r = document.getElementById('report');
+  if (r) { r.classList.add('on'); r.textContent = msg; }
+});
+</script>
+<style>
+  html, body { margin: 0; height: 100%; background: #04090d; overflow: hidden;
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  canvas { display: block; touch-action: none; }
+
+  /* ---- 唯一 HUD：氧气。没有分数、没有血条、没有连击 ---- */
+  #hud {
+    position: fixed; left: 0; right: 0; top: max(14px, env(safe-area-inset-top));
+    z-index: 5; pointer-events: none; text-align: center;
+    font-family: -apple-system, "PingFang SC", sans-serif;
+    transition: opacity 1.4s ease;
+  }
+  /* 顶部压一层暗：浅水里背景是亮的，纯文字会直接糊掉 */
+  #hud::before {
+    content: ''; position: fixed; left: 0; right: 0; top: 0; height: 190px;
+    background: linear-gradient(to bottom, rgba(2,9,15,.78) 0%, rgba(2,9,15,.34) 58%, rgba(2,9,15,0) 100%);
+    pointer-events: none;
+  }
+  /* ::before 是 fixed 定位，会盖住普通流的兄弟节点。
+     不给文字单独提层，HUD 就会被自己那层渐变压在下面 —— 表现是"字在，但看不清"。 */
+  #hud > div { position: relative; z-index: 1; }
+  #hud.off { opacity: 0; }
+  #hud .wave {
+    font-size: 11.5px; letter-spacing: 0.30em; text-indent: 0.30em;
+    color: #b6d6e4; text-shadow: 0 1px 7px rgba(0,0,0,1);
+  }
+  #hud .oxy {
+    margin-top: 4px;
+    font: 300 36px/1 ui-monospace, "SF Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    color: #a6e7f7; letter-spacing: 0.04em;
+    text-shadow: 0 2px 14px rgba(60,180,220,.4), 0 1px 5px rgba(0,0,0,.95);
+    transition: color .3s ease;
+  }
+  #hud .oxy i { font-style: normal; font-size: 15px; opacity: .62; margin-left: 3px; }
+  #hud .band {
+    margin-top: 7px; font-size: 10.5px; letter-spacing: .2em; color: #7fa8ba;
+    opacity: 0; transition: opacity .35s ease;
+  }
+  #hud .band.on { opacity: 1; }
+  #hud .obj {
+    margin-top: 9px; font-size: 12.5px; letter-spacing: .16em;
+    color: #86b3c6; text-shadow: 0 1px 6px rgba(0,0,0,.95);
+  }
+
+  /* ---- 开场三步：只教三个动作，多一个都不教 ---- */
+  #tut {
+    position: fixed; left: 50%; bottom: 21%; transform: translateX(-50%);
+    z-index: 7; pointer-events: none; width: 260px; height: 26px;
+    opacity: 0; transition: opacity .5s ease;
+    font-family: -apple-system, "PingFang SC", sans-serif;
+  }
+  #tut.on { opacity: 1; }
+  #tut .step {
+    position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+    white-space: nowrap; font-size: 15px; letter-spacing: .3em; text-indent: .3em;
+    color: #d3ecf7; opacity: 0; transition: opacity .45s ease;
+    text-shadow: 0 2px 12px rgba(0,0,0,.95);
+  }
+  #tut .step.on { opacity: 1; }
+
+  /* ---- 底部提示 ---- */
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: max(13%, 74px); z-index: 5;
+    text-align: center; pointer-events: none;
+    font: 400 13px/1.6 -apple-system, "PingFang SC", sans-serif;
+    color: #9fd0e4; letter-spacing: 0.08em;
+    text-shadow: 0 1px 6px rgba(0,0,0,.95);
+    opacity: 0; transition: opacity .4s ease;
+  }
+  #hint.on { opacity: .92; }
+
+  /* ---- 长按进度：回应 / 献祭共用一条 ---- */
+  #prog {
+    position: fixed; left: 50%; bottom: max(9%, 52px); transform: translateX(-50%);
+    width: 132px; height: 2px; z-index: 5; pointer-events: none;
+    background: rgba(140,200,220,.16); border-radius: 2px; opacity: 0;
+    transition: opacity .2s ease;
+  }
+  #prog.on { opacity: 1; }
+  #prog i { display: block; height: 100%; width: 0; border-radius: 2px;
+    background: #8fd8ec; box-shadow: 0 0 8px rgba(140,220,240,.7); }
+
+  /* ---- 标题 ---- */
+  #boot {
+    position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 13px;
+    background: radial-gradient(120% 80% at 50% 32%, #0b2b3c, #03070c 78%);
+    color: #cfeaf7; font: 400 15px/1.7 -apple-system, "PingFang SC", sans-serif;
+    letter-spacing: 0.06em; cursor: pointer;
+  }
+  #boot b { font-weight: 400; font-size: 44px; letter-spacing: 0.3em; text-indent: .3em; }
+  #boot .sub { color: #6f93a6; font-size: 12.5px; letter-spacing: 0.14em; }
+  #boot .rule { width: 34px; height: 1px; background: rgba(140,190,210,.3); margin: 3px 0; }
+  #boot .go { margin-top: 10px; font-size: 12px; letter-spacing: .3em; color: #86b9cd;
+    border: 1px solid rgba(134,185,205,.3); padding: 9px 22px; border-radius: 30px; }
+
+  /* ---- 波次过渡 / 结局 ---- */
+  #veil {
+    position: fixed; inset: 0; z-index: 8; pointer-events: none;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; text-align: center; opacity: 0; transition: opacity .7s ease;
+    font-family: -apple-system, "PingFang SC", sans-serif;
+    color: #d7eef8; padding: 0 34px;
+  }
+  #veil.on { opacity: 1; }
+  #veil .t { font-size: 21px; letter-spacing: .18em; }
+  #veil .d { font-size: 12.5px; line-height: 1.9; color: #7ea6b8; letter-spacing: .08em; }
+  #veil .k { font-size: 10px; letter-spacing: .26em; color: #5d8496; margin-top: 18px; }
+
+  /* ---- 每波的歌词：开场两秒，然后交给玩家 ---- */
+  #lyric {
+    position: fixed; left: 0; right: 0; top: 30%; z-index: 6; text-align: center;
+    pointer-events: none; opacity: 0; transition: opacity 1.1s ease;
+    font-family: -apple-system, "PingFang SC", sans-serif;
+  }
+  #lyric.on { opacity: 1; }
+  #lyric .t {
+    font-size: 15px; letter-spacing: 0.36em; text-indent: 0.36em;
+    color: #cfe8f4; text-shadow: 0 2px 14px rgba(0,0,0,.9);
+  }
+  #lyric .d {
+    margin-top: 9px; font-size: 10.5px; letter-spacing: 0.14em;
+    color: #92b8c9; text-shadow: 0 1px 8px rgba(0,0,0,.95);
+  }
+
+  /* 歌的进度：七个点。它也是唯一的"进度条" —— 没有关卡号，只有音。 */
+  #hud .notes { display: flex; gap: 7px; justify-content: center; margin-top: 10px; }
+  #hud .notes i {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(150, 206, 226, 0.30);
+    transition: background .55s ease, box-shadow .55s ease;
+  }
+  #hud .notes i.on { background: #c4ecf8; box-shadow: 0 0 9px rgba(158, 228, 248, 0.8); }
+
+  #report {
+    position: fixed; left: 0; bottom: 0; z-index: 9; margin: 0; padding: 4px 8px;
+    color: #7fe3ff; font: 11px/1.5 ui-monospace, monospace; white-space: pre;
+    background: rgba(0, 0, 0, 0.45); display: none; max-width: 100vw;
+  }
+  #report.on { display: block; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="hud">
+  <div class="wave" id="hWave"></div>
+  <div class="oxy" id="hOxy">34<i>s</i></div>
+  <div class="notes" id="hNotes"></div>
+  <div class="obj" id="hObj">目标 · 找到同伴</div>
+  <div class="band" id="hBand">水面 · 能被看见</div>
+</div>
+<div id="tut">
+  <div class="step">拖动 · 游</div>
+  <div class="step">长按 · 唱</div>
+  <div class="step">浮上去 · 呼吸</div>
+</div>
+<div id="hint"></div>
+<div id="lyric"><div class="t"></div><div class="d"></div></div>
+<div id="prog"><i></i></div>
+<div id="veil"><div class="t"></div><div class="d"></div><div class="k"></div></div>
+<pre id="report"></pre>
+
+<div id="boot">
+  <b>跃</b>
+  <div class="rule"></div>
+  <div class="sub">上篇 · 一次下潜</div>
+  <div class="sub" style="opacity:.62;margin-top:6px">拖动 · 游　　长按 · 唱</div>
+  <div class="sub" style="opacity:.44;margin-top:14px;font-size:10.5px;line-height:1.9">
+    找到同伴 → 歌多一个音<br>气只在海面回满
+  </div>
+  <div class="go">开始</div>
+</div>
+
+<script type="module">
+import { SeaRenderer } from '../js/sea-render.js';
+import { SeaAudio } from '../js/sea-audio.js';
+import { SeaWhale } from '../js/sea-whale.js';
+import { SeaGame, SEA_STRATA } from '../js/sea-game.js';
+import { Sound } from '../js/audio.js';
+import { QUALITY, LEVELS } from '../js/quality.js';
+import { clamp } from '../js/util.js';
+
+const Q = new URLSearchParams(location.search);
+const cv = document.getElementById('cv');
+const boot = document.getElementById('boot');
+const report = document.getElementById('report');
+const elWave = document.getElementById('hWave');
+const elHud = document.getElementById('hud');
+const elOxy = document.getElementById('hOxy');
+const elBand = document.getElementById('hBand');
+const elObj = document.getElementById('hObj');
+const elTut = document.getElementById('tut');
+const tutSteps = [...elTut.children];
+const elHint = document.getElementById('hint');
+const elNotes = document.getElementById('hNotes');
+const elLyric = document.getElementById('lyric');
+const elProg = document.getElementById('prog');
+const elProgBar = elProg.firstElementChild;
+const elVeil = document.getElementById('veil');
+
+const qName = Q.get('q');
+if (qName) {
+  const i = LEVELS.findIndex((l) => l.name === qName);
+  if (i >= 0) QUALITY.force(i);
+}
+QUALITY.auto = false;
+
+const r = new SeaRenderer(cv);
+const S = new Sound();
+const sea = new SeaAudio(S);
+const whaleArt = new SeaWhale();
+
+// 占位精灵：把矢量鲸画进透明画布再喂回同一条贴图管线（验证用，不是最终美术）
+function makeMockSprite() {
+  const W = 1200, H = 800;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const tmp = new SeaRenderer(c, { alpha: true });
+  tmp.w = W; tmp.h = H; tmp.dpr = 1;
+  tmp.ctx.setTransform(1, 0, 0, 1, 0, 0);
+  tmp.ctx.clearRect(0, 0, W, H);
+  tmp.drawWhale(W * 0.5, H * 0.46, W * 0.94, { tilt: 0, phase: 1.2, depth: 0.4, silhouette: false });
+  return c;
+}
+
+const spriteMode = Q.get('sprite') || '';
+if (spriteMode === 'mock') {
+  whaleArt.adopt(makeMockSprite());
+} else if (spriteMode === 'img') {
+  whaleArt.load('../img/sea/').then((ok) => {
+    if (!ok && report) {
+      report.classList.add('on');
+      report.textContent = 'img/sea/ 下没有找到 whale，已退回矢量占位';
+    }
+  });
+}
+
+const FROZEN = Q.get('frozen') === '1';
+let t = 0;
+let running = false;
+let last = 0;
+let frames = 0;
+let fpsAcc = 0, fpsN = 0, fpsShown = 0;
+let endShown = '';
+let lyricT = 0;
+
+const game = new SeaGame(r, sea, whaleArt);
+// 调试/截图现在只需要 ?depth=0.62 —— 世界是连续的，没有"跳到第几波"
+if (Q.get('depth') != null) {
+  game.depth = clamp(parseFloat(Q.get('depth')), -0.3, 1);
+  game.aimDepth = game.depth;
+}
+if (Q.get('oxy') != null) game.oxy = clamp(parseFloat(Q.get('oxy')), 0, 1);
+// 调试：?dives=N 直接把世界推到第 N 阶段（海面对比截图用）
+if (Q.get('dives') != null) game.dives = Math.max(0, parseInt(Q.get('dives'), 10) || 0);
+// 调试：?vision=1 直接进幻象（花园截图用）
+if (Q.get('vision') === '1') { game.mode = 'vision'; game.visionT = 2.5; game.visionK = 1; }
+
+function fit() {
+  const w = Math.max(240, window.innerWidth);
+  const h = Math.max(320, window.innerHeight);
+  const dpr = Q.get('q') ? Math.min(window.devicePixelRatio || 1, QUALITY.prop.dpr) : Math.min(window.devicePixelRatio || 1, 2.5);
+  r.resize(w, h, dpr);
+}
+fit();
+window.addEventListener('resize', () => {
+  fit();
+  // resize 会清空 canvas。截图夹具必须自己补一帧，
+  // 否则无头浏览器在拍之前触发一次 resize，拍到的就是纯黑。
+  if (FROZEN) drawOnce();
+  else if (Q.get('auto')) { try { r.frame(1 / 60, frameState()); } catch (_) {} }
+});
+
+function frameState() {
+  const w = r.w, h = r.h;
+  return {
+    camDepth: game.depth,
+    echo: game.echo,
+    // 世界在慢慢死：海雪、浮游生物、光柱都按这一条曲线递减
+    life: game.life,
+    murk: game.murk,
+    vision: game.visionK,
+    dim: game.dark,
+    // 缺氧：氧气低于 35% 开始收视野，越低收得越狠
+    panic: game.oxy < 0.35 ? (0.35 - game.oxy) / 0.35 : 0,
+    // 第 3 波沉船是主角，抬亮它
+    shipBoost: game.kit.some((k) => k.type === 'wreck') ? 1 : 0,
+    whale: {
+      x: w * (0.5 + game.lat * 0.42),
+      // 跃出水面时整条鲸往上抬：相机跟着走，但身体要比水面先出去，
+      // 否则看起来是"水面沉下去"，不是"我跃起来"。
+      y: h * (0.53 + Math.min(0, game.depth) * 0.60),
+      // 0.80 屏宽：贴图整图宽 1.05 时鲸本体占 0.75 屏，画面里只剩鲸、看不到环境。
+      // 这一关要读的是"水和同类"，不是角色立绘。
+      L: w * 0.80,
+      // 下潜时头朝下：倾角直接读垂直速度，比按目标位置算更有"受力"的感觉
+      tilt: clamp(game.vD * 0.13, -0.42, 0.42) + Math.sin(t * 0.31) * 0.012,
+      phase: t * 2.62,
+      // 这一条之前漏了：海水把它泡到多深，它就该多暗。
+      // 漏掉的后果是主角在 1.00 深处依然又蓝又亮，整个"深渊"塌了。
+      // 结局压暗也要吃到主角身上：dark 会折算成等效深度，
+      // 否则全世界都黑了，只剩它亮着 —— 那是灯，不是鲸。
+      depth: clamp(game.depth + game.dark * 0.75, 0, 1),
+    },
+    sprite: whaleArt,
+    entities: (ctx, R) => game.drawEntities(ctx, R),
+  };
+}
+
+function drawOnce() {
+  r.frame(0, frameState());
+  // 静态取图时也要把 HUD / 歌词刷出来，否则截图里只有一片水
+  syncDom();
+  paintVeil();
+}
+
+if (Q.get('bench') === '1') {
+  const N = 30;
+  const t0 = performance.now();
+  for (let i = 0; i < N; i++) r.frame(1 / 60, frameState());
+  const ms = (performance.now() - t0) / N;
+  report.classList.add('on');
+  report.textContent = `bench: frame() ${ms.toFixed(2)}ms/帧（软件光栅，真机 GPU 更快）`;
+}
+
+if (Q.get('selftest') === '1') {
+  report.classList.add('on');
+  boot.style.display = 'none';
+  running = true;
+  S.unlock();
+  const ok = sea.init();
+  const q = QUALITY.prop;
+  report.textContent = [
+    `selftest ok=${ok} ready=${sea.ready} mode=${game.mode} depth=${game.depth.toFixed(2)}`,
+    `quality=${q.name} dpr=${q.dpr} haze=${q.haze} fog=${q.fog} motes=${q.motes}`,
+    `canvas=${cv.width}x${cv.height} css=${r.w}x${r.h}`,
+    `kit=${game.kit.length} mates=${game.mates.length} voices=${game.voices}`,
+  ].join('\n');
+  if (FROZEN) drawOnce();
+}
+
+if (FROZEN) {
+  boot.style.display = 'none';
+  running = true;
+  requestAnimationFrame(() => { drawOnce(); try { S.unlock(); sea.init(); } catch (e) {} });
+}
+
+// ?auto=1&frames=N：无头环境同步跑 N 帧，把状态打进 #report。
+// 不能用 rAF —— 虚拟时钟下每一帧都请求下一帧，渲染进程会直接卡死。
+// 包成函数是因为它要用到下面才定义的 VEIL（const 有 TDZ），必须等定义完再调。
+function runAuto() {
+  boot.style.display = 'none';
+  running = true;
+  try { S.unlock(); sea.init(); } catch (_) {}
+  const N = Math.max(1, parseInt(Q.get('frames') || '600', 10));
+  const autoMode = Q.get('auto');
+  const drive = autoMode === 'drive';
+  const jumpTest = autoMode === 'jump';
+  let err = '';
+  let maxV = 0;
+  try {
+    for (let i = 0; i < N; i++) {
+      // 自动驾驶：找一个同类 → 游过去 → 按住唱 → 没气就上浮。
+      // 用来验证「一局到底」能不能真的走完（尤其最后一只够不着那条）。
+      if (jumpTest) {
+        game.aimDepth = -0.3;
+      } else if (drive && game.mode === 'play') {
+        const m = game.mate;
+        // 换气就换到八成满才走：只补一点点就下潜，会在浅处反复抽气，
+        // 那是机器人的毛病，不是玩家的（人都会等到吸满）。
+        if (game.oxy < 0.82 && (game.depth < 0.12 || game.oxy < 0.24)) {
+          game.aimDepth = -0.04;
+          game.aimLat = 0;
+          game.held = false;
+        } else if (m && !m.answered) {
+          game.aimDepth += (m.depth - game.aimDepth) * 0.05;
+          game.aimLat += (m.lat - game.aimLat) * 0.05;
+          game.held = !!m.found;
+          if (game.held && game.heldT < 0.5) game.heldT = 0.5;
+        } else {
+          game.held = false;
+          game.aimDepth = Math.min(1, game.depth + 0.01);
+        }
+      }
+      t += 1 / 60;
+      game.update(1 / 60);
+      maxV = Math.max(maxV, -game.vD);
+      if (i % 4 === 0) { syncDom(); paintVeil(); }
+    }
+  } catch (e) {
+    err = ` ERR ${e && e.message} @ ${((e && e.stack) || '').split('\n')[1] || ''}`;
+  }
+  try { r.frame(1 / 60, frameState()); } catch (e) { err += ` ERRFRAME ${e && e.message}`; }
+  syncDom();
+  paintVeil();
+  const H = game.hud();
+  // 取一个真实像素，确认画面不是被压成纯黑（截图肉眼看不出 #020a10 和 #000）
+  let px0 = '';
+  try {
+    const d = r.ctx.getImageData(Math.floor(r.w * 0.5 * r.dpr), Math.floor(r.h * 0.3 * r.dpr), 1, 1).data;
+    px0 = ` px=${d[0]},${d[1]},${d[2]}`;
+  } catch (_) {}
+  report.classList.add('on');
+  report.textContent = `frames=${N} mode=${H.mode} depth=${H.depth.toFixed(2)} oxy=${H.oxygen.toFixed(2)} voices=${H.voices}/${H.voicesAll} codex=${H.codex} dives=${H.dives} dark=${H.dark.toFixed(2)} mates=[${game.mates.map(m=>m.depth.toFixed(2)+':'+(m.answered?'Y':(m.found?'n':'-'))).join(' ')}] kit=${game.kit.length} fish=${game.fish.length} gull=${game.gulls.length}${px0} maxV=${maxV.toFixed(2)}${err}`;
+}
+
+// ---------------- 循环 ----------------
+const VEIL = {
+  endA: (H) => ({
+    t: '你回去了',
+    d: `海面很亮。\n第 ${H.stage} 阶段的海，你看见了最后一眼。`,
+    k: '「想替人世间　说一声抱歉」',
+  }),
+  endB: () => ({
+    t: '最美丽的花园',
+    d: '珊瑚是彩色的，鱼群绕着你转。\n那是第一层的样子 —— 也是最后的样子。',
+    k: '「还是说　有人类就无解」',
+  }),
+};
+
+let lastStrata = '';
+function syncDom() {
+  const H = game.hud();
+  // 结局时连"还剩多少秒"都不该留在屏幕上 —— 那时候已经没有秒了
+  elHud.classList.toggle('off', H.mode !== 'play');
+
+  elWave.textContent = `${H.strata}　·　${(H.depth / H.depthMax).toFixed(2)}`;
+  elOxy.innerHTML = `${H.oxySec}<i>s</i>`;
+  elOxy.style.color = H.oxygen > 0.5 ? '#a6e7f7' : H.oxygen > 0.25 ? '#ffcf7a' : '#ff8a76';
+
+  // 歌：七个点。每回应一只亮一个。这是唯一的进度条。
+  while (elNotes.childElementCount < H.voicesAll) elNotes.appendChild(document.createElement('i'));
+  for (let i = 0; i < elNotes.childElementCount; i++) {
+    elNotes.children[i].classList.toggle('on', i < H.voices);
+  }
+
+  const bandOn = H.band !== 'mid';
+  elBand.classList.toggle('on', bandOn);
+  elBand.textContent = H.band === 'surface'
+    ? (game.kit.some((k) => k.type === 'slick') ? '水面 · 油污，换不了气' : '水面 · 能被看见')
+    : H.band === 'abyss' ? '深渊 · 它看不见你，你也看不见路' : '';
+
+  const hint = H.mode === 'play' ? H.hint : '';
+  elHint.textContent = hint || '';
+  elHint.classList.toggle('on', !!hint);
+
+  // 目标行。核心循环是呼吸：潜下去待着，气不够就上来。
+  // 同类的歌只是顺路的事 —— 它响的时候提一句，不响就不提。
+  if (H.mode === 'play') {
+    if (H.mateFound) {
+      elObj.textContent = '它就在这 · 长按，回应';
+      elObj.style.color = '#e8c07a';
+    } else if (H.oxygen < 0.24) {
+      elObj.textContent = '气不够了 · 浮上去';
+      elObj.style.color = '#ff9a86';
+    } else if (H.band === 'surface') {
+      elObj.textContent = '换完了就走 · 下面才是家';
+      elObj.style.color = '#a6c8d8';
+    } else if (H.blood > 0) {
+      elObj.textContent = '你在流血 · 海鸥看见了';
+      elObj.style.color = '#d8988a';
+    } else {
+      elObj.textContent = '潜下去 · 上面的船看不见你';
+      elObj.style.color = '#86b3c6';
+    }
+  } else if (H.visionMode) {
+    elObj.textContent = '';
+  } else {
+    elObj.textContent = '';
+  }
+
+  // 开场三步：只教三个动作。4 秒一条，13 秒后彻底退场。
+  const tutOn = H.mode === 'play' && game.t < 13;
+  elTut.classList.toggle('on', tutOn);
+  if (tutOn) {
+    const k = Math.min(2, Math.floor(game.t / 4));
+    for (let i = 0; i < tutSteps.length; i++) tutSteps[i].classList.toggle('on', i === k);
+  }
+
+  // 跨入新的一段时给一次歌词。它不是标语，所以只挂 2.8 秒。
+  if (H.strata !== lastStrata) {
+    lastStrata = H.strata;
+    lyricT = 3.0;
+    const [tEl, dEl] = elLyric.children;
+    const S = SEA_STRATA[H.strataIdx - 1] || SEA_STRATA[0];
+    tEl.textContent = S.line;
+    dEl.textContent = H.strata;
+  }
+  lyricT = Math.max(0, lyricT - 0.06);
+  elLyric.classList.toggle('on', H.mode === 'play' && lyricT > 0);
+
+  // 长按进度：回应同类 / 献祭项链
+  let prog = 0;
+  if (H.mode === 'play') {
+    if (H.mateFound) prog = H.mateResp;
+    else if (H.canSacrifice) prog = H.sacrifice;
+  }
+  elProg.classList.toggle('on', prog > 0.01);
+  elProgBar.style.width = (prog * 100).toFixed(1) + '%';
+  elProgBar.style.background = H.mateFound ? '#8fd8ec' : '#e8c07a';
+
+  if (H.mode === 'play') {
+    if (endShown) { elVeil.classList.remove('on'); endShown = ''; }
+  } else if (H.mode === 'endA' && endShown !== 'endA') {
+    endShown = 'endA';
+  } else if (H.mode === 'endB' && endShown !== 'endB' && H.dark > 0.10) {
+    endShown = 'endB';
+  }
+}
+
+function paintVeil() {
+  const H = game.hud();
+  if (H.mode === 'play') return;
+  const v = VEIL[H.mode] && VEIL[H.mode](H);
+  if (!v) return;
+  const [tEl, dEl, kEl] = elVeil.children;
+  if (tEl.textContent !== v.t) {
+    tEl.textContent = v.t;
+    dEl.textContent = v.d || '';
+    kEl.textContent = v.k || '';
+    elVeil.classList.add('on');
+  }
+}
+
+function loop(now) {
+  const dt = last ? Math.min(0.05, (now - last) / 1000) : 0.016;
+  last = now;
+  t += dt;
+  frames++;
+
+  game.update(dt);
+  sea.update(dt, { depth: game.depth, oxygen: game.oxy });
+  r.frame(dt, frameState());
+
+  if (frames % 4 === 0) { syncDom(); paintVeil(); }
+  // endB 的暗场是渐变的，文字得跟着一起浮上来
+  if (game.mode === 'endB' && game.dark > 0.10 && elVeil.classList.contains('on') === false) paintVeil();
+
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc >= 0.5) { fpsShown = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; }
+  requestAnimationFrame(loop);
+}
+
+// ---------------- 输入 ----------------
+function start() {
+  boot.style.display = 'none';
+  running = true;
+  S.unlock();
+  const ok = sea.init();
+  if (!ok) setTimeout(() => sea.init(), 120);
+  sea.motif({ vol: 0.04 });
+  // 真实录音异步加载：不挡开局，到位了再接上海面环境层
+  sea.loadSamples().then((got) => {
+    if (got) sea.startSurfaceBed();
+  });
+  requestAnimationFrame(loop);
+}
+
+boot.addEventListener('pointerdown', start);
+
+cv.addEventListener('pointerdown', (e) => {
+  if (!running) return;
+  e.preventDefault();
+  try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+  game.down(e.clientX, e.clientY);
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!running) return;
+  game.move(e.clientX, e.clientY);
+});
+const release = () => { if (running) game.up(); };
+cv.addEventListener('pointerup', release);
+cv.addEventListener('pointercancel', release);
+cv.addEventListener('pointerleave', release);
+
+// 键鼠调试：空格 = 唱，方向键 = 游
+window.addEventListener('keydown', (e) => {
+  if (!running) return;
+  if (e.code === 'Space') { e.preventDefault(); if (!game.held) game.down(r.w * 0.5, r.h * 0.5); }
+  if (e.code === 'ArrowUp') game.aimDepth = clamp(game.aimDepth - 0.03, 0, 1);
+  if (e.code === 'ArrowDown') game.aimDepth = clamp(game.aimDepth + 0.03, 0, 1);
+  if (e.code === 'ArrowLeft') game.aimLat = clamp(game.aimLat - 0.04, -1, 1);
+  if (e.code === 'ArrowRight') game.aimLat = clamp(game.aimLat + 0.04, -1, 1);
+});
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') game.up();
+});
+
+window.__SEA = { r, sea, S, QUALITY, game, state: () => ({ mode: game.mode, depth: game.depth, oxy: game.oxy, voices: game.voices, frames }) };
+
+if (Q.get('auto')) runAuto();
+</script>
+</body>
+</html>
