@@ -247,6 +247,32 @@ const EN = {
   优化: 'POLISHED',
   修复: 'FIXED',
 
+  // ---- v1.0.79 / 26-11-08 ----
+  '第五关《跃》上线：一头鲸、一口气、六只走散的同类。浮上去换气，就等于把自己交出去':
+    'Stage 5 "Leap" is live: one whale, one breath, six scattered kin. Surfacing for air means giving yourself away',
+  '实话说，这关只做完三分之一。剩下的还沉在水下，先端上来让你替我们试试水':
+    'Honestly, only a third of it is done. The rest is still underwater — take it for a test dive',
+  '第四关的怪全部重画：哥布林、郊狼、兽人、鹰身女妖、史莱姆 —— 连走路的架势一起换了':
+    'Every stage-4 monster repainted: goblin, coyote, orc, harpy, slime — even their walks are new',
+  '异世界的场景大改：天色、雾气、地面全换，站进去终于像穿越，不像换了张壁纸':
+    'Stage 4 scenery overhauled: sky, fog and ground — it finally feels like another world, not a wallpaper swap',
+  '第五关整片海都是新的：会坏下去的海面、会白化的珊瑚、深渊里唯一会亮的水母、会崩的冰山':
+    'The whole ocean in stage 5 is new: a sea that rots, corals that bleach, the only glowing jellies in the abyss, icebergs that split',
+  '操作方向改对了：往下滑是下潜，往上滑是出水换气，不用再在脑子里翻个身':
+    'Steering fixed: swipe down to dive, swipe up to surface — no more mental gymnastics',
+  '进关前先等贴图落位，不再是「先给你一条纯色的鱼，几秒后才长出花纹」':
+    'The game now waits for its textures before you dive — no more a colourless whale that grows its patterns seconds later',
+  '修掉一进第五关它自己在海面上一直跳的毛病':
+    'Fixed the whale bouncing off the surface by itself the moment stage 5 started',
+  '修掉明明还在往上、却怎么也跃不出海面 —— 水面本来是没有盖子的':
+    'Fixed never being able to breach the surface even while rising — the water never had a lid',
+  '修掉越往深处游、身上的伤反而越看不见（应该是越深越清楚）':
+    'Fixed wounds fading the deeper you swim — they should read clearer down there',
+  '修掉水母不显示、鱼群游在画面外、结局文字压在鲸身上，顺手把深水掉帧也修了':
+    'Fixed invisible jellies, fish swimming off-screen and ending text sitting on the whale — plus deep-water frame drops',
+  '后续对第五关进行完善和更新。因为时间原因，进入缓更期':
+    'Stage 5 will keep getting fixed and expanded — but with time short, updates are slowing down',
+
   // ---- v1.0.65 / 26-10-25 ----
   '无尽模式来了：没有终点，四关的怪排着队往上冲，一口气打个痛快':
     'Endless mode: no finish line, monsters from all four stages line up — go wild',
@@ -256,8 +282,6 @@ const EN = {
     'Word book: every word you miss is saved, ready to review anytime',
   '修掉了一个很烦人的问题：打得太欢时画面会频繁频闪、晃得眼睛疼':
     'Fixed an annoying one: heavy firefights no longer strobe and hurt your eyes',
-  '「保护世界」主题特典关卡即将上线，游戏步入完结':
-    'Bonus stage "Protect the World" is coming — and the story wraps up',
 
   // ---- v1.0.56 / 26-10-20 ----
   '勇者和花仙子现在四关都能上场了':

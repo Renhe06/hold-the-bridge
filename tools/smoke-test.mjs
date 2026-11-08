@@ -3150,8 +3150,12 @@ try {
     return idx.some((n) => n < 0) || idx.some((n, i) => i > 0 && n < idx[i - 1]);
   });
   ok(badOrder.length === 0, `更新说明分组顺序都是 新增→优化→修复${badOrder.length ? `（乱了：${badOrder.map((r) => r.version).join(',')}）` : ''}`);
-  ok(CHANGELOG[0].version === '1.0.66' && /保护世界/.test(CHANGELOG[0].preview || ''),
-    '最新一版带「更新预告」：保护世界特典关卡（用户 m17134）');
+  // 【用户 m20417】预告从 v1.0.66 挪到了最新一版，内容换成「第五关继续完善 + 缓更期」。
+  // 所以这里改成：最新一版必须有预告且写的是第五关；旧版本不再重复挂同一条。
+  ok(/第五关/.test(CHANGELOG[0].preview || ''),
+    '最新一版带「更新预告」：第五关继续完善 + 缓更期（用户 m20417）');
+  ok(!CHANGELOG.slice(1).some((r) => /保护世界/.test(r.preview || '')),
+    '旧版本不再重复挂「保护世界」预告（已移到最新一版）');
   const logSrc = fs.readFileSync(path.join(ROOT, 'js', 'main.js'), 'utf8');
   ok(/badge\.textContent = '更新预告'/.test(logSrc), '预告小标签写着「更新预告」（用户 m17134）');
 } catch (err) {
