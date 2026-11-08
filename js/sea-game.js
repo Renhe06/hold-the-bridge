@@ -715,7 +715,7 @@ export class SeaGame {
     this.hurtCd = 0.55;
     this.hp = Math.max(0, this.hp - amount);
     this.dmgFlash = 1;
-    if (opt.scar !== false) this.scars = Math.min(6, this.scars + 1);
+    if (opt.scar !== false) this.scars = Math.min(9, this.scars + 1);
     if (opt.blood !== false) this._bleed();
     this.sea.hull();
     if (this.hp <= 0) this._die('hp');
@@ -1120,7 +1120,7 @@ export class SeaGame {
           if ((t.hurtT || 0) <= 0) {
             t.hurtT = 2.8;
             this._hit(DMG_PLASTIC);
-            this.plasticRings = Math.min(4, this.plasticRings + 1);
+            this.plasticRings = Math.min(5, this.plasticRings + 1);
             this.hint = '塑料缠住了尾巴。';
           }
         }
@@ -1841,6 +1841,85 @@ export class SeaGame {
     return cv;
   }
 
+  /**
+   * 洋流流痕（512×128，横向可平铺）。
+   *
+   * 用户定版："洋流可以不明显，但玩家要能感受到是有，不是画几根线糊弄人。"
+   *
+   * 所以这里**不画流线**。画流线等于告诉玩家"你看，这里有一条线"——
+   * 真正让人感到水在走的东西是三样：
+   *   ① 被水流抻长的**短痕**（10~70px，两端收尖，朝向一致）—— 运动模糊；
+   *   ② 被带着走的**颗粒**（远处那些蜉蝣、碎屑，只有它们在动才说明水在动）；
+   *   ③ **气泡**（唯一会逆着水流往上跑的东西，是"这是水"最硬的证据）。
+   * 这三样都烘进一张可平铺的图，画的时候只做平移 —— 零额外计算。
+   */
+  _streakTex() {
+    if (this._streak) return this._streak;
+    const W = 512;
+    const H = 128;
+    const cv = document.createElement('canvas');
+    cv.width = W;
+    cv.height = H;
+    const g = cv.getContext('2d');
+    if (!g) return null;
+    const rnd = mulberry32(90211);
+    g.lineCap = 'round';
+
+    // ① 流痕：长度差 7 倍、粗细差 3 倍。等长的痕会读成"虚线"。
+    for (let i = 0; i < 54; i++) {
+      const x = rnd() * W;
+      const y = H * (0.06 + rnd() * 0.88);
+      const len = 10 + rnd() * rnd() * 62;
+      const lw = 0.7 + rnd() * 1.7;
+      const a = 0.07 + rnd() * 0.20;
+      // 两端收尖：三段递减宽度的线叠起来，中间粗两头细
+      for (let k = 0; k < 3; k++) {
+        const seg = len * (1 - k * 0.30);
+        g.strokeStyle = `rgba(168,226,242,${a * (0.55 + k * 0.25)})`;
+        g.lineWidth = lw * (1 - k * 0.30);
+        g.beginPath();
+        g.moveTo(x - seg * 0.5, y);
+        g.lineTo(x + seg * 0.5, y);
+        g.stroke();
+      }
+      // 头部一个更亮的点：给出方向（水往哪边流）
+      g.fillStyle = `rgba(214,246,255,${a * 0.9})`;
+      g.beginPath();
+      g.arc(x + len * 0.5, y, lw * 0.62, 0, TAU);
+      g.fill();
+    }
+
+    // ② 被带着走的碎屑：小方点，比流痕慢、比气泡暗
+    for (let i = 0; i < 46; i++) {
+      const x = rnd() * W;
+      const y = H * (0.06 + rnd() * 0.88);
+      const r = 0.5 + rnd() * 1.2;
+      g.fillStyle = `rgba(206,238,250,${0.10 + rnd() * 0.22})`;
+      g.beginPath();
+      g.arc(x, y, r, 0, TAU);
+      g.fill();
+    }
+
+    // ③ 气泡：一圈亮边 + 一点高光。空心圆是"气泡"，实心点是"沙"。
+    for (let i = 0; i < 14; i++) {
+      const x = rnd() * W;
+      const y = H * (0.10 + rnd() * 0.80);
+      const r = 1.3 + rnd() * 2.2;
+      g.strokeStyle = `rgba(226,248,255,${0.16 + rnd() * 0.26})`;
+      g.lineWidth = 0.8;
+      g.beginPath();
+      g.arc(x, y, r, 0, TAU);
+      g.stroke();
+      g.fillStyle = 'rgba(255,255,255,0.34)';
+      g.beginPath();
+      g.arc(x - r * 0.32, y - r * 0.34, r * 0.28, 0, TAU);
+      g.fill();
+    }
+
+    this._streak = cv;
+    return cv;
+  }
+
   _slickTex() {
     if (this._slick) return this._slick;
     const cv = document.createElement('canvas');
@@ -1993,18 +2072,73 @@ export class SeaGame {
       // 伞本体
       ctx.globalAlpha = clamp(0.62 * lit + this.visionK * 0.18, 0, 1);
       ctx.drawImage(tex, jx - dw * 0.5, dy, dw, dh);
-      // 触手：四根，越长越淡。直线像面条，弧线才像被水托着
-      ctx.globalAlpha = clamp(0.24 * lit, 0, 1);
-      ctx.strokeStyle = t.cold ? 'rgba(190,240,252,1)' : 'rgba(216,196,248,1)';
-      ctx.lineWidth = Math.max(0.7, R0 * 0.045);
-      for (let i = 0; i < 4; i++) {
-        const ox = jx + (i - 1.5) * R0 * 0.34;
-        const len = R0 * (1.5 + (i % 2) * 0.55);
-        const sw = Math.sin(this.waveT * 0.9 + t.ph + i) * R0 * 0.18;
+      // 触手：八根**膜带**，不是八根线。
+      // 用户："水母的须太抽象了，就几根线条，更精致一点。"
+      // 等宽的线在手机上就是"面条"；真实的水母触手是有宽度的膜，
+      // 从伞缘出来时细、中段被水撑开、末端收成一丝。所以这里用
+      // 采样点铺一条**有宽窄变化**的带子，再在两侧长出细须。
+      const nT = 8;
+      const tentA = clamp(0.30 * lit, 0, 1);
+      for (let i = 0; i < nT; i++) {
+        const u = i / (nT - 1) - 0.5;                        // -0.5 ~ 0.5
+        const ox = jx + u * R0 * 0.86;
+        const len = R0 * (1.15 + Math.abs(u) * 0.72 + (i % 4) * 0.15);
+        const base = Math.max(1.0, R0 * 0.086 * (1 - Math.abs(u) * 0.34));
+        const sw = Math.sin(this.waveT * 0.9 + t.ph + i * 0.62) * R0 * 0.17;
+
+        const N = 9;
+        const pts = [];
+        for (let k = 0; k <= N; k++) {
+          const s0 = k / N;
+          // 弯曲量随 s² 增长：上段被伞坠着几乎直，下段才飘
+          const bend = sw * s0 * s0 * 1.3
+            + Math.sin(this.waveT * 1.1 + i * 1.3 + s0 * 2.6) * R0 * 0.042 * s0;
+          pts.push({
+            x: ox + bend,
+            y: jy + len * s0,
+            // 宽度：起点 0.55、中段最宽、末端收到 0.09
+            w: base * (0.55 + Math.sin(s0 * Math.PI * 0.85) * 0.75) * (1 - s0 * 0.90),
+            s: s0,
+          });
+        }
         ctx.beginPath();
-        ctx.moveTo(ox, jy - R0 * 0.02);
-        ctx.quadraticCurveTo(ox + sw, jy + len * 0.55, ox + sw * 1.7, jy + len);
-        ctx.stroke();
+        for (let k = 0; k <= N; k++) {
+          const q = pts[k];
+          const px = q.x - q.w * 0.5;
+          if (k === 0) ctx.moveTo(px, q.y); else ctx.lineTo(px, q.y);
+        }
+        for (let k = N; k >= 0; k--) {
+          const q = pts[k];
+          ctx.lineTo(q.x + q.w * 0.5, q.y);
+        }
+        ctx.closePath();
+        ctx.globalAlpha = tentA;
+        ctx.fillStyle = t.cold ? 'rgba(198,242,254,1)' : 'rgba(224,202,250,1)';
+        ctx.fill();
+
+        // 侧须：每根三簇，斜向外的短毛。这是"精致"和"几根线"的分水岭 ——
+        // 一根光带仍然抽象，带上有毛才像活的组织。
+        ctx.strokeStyle = t.cold ? 'rgba(214,248,255,1)' : 'rgba(234,216,255,1)';
+        ctx.lineWidth = Math.max(0.45, base * 0.19);
+        for (let f = 0; f < 3; f++) {
+          const q = pts[3 + f * 2];
+          const side = (i + f) % 2 ? 1 : -1;
+          ctx.globalAlpha = tentA * 0.62;
+          ctx.beginPath();
+          ctx.moveTo(q.x, q.y);
+          ctx.quadraticCurveTo(
+            q.x + side * base * 1.9, q.y + base * 1.4,
+            q.x + side * base * 2.2, q.y + base * 3.1
+          );
+          ctx.stroke();
+        }
+        // 末端收尾的一点微光：让触手"结束"而不是被截断
+        const tp = pts[N];
+        ctx.globalAlpha = tentA * 0.75;
+        ctx.fillStyle = t.cold ? 'rgba(222,250,255,1)' : 'rgba(240,224,255,1)';
+        ctx.beginPath();
+        ctx.arc(tp.x, tp.y, Math.max(0.6, base * 0.13), 0, TAU);
+        ctx.fill();
       }
       ctx.restore();
     }
@@ -2473,27 +2607,87 @@ export class SeaGame {
       }
     }
 
-    // ---- 洋流：横向流动的水带。它不挡路，它只是不问你同不同意 ----
+    // ---- 洋流：**看不出一条线，但能感到水在走** ----
+    // 用户定版："洋流可以不明显，但玩家要能感受到是有，不是画几根线糊弄人。"
+    // 上一版是十几条贯穿全屏的流线，读作"屏幕上划了几道白痕"。
+    // 现在只有三层信号，全部靠**位移**而不是靠**形状**说话：
+    //   a) 一层几乎看不见的亮带（水的密度不同）
+    //   b) 两层速度不同的流痕（视差 → 有厚度）
+    //   c) 沿流向被推着走的颗粒和上升的气泡（它们动，才证明水在动）
+    const streakCv = this._streakTex();
     for (const t of this.kit) {
       if (t.type !== 'current') continue;
       const yc = sy(t.d);
       const hh = t.h * h * 2;
       const y0 = yc - hh * 0.5;
       if (y0 > h || y0 + hh < 0) continue;
+      const dir = t.dir;
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      ctx.lineWidth = 2.1;
-      // 用虚线滚动做"流动"，比画一堆粒子便宜，而且方向一定读得对
-      ctx.setLineDash([70, 210]);
-      ctx.lineDashOffset = -this.waveT * 62 * t.dir;
-      for (let i = 0; i < 5; i++) {
-        const yy = y0 + (hh * (i + 0.5)) / 5;
-        const a = 0.085 * (1 - Math.abs(i - 2) / 3);
-        ctx.strokeStyle = `rgba(126,206,228,${a})`;
-        ctx.beginPath();
-        ctx.moveTo(-20, yy);
-        ctx.lineTo(w + 20, yy);
-        ctx.stroke();
+
+      // a) 亮带：一条极淡的横向微光，中间亮两头淡。它会慢慢呼吸 ——
+      //    不呼吸的话，玩家只会觉得"这里的背景图亮一点"。
+      const pulse = 0.5 + 0.5 * Math.sin(this.waveT * 0.42 + t.ph);
+      ctx.globalAlpha = (0.042 + pulse * 0.030) * (0.6 + this.depth * 0.5);
+      // 渐变按"取整后的带高"缓存：主循环里不新建渐变对象。
+      // 带高只在窗口尺寸变化时才变，所以这里实际上只建 1~2 次。
+      const gk = Math.round(hh);
+      if (!this._curGrad || this._curGrad.k !== gk) {
+        const gr = ctx.createLinearGradient(0, 0, 0, gk);
+        gr.addColorStop(0, 'rgba(120,200,222,0)');
+        gr.addColorStop(0.42, 'rgba(150,222,240,1)');
+        gr.addColorStop(1, 'rgba(120,200,222,0)');
+        this._curGrad = { k: gk, g: gr };
+      }
+      ctx.translate(0, y0);
+      ctx.fillStyle = this._curGrad.g;
+      ctx.fillRect(0, 0, w, hh);
+      ctx.translate(0, -y0);
+
+      // b) 流痕：一层。
+      //    上一版两 layers 做视差，每层两次平铺 —— 实测单薄一层的数据量下
+      //    frame() 从 0.98ms 涨到 1.6ms，而"厚度感"其实主要来自颗粒的位移差，
+      //    不来自这两张贴图。所以合成一层，速度取中间值。
+      if (streakCv) {
+        const th = hh * 0.92;
+        const tw = w * 1.04;
+        const spd = 22 * t.sp * 6;
+        const off = (((this.waveT * spd * dir) % tw) + tw) % tw;
+        ctx.globalAlpha = 0.38;
+        const yy = y0 + hh * 0.06;
+        for (let k = 0; k < 2; k++) {
+          ctx.drawImage(streakCv, -off + k * tw, yy, tw, th);
+        }
+      }
+
+      // c) 颗粒与气泡：这是"水在动"最直接的证据。
+      //    颗粒贴着流向跑，气泡反着往上浮 —— 一对矛盾的方向，才是流体。
+      for (let i = 0; i < 7; i++) {
+        const u = ((this.waveT * (0.10 + (i % 3) * 0.035) * dir + i * 0.137) % 1 + 1) % 1;
+        const px = u * w;
+        const py = y0 + hh * (0.16 + ((i * 53) % 71) / 71 * 0.68);
+        const fade = Math.sin(u * Math.PI);
+        ctx.globalAlpha = 0.36 * fade;
+        ctx.fillStyle = 'rgba(198,236,248,1)';
+        // 拖尾两点：一个点在动，一串点才是"被水带走的"
+        ctx.beginPath(); ctx.arc(px, py, 1.35, 0, TAU); ctx.fill();
+        ctx.globalAlpha = 0.16 * fade;
+        ctx.beginPath(); ctx.arc(px - dir * 4, py, 1.0, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.arc(px - dir * 8, py, 0.8, 0, TAU); ctx.fill();
+      }
+      for (let i = 0; i < 4; i++) {
+        const u = ((this.waveT * 0.055 + i * 0.27) % 1 + 1) % 1;
+        const py = y0 + hh * 0.94 - u * hh * 0.86;   // 上浮
+        const px = ((i * 0.29 + u * 0.34 * dir) * w + w) % w;
+        const r = 1.6 + (i % 2) * 1.1;
+        const fade = Math.sin(u * Math.PI);
+        ctx.globalAlpha = 0.24 * fade;
+        ctx.strokeStyle = 'rgba(224,248,255,1)';
+        ctx.lineWidth = 0.9;
+        ctx.beginPath(); ctx.arc(px, py, r, 0, TAU); ctx.stroke();
+        ctx.globalAlpha = 0.36 * fade;
+        ctx.fillStyle = 'rgba(255,255,255,1)';
+        ctx.beginPath(); ctx.arc(px - r * 0.34, py - r * 0.36, r * 0.30, 0, TAU); ctx.fill();
       }
       ctx.restore();
     }

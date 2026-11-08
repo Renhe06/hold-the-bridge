@@ -334,31 +334,97 @@ export class SeaWhale {
     // 六道伤要**分开长**：挤在一条斜线上的六道短线，在手机上读作"一撮稻草"。
     // 这一版把它们摊到尾柄、体侧、胸鳍上方、眼下、肩背，各自的倾角也不同 ——
     // 伤是陆续来的，位置本来就不该排队。
+    // 用户两次实拍："血痕不够明显" → "加明显加多数量范围"。
+    //
+    // 上一版是「深红粗线 + 全白描边」，在手机屏幕上读作一根根**红色小棒**：
+    // 宽度均匀、两端齐平、还有一圈发亮的高光边 —— 那是记号笔，不是伤口。
+    // 真正的撕裂伤有三个特征，这一版一条一条补上：
+    //   ① 两端**收尖**（宽度沿长度按 sin 收），中间才最宽；
+    //   ② 走向**不是直线**（中段被肌肉拉开，会偏出去一小段）；
+    //   ③ 边缘**不干净**（三两处小豁口），中间露出颜色更浅的肉。
+    // 长度和宽度也不再统一：同一条鲸身上不会有十道一样长的伤。
     const SPOTS = [
-      [0.352, 0.448, -0.62], [0.470, 0.508, 0.24], [0.560, 0.462, -0.38],
-      [0.612, 0.545, 0.55], [0.706, 0.418, -0.10], [0.782, 0.344, 0.70],
+      // [x, y, 倾角, 长度系数]
+      [0.335, 0.470, -0.62, 0.84], [0.398, 0.506, 0.22, 1.06],
+      [0.452, 0.524, -0.28, 0.72], [0.505, 0.468, 0.58, 1.16],
+      [0.558, 0.496, -0.44, 0.92], [0.614, 0.548, 0.26, 1.02],
+      [0.666, 0.428, -0.12, 0.78], [0.712, 0.474, 0.66, 1.10],
+      [0.758, 0.390, -0.34, 0.88], [0.796, 0.346, 0.72, 0.98],
     ];
-    for (let i = 0; i < Math.min(scars, SPOTS.length); i++) {
-      const [nx, ny, ang] = SPOTS[i];
-      const x = nx * W;
-      const y = ny * H;
-      const len = W * 0.038;
-      const dx = Math.cos(ang) * len * 0.5;
-      const dy = Math.sin(ang) * len * 0.5;
-      // 深色的口子 + 一道浅色的愈合边：两道线才是"疤"，一道线只是划痕
+
+    // 一道伤：沿一条微弯的曲线铺一条**两端收尖**的带子。
+    const gash = (x, y, ang, scl, seed) => {
+      // 细长比调了两次：0.088/0.019 在手机上是一根**红辣椒**（太短太粗）。
+      // 真正的划伤是长的：长度 +25%、宽度 -40%，变成"被什么划了一道"。
+      const len = W * 0.106 * scl;
+      const wid = Math.max(1.4, W * 0.0115 * scl);
+      const ca = Math.cos(ang);
+      const sa = Math.sin(ang);
+      // 中段偏离量：正负交替，免得十道伤弯向同一边（那会变成"梳子"）
+      const bend = len * 0.11 * (seed % 2 ? 1 : -1);
+      const N = 11;
+      const pts = [];
+      for (let k = 0; k <= N; k++) {
+        const t = k / N;
+        const s0 = Math.sin(t * Math.PI);
+        pts.push({
+          x: x + ca * len * (t - 0.5) - sa * bend * s0,
+          y: y + sa * len * (t - 0.5) + ca * bend * s0,
+          w: wid * Math.pow(Math.sin(t * Math.PI), 0.62),
+          t,
+        });
+      }
+      // 轮廓：正向走一半、反向走回来。带一点毛边（每段宽窄抖一下），
+      // 齐整的椭圆边就是"贴纸"和"伤"的分界线。
+      g.beginPath();
+      for (let k = 0; k <= N; k++) {
+        const q = pts[k];
+        const jitter = 0.62 + ((k * 37 + seed * 13) % 11) / 16;
+        const px = q.x - sa * q.w * 0.5 * jitter;
+        const py = q.y + ca * q.w * 0.5 * jitter;
+        if (k === 0) g.moveTo(px, py); else g.lineTo(px, py);
+      }
+      for (let k = N; k >= 0; k--) {
+        const q = pts[k];
+        const jitter = 0.62 + ((k * 53 + seed * 7) % 13) / 20;
+        g.lineTo(q.x + sa * q.w * 0.5 * jitter, q.y - ca * q.w * 0.5 * jitter);
+      }
+      g.closePath();
+      g.fillStyle = 'rgba(98,20,24,0.82)';
+      g.fill();
+      // 伤口深处：一道更亮的窄线，只走中段。整道线都亮就回到"小棒"了。
+      g.beginPath();
+      for (let k = 2; k <= N - 2; k++) {
+        const q = pts[k];
+        const u = (k - 2) / (N - 4);
+        const off = Math.sin(u * Math.PI) * q.w * 0.12;
+        if (k === 2) g.moveTo(q.x - sa * off, q.y + ca * off);
+        else g.lineTo(q.x - sa * off, q.y + ca * off);
+      }
+      g.strokeStyle = 'rgba(216,126,116,0.56)';
+      g.lineWidth = Math.max(0.7, wid * 0.22);
       g.lineCap = 'round';
-      g.strokeStyle = 'rgba(92,22,26,0.62)';
-      g.lineWidth = Math.max(1.4, W * 0.0085);
-      g.beginPath();
-      g.moveTo(x - dx, y - dy);
-      g.lineTo(x + dx, y + dy);
       g.stroke();
-      g.strokeStyle = 'rgba(240,214,206,0.88)';
-      g.lineWidth = Math.max(0.9, W * 0.0042);
+      // 边缘的豁口：两三个小三角，让轮廓"被撕开过"
+      g.fillStyle = 'rgba(96,12,18,0.78)';
+      for (let k = 0; k < 3; k++) {
+        const q = pts[3 + ((k * 3 + seed) % (N - 5))];
+        const side = (k + seed) % 2 ? 1 : -1;
+        g.beginPath();
+        g.arc(q.x + sa * q.w * 0.42 * side, q.y - ca * q.w * 0.42 * side, wid * 0.20, 0, TAU);
+        g.fill();
+      }
+      // 血：伤口一头会渗出来一小团，不是两端各一颗对称的点
+      const tail = pts[N - 1];
+      g.fillStyle = 'rgba(138,22,26,0.66)';
       g.beginPath();
-      g.moveTo(x - dx, y - dy);
-      g.lineTo(x + dx, y + dy);
-      g.stroke();
+      g.ellipse(tail.x + ca * wid * 0.5, tail.y + sa * wid * 0.5, wid * 0.62, wid * 0.42, ang, 0, TAU);
+      g.fill();
+    };
+
+    for (let i = 0; i < Math.min(scars, SPOTS.length); i++) {
+      const [nx, ny, ang, scl] = SPOTS[i];
+      gash(nx * W, ny * H, ang, scl, i + 1);
     }
 
     // ---- 2) 核污染变异：从头部往后长 ----
@@ -370,82 +436,153 @@ export class SeaWhale {
         seed = (seed * 1664525 + 1013904223) & 0xffffffff;
         return ((seed >>> 8) & 0xffffff) / 0xffffff;
       };
-      const back = 0.10 + mut * 0.075;   // 往回长的比例
-      const n = 5 + mut * 5;
+      // 上一版 33 个 r≈0.046W 的斑叠在一起，把整颗头糊成一颗紫气球 ——
+      // "明显"不等于"糊满"。这一版斑更少、更小，但每颗都有**暗边 + 亮心**：
+      // 读作"皮肤上烂了几个洞"，不是"整块染了色"。
+      // 铺开比涂满重要：上一版把 21 颗斑全堆在吻端 0.2W 里，屏幕上是"紫葡萄"。
+      // 现在往回铺到 0.43W（背脊一半），单颗更小 —— 读作"从头往身上蔓延"。
+      const back = 0.16 + mut * 0.09;
+      const n = 7 + mut * 5;             // 1 级 12 颗，3 级 22 颗
       for (let i = 0; i < n; i++) {
         const nx = 0.885 - rr() * back;
         const ny = 0.285 + rr() * 0.165;
-        const r = W * (0.008 + rr() * 0.020);
+        const r = W * (0.0085 + rr() * 0.0195);
         // 底：暗紫的坏死斑
-        g.fillStyle = `rgba(96,58,120,${0.20 + rr() * 0.20})`;
+        g.fillStyle = `rgba(84,52,102,${0.26 + rr() * 0.20})`;
         g.beginPath();
-        g.ellipse(nx * W, ny * H, r * 1.5, r, rr() * TAU, 0, TAU);
+        g.ellipse(nx * W, ny * H, r * 1.45, r, rr() * TAU, 0, TAU);
         g.fill();
+        // 边：一圈更深的口子，病灶才有"深度"
+        g.strokeStyle = `rgba(52,22,78,${0.24 + rr() * 0.18})`;
+        g.lineWidth = Math.max(1, W * 0.0035);
+        g.stroke();
         // 上：一点点发亮的病灶中心（读作"在变异"，不是"脏了"）
-        g.fillStyle = `rgba(196,150,238,${0.14 + rr() * 0.16})`;
+        g.fillStyle = `rgba(214,164,246,${0.26 + rr() * 0.18})`;
         g.beginPath();
-        g.arc(nx * W, ny * H, r * 0.55, 0, TAU);
+        g.arc(nx * W, ny * H, r * 0.52, 0, TAU);
         g.fill();
       }
       // 头顶一层很淡的紫雾：变异要读作"从里面渗出来的"，不是"围了一圈腮红"。
       // 上一版画了一个椭圆描边，落在吻端直接变成一张脸 —— 删掉，只留弥散。
-      const mist = g.createRadialGradient(W * 0.80, H * 0.33, 0, W * 0.80, H * 0.33, W * 0.10);
-      mist.addColorStop(0, `rgba(138,92,170,${0.10 + mut * 0.055})`);
+      const mist = g.createRadialGradient(W * 0.80, H * 0.33, 0, W * 0.80, H * 0.33, W * 0.15);
+      mist.addColorStop(0, `rgba(132,92,158,${0.07 + mut * 0.035})`);
       mist.addColorStop(1, 'rgba(138,92,170,0)');
       g.fillStyle = mist;
       g.fillRect(0, 0, W, H);
     }
 
     // ---- 3) 尾巴上的塑料袋：每碰一次多一圈 ----
-    // 画成"绕在尾柄上的带子"：细椭圆 + 一截垂下来的空袋。
-    // 只画圆环会像皮筋；必须有一段**垂着的、鼓起来的**塑料，才读得出是袋子。
-    for (let i = 0; i < Math.min(rings, 4); i++) {
-      // 尾柄在 0.42~0.50：0.34 以左是白色的尾鳍，袋子压上去看不出来。
-      const cx = W * (0.382 + i * 0.020);
-      const cy = H * (0.470 + i * 0.005);
-      const rx = W * 0.0095;
-      const ry = H * (0.150 - i * 0.006);
+    // 上一版整条带子都画在"会被遮罩裁掉"的层里，而且只有 8px 宽 ——
+    // 手机上等于没画（用户两次说"塑料缠身不够明显"）。
+    // 现在拆成两半：
+    //   a) **缠在尾柄上的带子**画在这里（跟着身体走，必须被遮罩裁）；
+    //   b) **垂下来的一截空袋**画在遮罩之后（它本来就漂在水里，裁掉就没了）。
+    for (let i = 0; i < Math.min(rings, 5); i++) {
+      // 位置必须落在 **0.28 以右**：0.28~0.34 是尾巴被"挖走"后交给可动尾鳍的接缝，
+      // 0.28 以左的那块每帧都在摆 —— 塑料袋画在那儿会跟着原地不动、尾巴摆走。
+      // 量过贴图透明度剖面：0.31 处身体是 0.35~0.70，尾柄根部就在这里。
+      const cx = W * (0.310 + i * 0.024);
+      const cy = H * 0.525;
+      const half = W * 0.0165;            // 带子的半宽
+      const reach = H * 0.190;            // 上下伸出体外，由遮罩裁齐
       g.save();
       g.translate(cx, cy);
-      g.rotate(0.08 - i * 0.04);
-      // 一条"绕了一圈"的带子：先铺半透明的膜，再描两道边。
-      // 只描一道细线在手机上等于没画（1.5px 的白线压在白尾巴上）。
-      const lg = g.createLinearGradient(-rx, 0, rx, 0);
-      lg.addColorStop(0, 'rgba(150,186,192,0.10)');
-      lg.addColorStop(0.45, 'rgba(196,224,226,0.30)');
-      lg.addColorStop(1, 'rgba(150,186,192,0.10)');
-      g.fillStyle = lg;
+      g.rotate(-0.16 + i * 0.055);
+      // 膜：横跨尾柄的一条带子（两侧边微弯，读作"勒进去"）
       g.beginPath();
-      g.ellipse(0, 0, rx, ry, 0, 0, TAU);
-      g.fill();
-      g.strokeStyle = 'rgba(214,238,238,0.62)';
-      g.lineWidth = Math.max(1.3, W * 0.006);
-      g.beginPath();
-      g.ellipse(0, 0, rx, ry, 0, 0, TAU);
-      g.stroke();
-      // 膜的边：贴着轮廓再描一道更细的亮边，读作"绷紧的塑料"而不是"气泡"
-      g.strokeStyle = 'rgba(240,252,252,0.34)';
-      g.lineWidth = Math.max(0.7, W * 0.0028);
-      g.beginPath();
-      g.ellipse(rx * 0.55, 0, rx * 0.55, ry * 0.96, 0, 0, TAU);
-      g.stroke();
-      // 垂下来的一截空袋
-      g.fillStyle = 'rgba(198,226,226,0.26)';
-      g.beginPath();
-      g.moveTo(-rx * 0.8, ry * 0.25);
-      g.quadraticCurveTo(-rx * 2.4, ry * 1.05, -rx * 0.2, ry * 1.32);
-      g.quadraticCurveTo(rx * 1.5, ry * 1.05, rx * 0.7, ry * 0.35);
+      g.moveTo(-half, -reach);
+      g.quadraticCurveTo(half * 0.40, 0, -half, reach);
+      g.lineTo(half, reach);
+      g.quadraticCurveTo(-half * 0.40, 0, half, -reach);
       g.closePath();
+      // 冷白塑料压在白色肚皮上等于隐形（上一版就是这样）。
+      // 超市袋是**暖灰**的，边缘再压一层暗影，才从身体上"浮"出来。
+      g.save();
+      g.translate(W * 0.004, H * 0.004);
+      g.fillStyle = 'rgba(10,22,28,0.34)';
       g.fill();
-      g.strokeStyle = 'rgba(224,244,244,0.40)';
-      g.lineWidth = Math.max(0.8, W * 0.0035);
+      g.restore();
+      g.fillStyle = 'rgba(232,228,212,0.40)';
+      g.fill();
+      g.strokeStyle = 'rgba(250,248,238,0.82)';
+      g.lineWidth = Math.max(1.4, W * 0.0038);
       g.stroke();
+      // 褶皱：三道横向短痕。塑料的褶是**横向**的，纵向的会读成布。
+      g.strokeStyle = 'rgba(246,255,255,0.34)';
+      g.lineWidth = Math.max(0.9, W * 0.0024);
+      for (let k = -1; k <= 1; k++) {
+        g.beginPath();
+        g.moveTo(-half * 0.85, k * reach * 0.26);
+        g.quadraticCurveTo(0, k * reach * 0.26 + half * 0.5, half * 0.85, k * reach * 0.26);
+        g.stroke();
+      }
       g.restore();
     }
 
     // 遮罩：只留在身体上
     g.globalCompositeOperation = 'destination-in';
     g.drawImage(b.full, 0, 0, W, H);
+    g.globalCompositeOperation = 'source-over';
+
+    // ---- 4) 垂在体外的塑料袋：**画在遮罩之后** ----
+    // 它不是长在皮上的，是被尾柄挂住、顺水漂着的一截。
+    // 上一版把它画在遮罩之前，于是整截都被裁掉 —— 屏幕上只剩几道几乎看不见的亮边。
+    for (let i = 0; i < Math.min(rings, 5); i++) {
+      // 垂下来那截挂在尾柄下缘（0.70 是那里的身体下界），所以它在水里
+      const cx = W * (0.306 + i * 0.024);
+      const cy = H * 0.700;
+      const ww = W * (0.048 + (i % 2) * 0.012);
+      g.save();
+      g.translate(cx, cy);
+      // 袋口在左、袋身在右下：被水推着，所以不是垂直的
+      g.rotate(0.22 + Math.sin(i * 1.7) * 0.22);
+      // 形状：不是椭圆。塑料被水鼓起来是**不规则的**——
+      // 上一版四个圆润的水滴排成一排，看着像一串贝壳。
+      // 这里按 8 个顶点、半径 0.66~1.24 抖动，再用二次曲线连接，
+      // 得到"被撑开又塌下去"的袋形。
+      const pts = [];
+      for (let k = 0; k < 8; k++) {
+        const ang = (k / 8) * TAU;
+        const jr = 0.66 + (((k * 41 + i * 17) % 23) / 23) * 0.58;
+        pts.push({
+          x: Math.cos(ang) * ww * jr * 1.05,
+          y: Math.sin(ang) * ww * jr + ww * 0.30,
+        });
+      }
+      const bagPath = () => {
+        g.beginPath();
+        const last = pts[7];
+        const first = pts[0];
+        g.moveTo((last.x + first.x) * 0.5, (last.y + first.y) * 0.5);
+        for (let k = 0; k < 8; k++) {
+          const p0 = pts[k];
+          const p1 = pts[(k + 1) % 8];
+          g.quadraticCurveTo(p0.x, p0.y, (p0.x + p1.x) * 0.5, (p0.y + p1.y) * 0.5);
+        }
+        g.closePath();
+      };
+      bagPath();
+      g.save();
+      g.translate(ww * 0.05, ww * 0.05);
+      g.fillStyle = 'rgba(10,22,28,0.30)';
+      g.fill();
+      g.restore();
+      g.fillStyle = 'rgba(230,226,210,0.34)';
+      g.fill();
+      g.strokeStyle = 'rgba(248,246,236,0.62)';
+      g.lineWidth = Math.max(1.1, W * 0.0030);
+      g.stroke();
+      // 袋里的褶：两道横弧 —— 塑料的褶是横向的
+      g.strokeStyle = 'rgba(240,254,254,0.24)';
+      g.lineWidth = Math.max(0.8, W * 0.0020);
+      for (let k = 0; k < 2; k++) {
+        g.beginPath();
+        g.moveTo(-ww * 0.26, ww * (0.24 + k * 0.34));
+        g.quadraticCurveTo(0, ww * (0.38 + k * 0.34), ww * 0.28, ww * (0.20 + k * 0.36));
+        g.stroke();
+      }
+      g.restore();
+    }
 
     this._markCache.set(key, cv);
     // 键会随状态增长，但一局最多几十种；超过 200 就清一次，别让它一直涨
@@ -527,18 +664,21 @@ export class SeaWhale {
 
     paint(b, A);
     const dk = clamp(o.depth || 0, 0, 1);
-    // 伤痕层：画在两条身体之后、器官件之前。
-    // 越深越淡 —— 不是"伤好了"，是水把细节吃掉了；上浮时它又会全部浮出来。
-    const marks = this._marks(b, o.scars | 0, o.mut | 0, o.rings | 0);
-    if (marks) {
-      ctx.globalAlpha = A * (1 - dk * 0.86);
-      ctx.drawImage(marks, -b.w / 2, -b.h / 2);
-      ctx.globalAlpha = 1;
-    }
     // 0.95 而不是 1.15：按 1.15 时 depth=0.5 就混了 57% 的"最深"版本，
     // 角色在中层水里已经糊成一片 —— 玩家看不清自己控制的角色是硬伤。
     // 雾化应该"浅处几乎不生效、深处才彻底吃掉"，而不是线性地一路变暗。
     if (dk > 0.02) paint(b.deep, Math.min(1, dk * 0.95) * A);
+
+    // 伤痕层：**画在雾化层之后**。
+    // 上一版画在之前，depth=0.5 时会被 47% 的水色盖掉一半 ——
+    // 结果玩家越往下（越该看清自己受了什么伤）伤反而越淡，
+    // 这跟"这片海在它身上留证据"正好相反。现在只随深度轻微减弱。
+    const marks = this._marks(b, o.scars | 0, o.mut | 0, o.rings | 0);
+    if (marks) {
+      ctx.globalAlpha = A * (1 - dk * 0.42);
+      ctx.drawImage(marks, -b.w / 2, -b.h / 2);
+      ctx.globalAlpha = 1;
+    }
 
     // 张嘴件：只在发声那一秒露出，靠 alpha 过渡，别硬切
     const mo = Math.min(1, echo * 1.6);
