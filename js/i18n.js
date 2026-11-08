@@ -71,8 +71,17 @@ const EN = {
   // 【用户 m14093】第 5 关是特典关卡、6~10 关按钮删掉，选关面板下面多了两个模式
   '第 1 ~ 4 关可以打 · 无尽模式随时能进': 'Stages 1-4 are open · Endless is always available',
   '第 1~4 关都能进 · 无尽模式随时能进': 'Stages 1-4 are open · Endless is always available',
+  '第 1~5 关都能进 · 无尽模式随时能进': 'Stages 1-5 are open · Endless is always available',
+  '第 1~5 关都能进 · 选一关开打': 'Stages 1-5 are open · pick one',
+  '第 2~5 关已解锁 · 选一关开打': 'Stages 2-5 unlocked · pick one',
+  '先打第 1 关 · 第 2~5 关也可以直接进': 'Start with stage 1 · 2-5 are open too',
+  '第 1~5 关 可选': 'Stages 1-5 open',
   '第 5 关 · 上': 'Stage 5 · Part 1',
   '第 5 关 · 下': 'Stage 5 · Part 2',
+  // 【2026-11-08】第 5 关·上篇《跃》上线：它是一整页独立游戏，选关里点进去就跳过去
+  '跃 · 只靠一口气': 'Leap · one breath at a time',
+  '止战之殇 · 待续': 'The End of War · to be continued',
+  '第 5 关 · 下 · 敬请期待~': 'Stage 5 · Part 2 · coming soon~',
   '特典关卡 · 敬请期待~': 'Special stage · coming soon~',
   '敬请期待~': 'Coming soon~',
   '无 尽 模 式': 'E N D L E S S',

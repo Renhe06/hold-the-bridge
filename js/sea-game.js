@@ -248,8 +248,11 @@ export class SeaGame {
     }
 
     // 「网」是墙：从水面垂下来，只挡到 bottom。上浮时这两道帘子会拦住你。
-    out.push({ type: 'net', lat: -0.32, w: 0.22, bottom: 0.76, ph: rnd() * TAU, hit: 0, gap: 0.06 });
-    out.push({ type: 'net', lat: 0.36, w: 0.19, bottom: 0.84, ph: rnd() * TAU, hit: 0, gap: 0.10 });
+    // 网的底沿只到 0.46 / 0.54 —— 再往下就没有"挂着的网"这回事了，
+    // 那是一条从水面垂到海底的纱帘，画面上会占掉整屏。真实流网就是几米深。
+    // 加宽是因为太窄的网在竖屏上像两条飘带，不像一块布。
+    out.push({ type: 'net', lat: -0.32, w: 0.30, bottom: 0.46, ph: rnd() * TAU, hit: 0, gap: 0.06 });
+    out.push({ type: 'net', lat: 0.38, w: 0.26, bottom: 0.54, ph: rnd() * TAU, hit: 0, gap: 0.10 });
 
     // 「看沥青在蔓延」—— 水面那一层已经不能换气了。它只盖住最上面一截。
     out.push({ type: 'slick', top: -0.04, bottom: 0.05, ph: rnd() * TAU });
@@ -1255,85 +1258,123 @@ export class SeaGame {
       // ---- 船队：满载而去 ----
       // 渔船在夜里是灯火通明的：一排渔灯把海面照成橙色，灯火倒在水里。
       // 越到后期船越多、灯越亮 —— 「海上谁领唱满载而去的歌」。
-      // 数量和亮度读 stage，不读随机：玩家第二次跃上来时看见的一定比第一次多。
+      //
+      // **不能等距同高**：第一版是 8 艘同 y、同间隔、每艘 6 盏灯排成一行，
+      // 在手机屏上读起来是"一排亮着窗的楼房"，不是船队。真实夜海里的船队是
+      // 错落的 —— 近的船大、压得低、亮；远的船只剩几点灯，几乎贴着海平线。
+      // 所以每艘船的三件事都带抖动：纵向位置、大小、灯的个数。
       const stage = this.stage;
-      const boatN = Math.min(8, 2 + Math.round(stage * 1.6));
+      const boatN = Math.min(9, 3 + Math.round(stage * 1.5));
       const lampA = 0.5 + stage * 0.14;
+      const fleet = this.kit.filter((k) => k.type === 'fleet');
+      // 稳定哈希：同一个 bi 每帧得到同一个值，船不会抖成癫痫
+      const H = (n) => {
+        const v = Math.sin((n + 1) * 12.9898 + 4.1414) * 43758.5453;
+        return v - Math.floor(v);
+      };
       for (let bi = 0; bi < boatN; bi++) {
-        const t = this.kit.filter((k) => k.type === 'fleet')[bi % 5];
+        const t = fleet[bi % Math.max(1, fleet.length)];
         if (!t) break;
-        const drift = Math.sin(this.waveT * 0.10 + t.ph) * 0.025;
-        const x = this.screenX(t.lat + drift + (bi >= 5 ? (bi - 4) * 0.16 - 0.4 : 0));
-        const y = seaY + h * 0.016;
-        const s = t.scale * (w / 390) * (0.5 + stage * 0.05);
+        const dk = H(bi * 3.7);              // 0 = 最远，1 = 最近
+        const far = dk < 0.34;               // 远处的船：只给灯，不给船体
+        // 横向：均匀铺开后加抖动，别排成栅栏
+        const baseLat = -0.94 + (bi + 0.5) * (1.88 / boatN);
+        const lat = baseLat + (H(bi * 7.1) - 0.5) * (0.9 / boatN) + Math.sin(this.waveT * 0.10 + t.ph) * 0.012;
+        const x = this.screenX(lat);
+        // 远的靠上（贴海平线），近的压下来；这是唯一能读出纵深的线索
+        const y = seaY + h * (0.004 + dk * 0.020);
+        const s = t.scale * (w / 390) * (0.40 + stage * 0.035) * (0.70 + dk * 0.52);
         if (y > h + 90 || y < -h * 0.32) continue;
+
         ctx.save();
-        ctx.globalAlpha = 0.92;
-        // 船体：深蓝而不是纯黑 —— 纯黑剪影像纸板，被灯照着的船一定带一点颜色
-        ctx.fillStyle = 'rgba(10,20,30,0.96)';
-        ctx.beginPath();
-        ctx.moveTo(x - 34 * s, y - 2 * s);
-        ctx.quadraticCurveTo(x - 6 * s, y + 9 * s, x + 20 * s, y + 5 * s);
-        ctx.lineTo(x + 36 * s, y - 4 * s);
-        ctx.lineTo(x + 26 * s, y - 14 * s);
-        ctx.lineTo(x - 24 * s, y - 14 * s);
-        ctx.closePath();
-        ctx.fill();
-        // 驾驶楼
-        ctx.fillRect(x - 12 * s, y - 27 * s, 18 * s, 13 * s);
-        // 上缘月光
-        ctx.strokeStyle = 'rgba(158,198,218,0.28)';
-        ctx.lineWidth = 1.1;
-        ctx.beginPath();
-        ctx.moveTo(x + 36 * s, y - 4 * s);
-        ctx.lineTo(x + 26 * s, y - 14 * s);
-        ctx.lineTo(x - 24 * s, y - 14 * s);
-        ctx.stroke();
-        // 桅杆 + 吊臂
-        ctx.strokeStyle = 'rgba(10,20,30,0.96)';
-        ctx.lineWidth = 1.1 * s;
-        ctx.beginPath();
-        ctx.moveTo(x - 3 * s, y - 27 * s);
-        ctx.lineTo(x - 7 * s, y - 54 * s);
-        ctx.moveTo(x + 4 * s, y - 14 * s);
-        ctx.lineTo(x + 30 * s, y - 34 * s);
-        ctx.stroke();
+        ctx.globalAlpha = 0.55 + dk * 0.42;
+        // 每艘船微微歪一点：一排完全水平的船也是"楼房"感的来源
+        ctx.translate(x, y);
+        ctx.rotate((H(bi * 5.3) - 0.5) * 0.035);
+        ctx.translate(-x, -y);
+
+        if (!far) {
+          // 船体：深蓝而不是纯黑 —— 纯黑剪影像纸板，被灯照着的船一定带一点颜色。
+          // 船首要抬起来（一艘平顶平底的方盒子，怎么画都是驳船/楼房）。
+          ctx.fillStyle = 'rgba(10,20,30,0.96)';
+          ctx.beginPath();
+          ctx.moveTo(x - 34 * s, y - 4 * s);
+          ctx.quadraticCurveTo(x - 8 * s, y + 9 * s, x + 18 * s, y + 5 * s);
+          ctx.lineTo(x + 36 * s, y - 2 * s);      // 船首：更高、更尖
+          ctx.lineTo(x + 30 * s, y - 13 * s);
+          ctx.lineTo(x - 20 * s, y - 16 * s);      // 甲板线往船首翘
+          ctx.closePath();
+          ctx.fill();
+          // 驾驶楼
+          ctx.fillRect(x - 12 * s, y - 27 * s, 18 * s, 13 * s);
+          // 上缘月光
+          ctx.strokeStyle = 'rgba(158,198,218,0.28)';
+          ctx.lineWidth = 1.1;
+          ctx.beginPath();
+          ctx.moveTo(x + 36 * s, y - 4 * s);
+          ctx.lineTo(x + 26 * s, y - 14 * s);
+          ctx.lineTo(x - 24 * s, y - 14 * s);
+          ctx.stroke();
+          // 桅杆 + 吊臂
+          ctx.strokeStyle = 'rgba(10,20,30,0.96)';
+          ctx.lineWidth = 1.1 * s;
+          ctx.beginPath();
+          ctx.moveTo(x - 3 * s, y - 27 * s);
+          ctx.lineTo(x - 7 * s, y - 54 * s);
+          ctx.moveTo(x + 4 * s, y - 14 * s);
+          ctx.lineTo(x + 30 * s, y - 34 * s);
+          ctx.stroke();
+        }
 
         // ---- 灯。渔船夜里不是一盏灯，是一串 ----
         ctx.globalCompositeOperation = 'lighter';
-        // 桅顶灯（红白）
         ctx.fillStyle = 'rgba(255,224,170,1)';
-        ctx.globalAlpha = 0.9 * lampA;
-        ctx.beginPath();
-        ctx.arc(x - 6 * s, y - 53 * s, 1.6 * s, 0, TAU);
-        ctx.fill();
-        ctx.globalAlpha = 0.18 * lampA;
-        ctx.beginPath();
-        ctx.arc(x - 6 * s, y - 53 * s, 7 * s, 0, TAU);
-        ctx.fill();
-        // 驾驶楼窗灯
-        ctx.globalAlpha = 0.75 * lampA;
-        ctx.fillStyle = 'rgba(255,214,150,1)';
-        ctx.fillRect(x - 9 * s, y - 24 * s, 3 * s, 2.4 * s);
-        ctx.fillRect(x - 4 * s, y - 24 * s, 3 * s, 2.4 * s);
-        // 船舷渔灯：一排。这是"灯火通明"的主体
-        const lampN = 2 + stage;
+        if (!far) {
+          // 桅顶灯
+          ctx.globalAlpha = 0.9 * lampA;
+          ctx.beginPath();
+          ctx.arc(x - 6 * s, y - 53 * s, 1.6 * s, 0, TAU);
+          ctx.fill();
+          ctx.globalAlpha = 0.18 * lampA;
+          ctx.beginPath();
+          ctx.arc(x - 6 * s, y - 53 * s, 7 * s, 0, TAU);
+          ctx.fill();
+          // 驾驶楼窗灯
+          ctx.globalAlpha = 0.75 * lampA;
+          ctx.fillStyle = 'rgba(255,214,150,1)';
+          ctx.fillRect(x - 9 * s, y - 24 * s, 3 * s, 2.4 * s);
+          ctx.fillRect(x - 4 * s, y - 24 * s, 3 * s, 2.4 * s);
+          ctx.fillStyle = 'rgba(255,224,170,1)';
+        }
+        // 船舷渔灯：**不是一排等距亮点**。
+        // 上一版每艘船 6 盏灯等距排开 + 每盏下面 4 段等长倒影，在 390pt 的屏上
+        // 就是"楼房的窗格"。真实夜里的渔船是 2~3 点灯 + 水面一团晕开的光。
+        const lampN = far ? 1 : 2 + Math.round(H(bi * 9.1) * 2);
         for (let li = 0; li < lampN; li++) {
-          const lx = x - 20 * s + (li * 42 * s) / Math.max(1, lampN - 1);
-          ctx.globalAlpha = 0.95 * lampA;
+          const spread = far ? 5 * s : 34 * s;
+          const lx = x - spread * 0.5 + (li * spread) / Math.max(1, lampN - 1) + (H(bi * 13 + li) - 0.5) * 4 * s;
+          const ly = y - (far ? 2 : 10) * s + (H(bi * 11 + li) - 0.5) * 3 * s;
+          ctx.globalAlpha = 0.95 * lampA * (far ? 0.7 : 1);
           ctx.beginPath();
-          ctx.arc(lx, y - 10 * s, 2.6 * s, 0, TAU);
+          ctx.arc(lx, ly, (far ? 1.8 : 2.4) * s, 0, TAU);
           ctx.fill();
-          ctx.globalAlpha = 0.22 * lampA;
+          ctx.globalAlpha = 0.14 * lampA;
           ctx.beginPath();
-          ctx.arc(lx, y - 10 * s, 10 * s, 0, TAU);
+          ctx.arc(lx, ly, (far ? 4 : 6.5) * s, 0, TAU);
           ctx.fill();
-          // 水面倒影：灯的正下方一段碎光。有倒影，灯才"在水上"。
-          // 一艘船的灯连成一条，海面上就是一整道亮痕。
-          ctx.globalAlpha = 0.42 * lampA;
-          for (let ri = 0; ri < 4; ri++) {
-            ctx.fillRect(lx - 2.2 * s, y + 7 * s + ri * 9 * s, 4.4 * s, 4.5 * s);
-          }
+        }
+        // 水面倒影：整艘船一条晕开的暖光，长度不齐 —— 比一排等长的小方块真。
+        // 有倒影，灯才"在水上"，而不是贴在船舷上。
+        const rw = (far ? 6 : 22) * s;
+        ctx.globalAlpha = 0.085 * lampA;
+        ctx.fillStyle = 'rgba(255,206,140,1)';
+        ctx.beginPath();
+        ctx.ellipse(x, y + 9 * s, rw, 5 * s, 0, 0, TAU);
+        ctx.fill();
+        ctx.globalAlpha = 0.20 * lampA;
+        for (let ri = 0; ri < 3; ri++) {
+          const rwid = rw * (0.8 - ri * 0.2) * (0.7 + H(bi * 17 + ri) * 0.6);
+          ctx.fillRect(x - rwid * 0.5, y + (5 + ri * 5) * s, rwid, (1.8 - ri * 0.35) * s);
         }
         ctx.restore();
       }
@@ -1456,61 +1497,133 @@ export class SeaGame {
     }
 
     // ---- 网：墙。只画到它真正挡住的那个深度 ----
+    // 上一版是"一个大矩形 + 横竖正交网格"，在手机屏上就是一张方格纸：
+    // 玩家读到的是辅助线，不是网。真实流网是三件事：菱形网目、下缘兜成一条弧、
+    // 越往上越淡（水越深的地方才有光）。三样都补上，它才像块布挂在水里。
     for (const t of this.kit) {
       if (t.type !== 'net') continue;
       const open = 0.5 + Math.sin(this.waveT * 0.42 + t.ph) * 0.5;
       const half = t.w * 0.5 * (0.86 + open * 0.14);
       const x0 = this.screenX(t.lat - half);
       const x1 = this.screenX(t.lat + half);
-      const y0 = sy(-0.02);
-      const y1 = sy(t.bottom);
-      if (y1 < 0 || y0 > h) continue;
+      const ww = x1 - x0;
+      if (ww < 8) continue;
+      // 顶沿压在水面线以下：相机跃出水面时，网会在海平线上方露出一截，
+      // 那看起来就是"渔网飘在天上"。网是从船上放进水里的，它永远不高于水面。
+      const seaY = sy(0);
+      const yTop = Math.max(sy(-0.02), seaY);   // y 向下增大：取大的那个才是"在水面以下"
+      const yBot = sy(t.bottom);
+      if (yBot < 0 || yTop > h) continue;
+      const sag = 8 + open * 10;          // 下缘兜下去的那一点
+      const cx = (x0 + x1) * 0.5;
 
       ctx.save();
-      ctx.globalAlpha = 0.5;
-      // 网面只留一层极薄的暗（不要实心填充）：实心一铺就变成黑布帘，
-      // 玩家读到的是"贴图错位"，不是"网"。
-      ctx.fillStyle = 'rgba(8,20,26,0.18)';
-      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-      ctx.strokeStyle = 'rgba(150,190,200,0.20)';
-      ctx.lineWidth = 1;
+      // 网的形状：上宽下收、底下兜一条弧。clip 之后所有线条都不会铺出网外。
       ctx.beginPath();
-      const cx = (x0 + x1) * 0.5;
-      for (let i = 0; i <= 5; i++) {
-        const x = lerp(x0, x1, i / 5);
-        ctx.moveTo(x, y0);
-        ctx.lineTo(lerp(x, cx, 0.16), y1);
-      }
-      for (let y = y0 + 18; y < y1; y += 34) {
-        ctx.moveTo(x0, y);
-        ctx.lineTo(x1, y);
-      }
+      ctx.moveTo(x0, yTop);
+      ctx.lineTo(x1, yTop);
+      ctx.lineTo(x1, yBot);
+      ctx.quadraticCurveTo(cx, yBot + sag * 2, x0, yBot);
+      ctx.closePath();
+      ctx.clip();
+
+      // 网面只留一层极薄的暗：实心一铺就变成黑布帘
+      ctx.fillStyle = 'rgba(8,20,26,0.13)';
+      ctx.fill();
+
+      // 上缘的浮纲 + 浮子：一条亮绳。没有它，网就是"从天上垂下来的纱"；
+      // 有了它，玩家立刻明白"这是船上放下来的"。这是整块网最便宜的一笔。
+      const fy = yTop + 5;
+      ctx.strokeStyle = 'rgba(210,206,180,0.34)';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(x0, fy);
+      ctx.quadraticCurveTo(cx, fy + 4, x1, fy);
       ctx.stroke();
-      // 下缘坠子：网得有重量
-      ctx.globalAlpha = 0.62;
-      ctx.fillStyle = 'rgba(10,24,30,0.92)';
-      for (let i = 0; i <= 5; i++) {
-        const x = lerp(lerp(x0, x1, i / 7), cx, 0.16);
+      ctx.fillStyle = 'rgba(232,196,120,0.55)';
+      for (let i = 1; i < 4; i++) {
+        const k = i / 4;
+        const bx = (1 - k) * (1 - k) * x0 + 2 * (1 - k) * k * cx + k * k * x1;
+        const by = (1 - k) * (1 - k) * fy + 2 * (1 - k) * k * (fy + 4) + k * k * fy;
         ctx.beginPath();
-        ctx.arc(x, y1, 2.4, 0, TAU);
+        ctx.arc(bx, by, 2.6, 0, TAU);
         ctx.fill();
+      }
+
+      const cell = 13 * (w / 390);
+      const slope = 0.62;                  // 约 58°，接近真实网目的夹角
+      const yA = Math.max(yTop, -60);
+      const yB = Math.min(yBot + sag * 2, h + 60);
+      const span = yB - yA;
+      if (span > 0) {
+        // 菱形网目：两组斜线，一左一右。斜线读成"网"，正交读成"格"。
+        // 一条 path 一次 stroke —— 两张网一帧也就六次绘制。
+        // 分三段画是为了上缘淡出（主循环里不新建渐变对象）。
+        for (let band = 0; band < 3; band++) {
+          const ya = yA + (span * band) / 3;
+          const yb = yA + (span * (band + 1)) / 3;
+          const sh = yb - ya;
+          ctx.strokeStyle = `rgba(158,196,210,${0.09 + band * 0.075})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let x = x0 - span * slope; x < x1 + span * slope; x += cell) {
+            ctx.moveTo(x, ya);
+            ctx.lineTo(x + sh * slope, yb);
+            ctx.moveTo(x, ya);
+            ctx.lineTo(x - sh * slope, yb);
+          }
+          ctx.stroke();
+        }
+
+        // 下缘的纲绳：网得有重量，不然像浮着的纱
+        ctx.strokeStyle = 'rgba(12,26,32,0.88)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(x0, yBot);
+        ctx.quadraticCurveTo(cx, yBot + sag * 2, x1, yBot);
+        ctx.stroke();
+        // 坠子：沿纲绳挂一串
+        ctx.fillStyle = 'rgba(10,24,30,0.92)';
+        for (let i = 1; i < 6; i++) {
+          const k = i / 6;
+          // 二次贝塞尔在 k 处的点
+          const px = (1 - k) * (1 - k) * x0 + 2 * (1 - k) * k * cx + k * k * x1;
+          const py = (1 - k) * (1 - k) * yBot + 2 * (1 - k) * k * (yBot + sag * 2) + k * k * yBot;
+          ctx.beginPath();
+          ctx.arc(px, py, 2.2, 0, TAU);
+          ctx.fill();
+        }
       }
       ctx.restore();
     }
 
     // ---- 鱼钩：线细到几乎看不见，只留一点反光 ----
+    // 上一版把整根线从水面画到钩子：15 根贯穿全屏的直线，在竖屏上就是一张
+    // 方格纸的经线（截图里最刺眼的那层网格就是它）。真实的长线在水里只有
+    // 紧挨钩子的那一小截被光照到，往上一米就沉进黑里。
+    // 所以只画 1.5 屏内的一小段，并且越往上越淡 —— 剩下的是黑，不是线。
     for (const t of this.kit) {
       if (t.type !== 'hook') continue;
       const x = this.screenX(t.lat + Math.sin(this.waveT * t.sp + t.ph) * 0.055);
       const y = sy(t.depth);
-      const yTop = sy(-0.02);
-      if (y < yTop || y > h + 60) continue;
-      ctx.strokeStyle = 'rgba(170,206,216,0.18)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x, yTop);
-      ctx.lineTo(x, y - 12);
-      ctx.stroke();
+      if (y < -40 || y > h + 60) continue;
+      const seg = Math.min(132, h * 0.16);
+      for (let i = 0; i < 3; i++) {
+        const y1 = y - 12 - (seg * i) / 3;
+        const y2 = y - 12 - (seg * (i + 1)) / 3;
+        ctx.strokeStyle = `rgba(170,206,216,${0.19 - i * 0.055})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, y1);
+        // 一点微弯：直线太硬，会像标尺
+        ctx.quadraticCurveTo(
+          x + Math.sin(this.waveT * 0.6 + t.ph + i) * 1.6,
+          (y1 + y2) * 0.5,
+          x, y2
+        );
+        ctx.stroke();
+      }
+      // 钩子本体
       ctx.strokeStyle = 'rgba(196,224,232,0.44)';
       ctx.lineWidth = 1.5;
       ctx.beginPath();

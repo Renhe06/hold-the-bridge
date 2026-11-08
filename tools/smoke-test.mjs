@@ -943,11 +943,18 @@ try {
   step(2);
   ok(ELS.get('levelOverlay').classList.contains('show'), '点「关卡」弹出选关面板');
   ok(game.state === st0, `选关面板弹出时不改变游戏状态（state=${game.state}）`);
-  // 【用户 m14093】第 5 关是特典关卡（上下两半），第 6~10 关的按钮已删；点特典只提示"敬请期待~"
+  // 【用户 m14093】第 5 关是特典关卡（上下两半），第 6~10 关的按钮已删。
+  // 【2026-11-08】上篇《跃》上线：它是**一整页独立游戏**（另一套相机与操作），
+  // 点它只做整页跳转，不走 startLevel —— 所以这里断言的是 location.href，
+  // 而不是"面板还留着"。下篇仍未实装，仍然只提示。
   tap('lv5a');
   step(2);
-  ok(String(ELS.get('levelHint').textContent).includes('敬请期待'), `点特典关卡只提示（${ELS.get('levelHint').textContent}）`);
-  ok(ELS.get('levelOverlay').classList.contains('show'), '点了没实装的特典关卡，面板留着不走');
+  ok(/sea\.html$/.test(String(globalThis.location.href)), `点「第 5 关 · 上」跳去 sea.html（${globalThis.location.href}）`);
+  ok(game.state === st0, `跳转不改变本局状态（state=${game.state}）`);
+  tap('lv5b');
+  step(2);
+  ok(String(ELS.get('levelHint').textContent).includes('敬请期待'), `点没实装的下篇只提示（${ELS.get('levelHint').textContent}）`);
+  ok(ELS.get('levelOverlay').classList.contains('show'), '点了没实装的下篇，面板留着不走');
   // 第 6~10 关的按钮必须真的没了（DOM 桩会自动造元素，只能查源码）
   const gridHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   ok(!/id="lv(?:[6-9]|10)"/.test(gridHtml), '第 6~10 关的按钮已删（用户 m14093）');

@@ -175,11 +175,11 @@ C水 = (16, 58, 82)
 ```bash
 node tools/serve.mjs 8128
 # 真图
-http://127.0.0.1:8128/tools/sea.html?sprite=img&depth=0.45&q=high
+http://127.0.0.1:8128/sea.html?sprite=img&depth=0.45&q=high
 # 钉死尾鳍相位（验证摆动）
-http://127.0.0.1:8128/tools/sea.html?sprite=img&depth=0.3&phase=1.57&frozen=1
+http://127.0.0.1:8128/sea.html?sprite=img&depth=0.3&phase=1.57&frozen=1
 # 性能
-http://127.0.0.1:8128/tools/sea.html?sprite=img&bench=1
+http://127.0.0.1:8128/sea.html?sprite=img&bench=1
 ```
 
 参数：`depth` 0~1 深度、`phase` 钉死摆动相位、`frozen=1` 静止取图、

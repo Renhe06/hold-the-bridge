@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>跃 · 上篇</title>
+<title>跃 · 上篇 —— 守桥</title>
 <script>
 // 无头环境看不到 console，把未捕获错误直接写进 report / title
 window.addEventListener('error', (e) => {
@@ -100,7 +100,7 @@ window.addEventListener('error', (e) => {
   #boot {
     position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 13px;
-    background: radial-gradient(120% 80% at 50% 32%, #0b2b3c, #03070c 78%);
+    background: radial-gradient(120% 80% at 50% 32%, #0b2b3c, #03070c 78%) #04090d;
     color: #cfeaf7; font: 400 15px/1.7 -apple-system, "PingFang SC", sans-serif;
     letter-spacing: 0.06em; cursor: pointer;
   }
@@ -109,6 +109,17 @@ window.addEventListener('error', (e) => {
   #boot .rule { width: 34px; height: 1px; background: rgba(140,190,210,.3); margin: 3px 0; }
   #boot .go { margin-top: 10px; font-size: 12px; letter-spacing: .3em; color: #86b9cd;
     border: 1px solid rgba(134,185,205,.3); padding: 9px 22px; border-radius: 30px; }
+
+  /* 返回选关：只在标题页和结局出现，游戏进行中藏起来（别让手指误触） */
+  #back {
+    position: fixed; left: 16px; bottom: calc(env(safe-area-inset-bottom) + 18px);
+    z-index: 12; padding: 7px 13px; border-radius: 20px;
+    border: 1px solid rgba(140, 190, 210, 0.22);
+    color: #8fb6c8; font: 400 11.5px/1 -apple-system, "PingFang SC", sans-serif;
+    letter-spacing: .18em; text-decoration: none; background: rgba(4, 14, 20, .55);
+    opacity: 0; pointer-events: none; transition: opacity .5s ease;
+  }
+  #back.on { opacity: .78; pointer-events: auto; }
 
   /* ---- 波次过渡 / 结局 ---- */
   #veil {
@@ -175,6 +186,7 @@ window.addEventListener('error', (e) => {
 <div id="lyric"><div class="t"></div><div class="d"></div></div>
 <div id="prog"><i></i></div>
 <div id="veil"><div class="t"></div><div class="d"></div><div class="k"></div></div>
+<a id="back" class="on" href="index.html">← 选关</a>
 <pre id="report"></pre>
 
 <div id="boot">
@@ -189,13 +201,13 @@ window.addEventListener('error', (e) => {
 </div>
 
 <script type="module">
-import { SeaRenderer } from '../js/sea-render.js';
-import { SeaAudio } from '../js/sea-audio.js';
-import { SeaWhale } from '../js/sea-whale.js';
-import { SeaGame, SEA_STRATA } from '../js/sea-game.js';
-import { Sound } from '../js/audio.js';
-import { QUALITY, LEVELS } from '../js/quality.js';
-import { clamp } from '../js/util.js';
+import { SeaRenderer } from './js/sea-render.js';
+import { SeaAudio } from './js/sea-audio.js';
+import { SeaWhale } from './js/sea-whale.js';
+import { SeaGame, SEA_STRATA } from './js/sea-game.js';
+import { Sound } from './js/audio.js';
+import { QUALITY, LEVELS } from './js/quality.js';
+import { clamp } from './js/util.js';
 
 const Q = new URLSearchParams(location.search);
 const cv = document.getElementById('cv');
@@ -214,6 +226,7 @@ const elLyric = document.getElementById('lyric');
 const elProg = document.getElementById('prog');
 const elProgBar = elProg.firstElementChild;
 const elVeil = document.getElementById('veil');
+const elBack = document.getElementById('back');
 
 const qName = Q.get('q');
 if (qName) {
@@ -244,7 +257,7 @@ const spriteMode = Q.get('sprite') || '';
 if (spriteMode === 'mock') {
   whaleArt.adopt(makeMockSprite());
 } else if (spriteMode === 'img') {
-  whaleArt.load('../img/sea/').then((ok) => {
+  whaleArt.load('img/sea/').then((ok) => {
     if (!ok && report) {
       report.classList.add('on');
       report.textContent = 'img/sea/ 下没有找到 whale，已退回矢量占位';
@@ -258,8 +271,11 @@ let running = false;
 let last = 0;
 let frames = 0;
 let fpsAcc = 0, fpsN = 0, fpsShown = 0;
+// 这两个必须在任何 syncDom 之前就存在：selftest / auto 分支会同步调 syncDom，
+// 声明晚一行就是 TDZ 报错（曾把整页打成 "ERR ... before initialization"）。
 let endShown = '';
 let lyricT = 0;
+let lastStrata = '';
 
 const game = new SeaGame(r, sea, whaleArt);
 // 调试/截图现在只需要 ?depth=0.62 —— 世界是连续的，没有"跳到第几波"
@@ -435,11 +451,12 @@ const VEIL = {
   }),
 };
 
-let lastStrata = '';
 function syncDom() {
   const H = game.hud();
   // 结局时连"还剩多少秒"都不该留在屏幕上 —— 那时候已经没有秒了
   elHud.classList.toggle('off', H.mode !== 'play');
+  // 只在标题页 / 结局给返回键；正在游的时候藏起来，免得手指误触
+  elBack.classList.toggle('on', H.mode !== 'play');
 
   elWave.textContent = `${H.strata}　·　${(H.depth / H.depthMax).toFixed(2)}`;
   elOxy.innerHTML = `${H.oxySec}<i>s</i>`;
@@ -520,9 +537,20 @@ function syncDom() {
     if (endShown) { elVeil.classList.remove('on'); endShown = ''; }
   } else if (H.mode === 'endA' && endShown !== 'endA') {
     endShown = 'endA';
+    markSeen();
   } else if (H.mode === 'endB' && endShown !== 'endB' && H.dark > 0.10) {
     endShown = 'endB';
+    markSeen();
   }
+}
+
+/**
+ * 看过结局 = 第五关上篇通关。
+ * 只写一个布尔标记（不碰主存档那个数字进度）：主界面的选关面板据此给
+ * 「第 5 关 · 上」打「已通关」记号。写失败也无所谓 —— 那只是个小记号。
+ */
+function markSeen() {
+  try { localStorage.setItem('hold-the-bridge:sea', '1'); } catch (_) {}
 }
 
 function paintVeil() {

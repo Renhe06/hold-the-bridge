@@ -1019,7 +1019,12 @@ function openLevels() {
     const lv = findLevel(i);
     node.classList.toggle('done', !!lv && game.clearedLevel >= i);
   }
-  setText(el.levelHint, 'lvH', game.clearedLevel >= 3 ? '第 1~4 关都能进 · 无尽模式随时能进' : game.clearedLevel >= 2 ? '第 1~4 关都能进 · 选一关开打' : game.clearedLevel >= 1 ? '第 2~4 关已解锁 · 选一关开打' : '先打第 1 关 · 第 2~4 关也可以直接进');
+  // 第 5 关·上篇是独立页面，它的"通关"不写进数字进度，只留一个布尔标记
+  // （sea.html 走到结局时写入）。读不到就当没看过，不影响别的。
+  try {
+    if (el.lv5a) el.lv5a.classList.toggle('done', !!localStorage.getItem('hold-the-bridge:sea'));
+  } catch (_) {}
+  setText(el.levelHint, 'lvH', game.clearedLevel >= 3 ? '第 1~5 关都能进 · 无尽模式随时能进' : game.clearedLevel >= 2 ? '第 1~5 关都能进 · 选一关开打' : game.clearedLevel >= 1 ? '第 2~5 关已解锁 · 选一关开打' : '先打第 1 关 · 第 2~5 关也可以直接进');
   el.levelOverlay.classList.add('show');
 }
 
@@ -1060,16 +1065,23 @@ for (let i = 1; i <= 4; i++) {
   });
 }
 
-// 【用户 m14093】第 5 关特典关卡：上下两半都还没实装，点了只提示。
-for (const [node, half] of [[el.lv5a, '上'], [el.lv5b, '下']]) {
-  if (!node) continue;
-  onTap(node, (e) => {
-    sfx.uiClick();
-    e.stopPropagation();
-    setText(el.levelHint, 'lvH', `第 5 关 · ${half} · 敬请期待~`);
-    showHint(`特典关卡 · 敬请期待~`, '#f6e2a8');
-  });
-}
+// 【用户 m14093】第 5 关特典关卡分上下两篇。
+// 上篇《跃》已经上线，而且它是**另一套游戏**：自由游动的相机、只有呼吸和声，
+// 前四关的桥/枪/波次在这里一条都不成立。硬塞进 startLevel 会把两个引擎搅在一起，
+// 所以它是一整页独立游戏（sea.html），这里只负责跳过去。
+onTap(el.lv5a, (e) => {
+  sfx.unlock();
+  sfx.uiClick();
+  e.stopPropagation();
+  location.href = 'sea.html';
+});
+// 下篇《止战之殇》还没做，保持原来的"敬请期待"。
+onTap(el.lv5b, (e) => {
+  sfx.uiClick();
+  e.stopPropagation();
+  setText(el.levelHint, 'lvH', '第 5 关 · 下 · 敬请期待~');
+  showHint('特典关卡 · 敬请期待~', '#f6e2a8');
+});
 
 // 无尽模式：直接开打（没有通关、没有 BOSS）
 onTap(el.modeEndless, (e) => {
@@ -1548,7 +1560,7 @@ function syncState() {
       // 关卡入口显示进度（通关第一关后主界面能看出来第二关解锁了）
       // 「关卡」那格的角标：点开是选关面板，所以这里只说到"能选几关"
       // 【用户 m04749】第 4 关上线后，四关都能直接进（选关面板里的提示也这么说）
-      setText(el.menuLevelNote, 'mL', game.clearedLevel >= 1 ? '第 1~4 关 可选' : '第 1 关 可打');
+      setText(el.menuLevelNote, 'mL', game.clearedLevel >= 1 ? '第 1~5 关 可选' : '第 1 关 可打');
     }
 
     el.startOverlay.classList.toggle('show', st === STATE.START);
