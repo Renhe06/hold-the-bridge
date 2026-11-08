@@ -76,7 +76,12 @@ export class SeaRenderer {
     // 海床画在它上面，珊瑚与鲸落长在它上面，沉底演出也停在它上面。
     // 之前海床是"跟着相机的高 0.62 处"，珊瑚是"0.80~1.02 的深度带" ——
     // 两套坐标，珊瑚必然悬空。
-    this.BED_D = 1.28;
+    // 地面线的深度。它决定"潜到底时海床在屏幕的哪里"：
+    //   bedY = 0.28h + (BED_D - depth) * 2h
+    // 1.28 的时候，depth=1.00 的海床在 0.84h —— 珊瑚只在画面底部露出窄窄一条，
+    // 用户看到的"海底不够漂亮"有一半是这个：不是画得不好，是根本没进画面。
+    // 1.17 → 0.62h：礁盘占住下半屏，鲸在它上方游，沉底时落进去。
+    this.BED_D = 1.17;
     this._vignette = null;
     this._ship = null;
     this._seabed = null;
@@ -442,6 +447,43 @@ export class SeaRenderer {
       g.stroke();
     }
 
+    // ---- 底床质感：0.44 层以下是纯黑，珊瑚站上去就像悬着 ----
+    // 这一层不是"好看"，是"证明这里有地"：极弱的沙纹、碎石、反光点。
+    // 全部烘进贴图（只跑一次），所以它对帧率零成本。
+    const sandY = H * 0.52;
+    g.strokeStyle = 'rgba(120,186,206,0.055)';
+    for (let i = 0; i < 26; i++) {
+      const y = sandY + (i / 26) * (H - sandY);
+      const x0 = rnd() * W;
+      const len = W * (0.05 + rnd() * 0.14);
+      g.lineWidth = 0.8 + rnd() * 1.6;
+      g.beginPath();
+      g.moveTo(x0, y);
+      g.quadraticCurveTo(x0 + len * 0.5, y - 2 - rnd() * 3, x0 + len, y);
+      g.stroke();
+    }
+    for (let i = 0; i < 34; i++) {
+      const x = rnd() * W;
+      const y = sandY + rnd() * (H - sandY) * 0.96;
+      const rx = W * (0.004 + rnd() * 0.013);
+      const ry = rx * (0.5 + rnd() * 0.5);
+      g.fillStyle = 'rgba(14,38,50,0.85)';
+      g.beginPath();
+      g.ellipse(x, y, rx, ry, rnd() * 0.6 - 0.3, 0, TAU);
+      g.fill();
+      g.strokeStyle = 'rgba(112,178,198,0.075)';
+      g.lineWidth = 1;
+      g.stroke();
+    }
+    g.fillStyle = 'rgba(170,226,244,0.10)';
+    for (let i = 0; i < 60; i++) {
+      const x = rnd() * W;
+      const y = sandY + rnd() * (H - sandY);
+      g.beginPath();
+      g.arc(x, y, 0.7 + rnd() * 1.3, 0, TAU);
+      g.fill();
+    }
+
     // 沉在海底的碎石：极少量，只在最前一层上面露一点头，提供"尺度"参照。
     // 不能多 —— 三块是地形，十块就是装饰。
     g.fillStyle = 'rgba(1,6,10,0.9)';
@@ -637,10 +679,16 @@ export class SeaRenderer {
       this._pats.set(key, p);
     }
     if (!p || typeof p.setTransform !== 'function' || typeof DOMMatrix === 'undefined') return false;
-    try {
-      p.setTransform(new DOMMatrix([sc, 0, 0, sc, ox, oy]));
-    } catch (_) {
-      return false;
+    // 每帧 new DOMMatrix 是白白喂给 GC 的垃圾（3 处 pattern × 60fps）。
+    // 只有偏移真的变了才重设 —— 大部分帧的位移不到 1px，肉眼无从分辨。
+    const m = p._hbt || (p._hbt = { sc: 0, ox: 0, oy: 0 });
+    if (m.sc !== sc || Math.abs(m.ox - ox) > 0.5 || Math.abs(m.oy - oy) > 0.5) {
+      try {
+        p.setTransform(new DOMMatrix([sc, 0, 0, sc, ox, oy]));
+        m.sc = sc; m.ox = ox; m.oy = oy;
+      } catch (_) {
+        return false;
+      }
     }
     ctx.fillStyle = p;
     ctx.fillRect(x, y, w, h);
@@ -873,16 +921,22 @@ export class SeaRenderer {
     }
 
     // 5) 海雪：两层视差，同样用 pattern 一次填满
-    if (snow) {
+    //    性能：这是**两次全屏 lighter 混合**（dpr 2.5 下约 400 万设备像素）。
+    //    深处它的 alpha 只剩 0.01~0.02，肉眼看不见却照样算满屏 —— 真机上
+    //    "潜到深水就掉帧"有一半是这里。0.66 以下整段跳过（深渊里本来就不该有雪），
+    //    单层 alpha 低于 0.02 时也跳过。
+    if (snow && depth < 0.66) {
       ctx.globalCompositeOperation = 'lighter';
       const base = 1.55 * (w / 390);
       for (let layer = 0; layer < 2; layer++) {
+        const a = (layer ? 0.18 : 0.30) * clamp(1 - depth * 0.70, 0.12, 1) * (0.28 + life * 0.72);
+        if (a < 0.02) continue;
         const sc = base * (layer ? 1.45 : 1);
         const tw = this._snow.width * sc;
         const th = this._snow.height * sc;
         const ox = ((layer * 97 + this.time * (layer ? 13 : 5)) % tw + tw) % tw;
         const oy = ((layer * 53 + this.time * (layer ? 19 : 8)) % th + th) % th;
-        ctx.globalAlpha = (layer ? 0.18 : 0.30) * clamp(1 - depth * 0.70, 0.12, 1) * (0.28 + life * 0.72);
+        ctx.globalAlpha = a;
         if (!this._fillTile('snow', this._snow, sc, ox, oy, 0, 0, w, h)) {
           ctx.globalAlpha = 0;
         }
@@ -902,6 +956,13 @@ export class SeaRenderer {
       ctx.fillRect(0, 0, w, h);
       ctx.globalAlpha = 1;
     }
+
+    // 5.6) 海床上的一切：鲸落骨架 → 珊瑚礁。
+    //      必须在鲸**之前** —— 这一层是"地面上的东西"，鲸从上方游过时
+    //      盖住它才对。上一版把它放在 entities（鲸之后），珊瑚盖住鲸，
+    //      于是只能靠压 globalAlpha 来"别太抢"，最后两样都成了半透明贴纸。
+    //      沉底/幻象时反过来（st.whaleBehind）：鲸落进珊瑚丛，被枝梢接住。
+    if (typeof st.bedLayer === 'function') st.bedLayer(ctx, this);
 
     // 6) 鲸
     // lateWhale = 玩家在水面之上：这时候它必须画在海面那一层（城市、船）**之后**，
@@ -938,13 +999,15 @@ export class SeaRenderer {
         });
       }
     };
-    if (st.whale !== false && !st.lateWhale) drawPlayerWhale();
+    if (st.whale !== false && !st.lateWhale && !st.whaleBehind) drawPlayerWhale();
 
     // 6.5) 前景海雪：画在角色之后，粒子从角色前面飘过。
     // 这一步是"贴纸感"的解药 —— 只要有一层东西盖在角色上，它就从"贴在画面上"
     // 变成"真的泡在水里"。放大 3.4 倍让颗粒变成虚的大颗（近处失焦），
     // 移动速度给到背景那层的 2.5 倍做视差。
-    if (snow) {
+    // 前景雪同样要剔：alpha 在深处只剩 0.007，却是一次全屏合成
+    const aNear = 0.09 * clamp(1 - depth * 0.80, 0.08, 1);
+    if (snow && aNear > 0.02) {
       const scN = 2.9 * (this.w / 390);
       const twN = this._snow.width * scN;
       const thN = this._snow.height * scN;
@@ -953,7 +1016,7 @@ export class SeaRenderer {
       ctx.globalCompositeOperation = 'lighter';
       // 前景那层是"镜头前的浮尘"，最招人烦的就是它：从 0.22 收到 0.09，
       // 而且深处几乎完全消失 —— 深渊里不该有雪，只有自己的呼吸。
-      ctx.globalAlpha = 0.09 * clamp(1 - depth * 0.80, 0.08, 1);
+      ctx.globalAlpha = aNear;
       if (!this._fillTile('snowNear', this._snow, scN, oxN, oyN, 0, 0, w, h)) {
         // createPattern 不可用时直接跳过，别退化成满屏 drawImage
       }
@@ -967,6 +1030,10 @@ export class SeaRenderer {
     // 7.5) 实体层：网、钩、声呐、海鸥、同类。由玩法层回调，画在暗角之前 ——
     //      暗角代表镜头，实体必须也在镜头里，否则它们会像贴纸浮在最上面。
     if (typeof st.entities === 'function') st.entities(ctx, this);
+
+    // 6.9) 沉底/幻象：鲸在珊瑚**之后**画，被枝梢接住。
+    //      这不是"让它看不见"，是"它落进那片花园里了"。
+    if (st.whale !== false && !st.lateWhale && st.whaleBehind) drawPlayerWhale();
 
     // 7.6) 跃出水面的玩家：现在它已经在水面那一层之上了
     if (st.whale !== false && st.lateWhale) drawPlayerWhale();

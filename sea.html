@@ -148,14 +148,20 @@ window.addEventListener('error', (e) => {
   /* ---- 波次过渡 / 结局 ---- */
   #veil {
     position: fixed; inset: 0; z-index: 8; pointer-events: none;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    /* 文字落在画面下 1/3：上面是水母和珊瑚、中间是鲸，底下那片黑海床才是
+       "空白" —— 居中的话正好压在鲸身上，两样都看不清（v1.0.74 实拍）。 */
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
     gap: 10px; text-align: center; opacity: 0; transition: opacity .7s ease;
     font-family: -apple-system, "PingFang SC", sans-serif;
-    color: #d7eef8; padding: 0 34px;
+    /* 9vh：鲸沉到珊瑚里之后，它的头正好在 0.62~0.72h —— 13vh 的标题
+       会压在上面。再往下让开半个身位，同时不撞到左下角的返回键。 */
+    color: #d7eef8; padding: 0 34px 9vh;
   }
   #veil.on { opacity: 1; }
   #veil .t { font-size: 21px; letter-spacing: .18em; }
-  #veil .d { font-size: 12.5px; line-height: 1.9; color: #7ea6b8; letter-spacing: .08em; }
+  /* pre-line：文案里的 \n 是硬换行。默认 white-space 会把它折叠成空格，
+     于是"珊瑚是彩色的。\n那是第一层的样子"会挤成一行再自动折断 —— 断在小标题腰上。 */
+  #veil .d { font-size: 12.5px; line-height: 1.9; color: #7ea6b8; letter-spacing: .08em; white-space: pre-line; }
   #veil .k { font-size: 10px; letter-spacing: .26em; color: #5d8496; margin-top: 18px; }
 
   /* ---- 每波的歌词：开场两秒，然后交给玩家 ---- */
@@ -323,8 +329,8 @@ if (Q.get('depth') != null) {
   game.aimDepth = game.depth;
 }
 if (Q.get('oxy') != null) game.oxy = clamp(parseFloat(Q.get('oxy')), 0, 1);
-// 调试：?hp=0.4 直接设血量；?god=1 关掉一切伤害（验证"能不能走完"用）
-if (Q.get('hp') != null) game.hp = clamp(parseFloat(Q.get('hp')), 0, 1);
+// 调试：?hp=0.4 按**比例**设血量（0~1），内部乘血条上限；?god=1 关掉一切伤害
+if (Q.get('hp') != null) game.hp = clamp(parseFloat(Q.get('hp')), 0, 1) * game.hpMax;
 if (Q.get('god') === '1') game.god = true;
 // 调试：直接摆出伤痕状态（截图核对血痕 / 变异 / 塑料袋的位置）
 if (Q.get('scars') != null) game.scars = Math.min(6, parseInt(Q.get('scars'), 10) || 0);
@@ -385,10 +391,20 @@ function frameState() {
       // 这一关要读的是"水和同类"，不是角色立绘。
       L: w * 0.80,
       // 下潜时头朝下：倾角直接读垂直速度，比按目标位置算更有"受力"的感觉。
-      // 沉底那一段固定低头 0.30：死掉的身体不再有浮力，是头朝下沉下去的。
-      tilt: game.mode === 'sinking'
-        ? 0.30 + Math.sin(t * 0.7) * 0.04
-        : clamp(game.vD * 0.13, -0.42, 0.42) + Math.sin(t * 0.31) * 0.012,
+      // 沉底那一段是**翻肚皮**：tilt 转到 π（180°），同时 flip 镜像回来 ——
+      // 两个变换的合成是"关于横轴翻转"，也就是头还在右边、肚皮朝上。
+      // 只转 180° 不镜像的话，头会跑到左边，看起来像"倒着游"而不是"死了"。
+      tilt: (() => {
+        const roll = game.deadRoll || 0;
+        if (roll > 0) {
+          // 翻转过程中把"活着时的倾斜"淡出：不能让它在 0.30 的低头角度上再叠 180°
+          const live = clamp(game.vD * 0.13, -0.42, 0.42) + Math.sin(t * 0.31) * 0.012;
+          return live * (1 - roll) + Math.PI * roll;
+        }
+        return clamp(game.vD * 0.13, -0.42, 0.42) + Math.sin(t * 0.31) * 0.012;
+      })(),
+      // 过了竖直（π/2）再镜像：那一刻鲸是竖着的，左右对称，切换看不出跳变
+      flip: (game.deadRoll || 0) > 0.5,
       phase: t * 2.62,
       // 这一条之前漏了：海水把它泡到多深，它就该多暗。
       // 漏掉的后果是主角在 1.00 深处依然又蓝又亮，整个"深渊"塌了。
@@ -403,7 +419,11 @@ function frameState() {
     },
     // 水面之上时改到实体层之后画：不然跃出去的那一下会被远处的城市盖住
     lateWhale: game.depth < 0.12,
+    // 沉底与幻象：鲸落到珊瑚丛里，被枝梢接住 —— 顺序换了，不是把它调透明
+    whaleBehind: game.mode === 'sinking' || game.mode === 'vision' || game.mode === 'endB',
     sprite: whaleArt,
+    // 海床上的东西（骨架 → 珊瑚）单独一层，画在鲸之前
+    bedLayer: (ctx, R) => game.drawBedLayer(ctx, R),
     entities: (ctx, R) => game.drawEntities(ctx, R),
   };
 }
@@ -467,14 +487,19 @@ function runAuto() {
       // 自动驾驶：找一个同类 → 游过去 → 按住唱 → 没气就上浮。
       // 用来验证「一局到底」能不能真的走完（尤其最后一只够不着那条）。
       if (jumpTest) {
-        // 真实的手只能指到水面（aimDepth>=0）；破水靠的是冲上去的速度。
-        // 这里只把手指按到"水面"（0），不越过水面 —— 越过去了就测不出
-        // "能不能真的跃出来"这件事，测的只是"能不能贴到天花板"。
+        // 真实的手只能指到水面（aimDepth>=0）；破水靠的是"把手指推过水面"
+        // 这个动作（pullOut）换来的冲量。测试必须走同一条路，
+        // 否则测的是"能不能贴到天花板"，不是"能不能真的跃出来"。
         game.aimDepth = 0;
+        game.held = true;
+        game.pullOut = true;
         if (!game._jumped) {
           game._jumped = true;
           game.depth = 0.45;
         }
+      } else if (autoMode === 'idle') {
+        // 不碰任何输入，只跑物理。用来验证"玩家还没动手的时候它不会自己跳"
+        // —— v1.0.74 开局自动连跳就是靠这条抓出来的。
       } else if (drive && game.mode === 'play') {
         const m = game.mate;
         // 换气就换到八成满才走：只补一点点就下潜，会在浅处反复抽气，
@@ -542,21 +567,38 @@ const VEIL = {
   }),
 };
 
+// ---------- DOM 写入的最小化 ----------
+// 上一版 syncDom 每 4 帧无条件写 ~20 次 DOM（textContent / style / classList），
+// 60fps 下等于每秒 300 次样式失效。手机上"画面不卡但动起来发涩"，
+// 一半来自这里：主线程在算样式，合成器就得等。
+// 现在每个元素记一份上次写过的值，值没变就一个字都不写 ——
+// 氧气一秒才变一次，血条几秒才变一次，绝大多数帧是零写入。
+const _dc = new WeakMap();
+function domSet(el, key, value, apply) {
+  let m = _dc.get(el);
+  if (!m) { m = {}; _dc.set(el, m); }
+  if (m[key] === value) return;
+  m[key] = value;
+  apply(value);
+}
+
 function syncDom() {
   const H = game.hud();
   // 结局时连"还剩多少秒"都不该留在屏幕上 —— 那时候已经没有秒了
-  elHud.classList.toggle('off', H.mode !== 'play');
+  domSet(elHud, 'off', H.mode !== 'play', (v) => elHud.classList.toggle('off', v));
   // 只在标题页 / 结局给返回键；正在游的时候藏起来，免得手指误触
-  elBack.classList.toggle('on', H.mode !== 'play');
+  domSet(elBack, 'on', H.mode !== 'play', (v) => elBack.classList.toggle('on', v));
 
-  elWave.textContent = `${H.strata}　·　${(H.depth / H.depthMax).toFixed(2)}`;
-  elOxy.innerHTML = `${H.oxySec}<i>s</i>`;
-  elOxy.style.color = H.oxygen > 0.5 ? '#a6e7f7' : H.oxygen > 0.25 ? '#ffcf7a' : '#ff8a76';
+  const waveTxt = `${H.strata}　·　${(H.depth / H.depthMax).toFixed(2)}`;
+  domSet(elWave, 't', waveTxt, (v) => { elWave.textContent = v; });
+  domSet(elOxy, 's', H.oxySec, (v) => { elOxy.innerHTML = `${v}<i>s</i>`; });
+  domSet(elOxy, 'c', H.oxygen > 0.5 ? '#a6e7f7' : H.oxygen > 0.25 ? '#ffcf7a' : '#ff8a76',
+    (v) => { elOxy.style.color = v; });
 
   // 血条：只有失血才动。扣到 1/3 以下整条转暗红。
   // 闪一下用 CSS 动画 + 强制重排重触发，不另建定时器（后台标签页里定时器会漂）。
-  elHpBar.style.width = (H.hp * 100).toFixed(1) + '%';
-  elHp.classList.toggle('low', H.hp < 0.34);
+  domSet(elHpBar, 'w', Math.round(H.hp * 1000), (v) => { elHpBar.style.width = (v / 10).toFixed(1) + '%'; });
+  domSet(elHp, 'low', H.hp < 0.34, (v) => elHp.classList.toggle('low', v));
   const hpNow = Math.round(H.hp * 1000);
   if (hpNow < lastHp - 1 && H.mode === 'play') {
     elHp.classList.remove('hit');
@@ -566,58 +608,51 @@ function syncDom() {
   lastHp = hpNow;
 
   // 歌：七个点。每回应一只亮一个。这是唯一的进度条。
-  while (elNotes.childElementCount < H.voicesAll) elNotes.appendChild(document.createElement('i'));
-  for (let i = 0; i < elNotes.childElementCount; i++) {
-    elNotes.children[i].classList.toggle('on', i < H.voices);
-  }
+  // 只在声部数变化时动 DOM（进度不变时每 4 帧重刷 7 个 class 是白烧的）。
+  domSet(elNotes, 'v', H.voices, (v) => {
+    while (elNotes.childElementCount < H.voicesAll) elNotes.appendChild(document.createElement('i'));
+    for (let i = 0; i < elNotes.childElementCount; i++) {
+      elNotes.children[i].classList.toggle('on', i < v);
+    }
+  });
 
   const bandOn = H.band !== 'mid';
-  elBand.classList.toggle('on', bandOn);
-  elBand.textContent = H.band === 'surface'
+  const bandTxt = H.band === 'surface'
     ? (!H.atAir ? '水面 · 再上去一点才够得着空气'
       : game.kit.some((k) => k.type === 'slick') ? '水面 · 油污里，你最显眼' : '水面 · 能被看见')
     : H.band === 'abyss' ? '深渊 · 它看不见你，你也看不见路' : '';
+  domSet(elBand, 'on', bandOn, (v) => elBand.classList.toggle('on', v));
+  domSet(elBand, 't', bandTxt, (v) => { elBand.textContent = v; });
 
   const hint = H.mode === 'play' ? H.hint : '';
-  elHint.textContent = hint || '';
-  elHint.classList.toggle('on', !!hint);
+  domSet(elHint, 't', hint, (v) => { elHint.textContent = v; });
+  domSet(elHint, 'on', !!hint, (v) => elHint.classList.toggle('on', v));
 
   // 目标行。核心循环是呼吸：潜下去待着，气不够就上来。
   // 同类的歌只是顺路的事 —— 它响的时候提一句，不响就不提。
+  let objTxt = '';
+  let objColor = '#86b3c6';
   if (H.mode === 'play') {
-    if (H.mateFound) {
-      elObj.textContent = '它就在这 · 长按，回应';
-      elObj.style.color = '#e8c07a';
-    } else if (H.hp < 0.26) {
-      elObj.textContent = '血快没了 · 别再碰钩子和塑料';
-      elObj.style.color = '#ff8a76';
-    } else if (H.oxygen < 0.24) {
-      elObj.textContent = '气不够了 · 往上滑，把头探出去';
-      elObj.style.color = '#ff9a86';
-    } else if (H.band === 'surface') {
-      elObj.textContent = '换完了就走 · 下面才是家';
-      elObj.style.color = '#a6c8d8';
-    } else if (H.blood > 0) {
-      elObj.textContent = '你在流血 · 海鸥看见了';
-      elObj.style.color = '#d8988a';
-    } else {
-      // 目标行永远带一个分母：这是"流程清不清晰"的答案。
-      // 上一版只写"找到同伴"，玩家不知道要找几只、找了几个。
-      elObj.textContent = `同伴 ${H.codex}/${H.codexAll} · 往下找`;
-      elObj.style.color = '#86b3c6';
-    }
-  } else if (H.visionMode) {
-    elObj.textContent = '';
-  } else {
-    elObj.textContent = '';
+    if (H.mateFound) { objTxt = '它就在这 · 长按，回应'; objColor = '#e8c07a'; }
+    else if (H.hp < 0.26) { objTxt = '血快没了 · 别再碰钩子和塑料'; objColor = '#ff8a76'; }
+    else if (H.oxygen < 0.24) { objTxt = '气不够了 · 往上滑，把头探出去'; objColor = '#ff9a86'; }
+    else if (H.band === 'surface') { objTxt = '换完了就走 · 下面才是家'; objColor = '#a6c8d8'; }
+    else if (H.blood > 0) { objTxt = '你在流血 · 海鸥看见了'; objColor = '#d8988a'; }
+    // 目标行永远带一个分母：这是"流程清不清晰"的答案。
+    // 上一版只写"找到同伴"，玩家不知道要找几只、找了几个。
+    else { objTxt = `同伴 ${H.codex}/${H.codexAll} · 往下找`; objColor = '#86b3c6'; }
   }
+  domSet(elObj, 't', objTxt, (v) => { elObj.textContent = v; });
+  domSet(elObj, 'c', objColor, (v) => { elObj.style.color = v; });
 
   // 开场三步：只教三个动作。4 秒一条，13 秒后彻底退场。
   const tutOn = H.mode === 'play' && game.t < 13;
-  elTut.classList.toggle('on', tutOn);
+  domSet(elTut, 'on', tutOn, (v) => elTut.classList.toggle('on', v));
   if (tutOn) {
     const k = Math.min(2, Math.floor(game.t / 4));
-    for (let i = 0; i < tutSteps.length; i++) tutSteps[i].classList.toggle('on', i === k);
+    domSet(elTut, 'k', k, (v) => {
+      for (let i = 0; i < tutSteps.length; i++) tutSteps[i].classList.toggle('on', i === v);
+    });
   }
 
   // 跨入新的一段时给一次歌词。它不是标语，所以只挂 2.8 秒。
@@ -630,7 +665,7 @@ function syncDom() {
     dEl.textContent = H.strata;
   }
   lyricT = Math.max(0, lyricT - 0.06);
-  elLyric.classList.toggle('on', H.mode === 'play' && lyricT > 0);
+  domSet(elLyric, 'on', H.mode === 'play' && lyricT > 0, (v) => elLyric.classList.toggle('on', v));
 
   // 长按进度：回应同类 / 献祭项链
   let prog = 0;
@@ -638,9 +673,9 @@ function syncDom() {
     if (H.mateFound) prog = H.mateResp;
     else if (H.canSacrifice) prog = H.sacrifice;
   }
-  elProg.classList.toggle('on', prog > 0.01);
-  elProgBar.style.width = (prog * 100).toFixed(1) + '%';
-  elProgBar.style.background = H.mateFound ? '#8fd8ec' : '#e8c07a';
+  domSet(elProg, 'on', prog > 0.01, (v) => elProg.classList.toggle('on', v));
+  domSet(elProgBar, 'w', Math.round(prog * 200), (v) => { elProgBar.style.width = (v / 2).toFixed(1) + '%'; });
+  domSet(elProgBar, 'bg', H.mateFound ? '#8fd8ec' : '#e8c07a', (v) => { elProgBar.style.background = v; });
 
   if (H.mode === 'play') {
     if (endShown) { elVeil.classList.remove('on'); endShown = ''; }

@@ -645,17 +645,23 @@ export class SeaAudio {
   _fireEvent() {
     const d = this.depth;
     const r = this._rnd();
+    // 用户实拍反馈："背景里那个'呜'的声音太频繁了"。
+    // 上一版 9~18 秒一次、深处 36% 是鲸歌（call 三秒长句 + 长混响），
+    // 实际听感是"每隔几秒就有一只鲸在叹口气"—— 环境音一旦有了节奏，
+    // 它就从"海"变成"配乐"，而配乐会抢台词的戏。
+    // 现在：间隔拉到 13~26 秒，鲸歌概率砍到 14%/22%，音量再降三成。
+    // 深处（>0.6）仍然保留更多鲸歌 —— 那是同类的地盘，不该安静得死掉。
     if (d < 0.25) {
-      if (r < 0.55) this.surface();
+      if (r < 0.42) this.surface();
       else this.bubbles(2 + ((this._rnd() * 3) | 0));
     } else if (d < 0.6) {
-      if (r < 0.42) this.bubbles(1 + ((this._rnd() * 3) | 0));
-      else if (r < 0.72) this.hull();
-      else this.call({ pan: (this._rnd() * 2 - 1) * 0.85, base: 120 + this._rnd() * 40, dur: 2.4, vol: 0.045, reach: 0.45 });
+      if (r < 0.52) this.bubbles(1 + ((this._rnd() * 3) | 0));
+      else if (r < 0.86) this.hull();
+      else this.call({ pan: (this._rnd() * 2 - 1) * 0.85, base: 120 + this._rnd() * 40, dur: 2.6, vol: 0.030, reach: 0.45 });
     } else {
-      if (r < 0.5) this.hull();
-      else if (r < 0.86) this.call({ pan: (this._rnd() * 2 - 1) * 0.9, base: 92 + this._rnd() * 24, dur: 3.0, vol: 0.035, reach: 0.3 });
-      else this.motif({ pan: (this._rnd() * 2 - 1) * 0.5, vol: 0.05 });
+      if (r < 0.60) this.hull();
+      else if (r < 0.88) this.call({ pan: (this._rnd() * 2 - 1) * 0.9, base: 92 + this._rnd() * 24, dur: 3.2, vol: 0.024, reach: 0.3 });
+      else this.motif({ pan: (this._rnd() * 2 - 1) * 0.5, vol: 0.042 });
     }
   }
 
@@ -688,7 +694,7 @@ export class SeaAudio {
     this._t += dt;
     if (this._t >= this._next) {
       this._t = 0;
-      this._next = lerp(9, 18, this._rnd());
+      this._next = lerp(13, 26, this._rnd());
       this._fireEvent();
     }
   }
