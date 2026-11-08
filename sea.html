@@ -20,14 +20,14 @@ window.addEventListener('error', (e) => {
 
   /* ---- 唯一 HUD：氧气。没有分数、没有血条、没有连击 ---- */
   #hud {
-    position: fixed; left: 0; right: 0; top: max(14px, env(safe-area-inset-top));
+    position: fixed; left: 0; right: 0; top: max(56px, calc(env(safe-area-inset-top) + 44px));
     z-index: 5; pointer-events: none; text-align: center;
     font-family: -apple-system, "PingFang SC", sans-serif;
     transition: opacity 1.4s ease;
   }
   /* 顶部压一层暗：浅水里背景是亮的，纯文字会直接糊掉 */
   #hud::before {
-    content: ''; position: fixed; left: 0; right: 0; top: 0; height: 190px;
+    content: ''; position: fixed; left: 0; right: 0; top: 0; height: 230px;
     background: linear-gradient(to bottom, rgba(2,9,15,.78) 0%, rgba(2,9,15,.34) 58%, rgba(2,9,15,0) 100%);
     pointer-events: none;
   }
@@ -253,7 +253,10 @@ function makeMockSprite() {
   return c;
 }
 
-const spriteMode = Q.get('sprite') || '';
+// 贴图默认就加载。之前默认是空串，从选关面板进来（没有 ?sprite=img）就一路走矢量兜底，
+// 玩家看到的是一头纯黑的鱼 —— 「鱼的贴图没生效」就是这么来的。
+// ?sprite=mock 仍然是假图（单测用），?sprite=vec 才强制走矢量。
+const spriteMode = Q.get('sprite') || 'img';
 if (spriteMode === 'mock') {
   whaleArt.adopt(makeMockSprite());
 } else if (spriteMode === 'img') {
@@ -278,6 +281,14 @@ let lyricT = 0;
 let lastStrata = '';
 
 const game = new SeaGame(r, sea, whaleArt);
+// 截图用：?gulls=N 直接把 N 只海鸥放进天上（真实游玩由暴露度决定数量）
+if (Q.get('gulls')) {
+  const n = Math.max(0, Math.min(9, parseInt(Q.get('gulls'), 10) || 0));
+  for (let i = 0; i < n; i++) {
+    game.gulls.push({ lat: (i / Math.max(1, n)) * 2 - 1, ph: i * 1.3, r: 0.14 + (i % 3) * 0.05, sp: 0.6 });
+  }
+}
+
 // 调试/截图现在只需要 ?depth=0.62 —— 世界是连续的，没有"跳到第几波"
 if (Q.get('depth') != null) {
   game.depth = clamp(parseFloat(Q.get('depth')), -0.3, 1);
@@ -335,6 +346,8 @@ function frameState() {
       // 否则全世界都黑了，只剩它亮着 —— 那是灯，不是鲸。
       depth: clamp(game.depth + game.dark * 0.75, 0, 1),
     },
+    // 水面之上时改到实体层之后画：不然跃出去的那一下会被远处的城市盖住
+    lateWhale: game.depth < 0.12,
     sprite: whaleArt,
     entities: (ctx, R) => game.drawEntities(ctx, R),
   };
@@ -391,12 +404,20 @@ function runAuto() {
   const jumpTest = autoMode === 'jump';
   let err = '';
   let maxV = 0;
+  let minD = 9;
   try {
     for (let i = 0; i < N; i++) {
       // 自动驾驶：找一个同类 → 游过去 → 按住唱 → 没气就上浮。
       // 用来验证「一局到底」能不能真的走完（尤其最后一只够不着那条）。
       if (jumpTest) {
-        game.aimDepth = -0.3;
+        // 真实的手只能指到水面（aimDepth>=0）；破水靠的是冲上去的速度。
+        // 这里给一次 3.0 的上浮速度，然后看它是不是"出去—被重力拉回来"，
+        // 而不是停在天上不动（那就是上一版的问题）。
+        game.aimDepth = -0.30;
+        if (!game._jumped) {
+          game._jumped = true;
+          game.depth = 0.45;
+        }
       } else if (drive && game.mode === 'play') {
         const m = game.mate;
         // 换气就换到八成满才走：只补一点点就下潜，会在浅处反复抽气，
@@ -418,6 +439,7 @@ function runAuto() {
       t += 1 / 60;
       game.update(1 / 60);
       maxV = Math.max(maxV, -game.vD);
+      minD = Math.min(minD, game.depth);
       if (i % 4 === 0) { syncDom(); paintVeil(); }
     }
   } catch (e) {
@@ -434,7 +456,7 @@ function runAuto() {
     px0 = ` px=${d[0]},${d[1]},${d[2]}`;
   } catch (_) {}
   report.classList.add('on');
-  report.textContent = `frames=${N} mode=${H.mode} depth=${H.depth.toFixed(2)} oxy=${H.oxygen.toFixed(2)} voices=${H.voices}/${H.voicesAll} codex=${H.codex} dives=${H.dives} dark=${H.dark.toFixed(2)} mates=[${game.mates.map(m=>m.depth.toFixed(2)+':'+(m.answered?'Y':(m.found?'n':'-'))).join(' ')}] kit=${game.kit.length} fish=${game.fish.length} gull=${game.gulls.length}${px0} maxV=${maxV.toFixed(2)}${err}`;
+  report.textContent = `frames=${N} mode=${H.mode} depth=${H.depth.toFixed(2)} oxy=${H.oxygen.toFixed(2)} voices=${H.voices}/${H.voicesAll} codex=${H.codex} dives=${H.dives} dark=${H.dark.toFixed(2)} mates=[${game.mates.map(m=>m.depth.toFixed(2)+':'+(m.answered?'Y':(m.found?'n':'-'))).join(' ')}] kit=${game.kit.length} fish=${game.fish.length} gull=${game.gulls.length}${px0} maxV=${maxV.toFixed(2)} minD=${minD.toFixed(2)}${err}`;
 }
 
 // ---------------- 循环 ----------------

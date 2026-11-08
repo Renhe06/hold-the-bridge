@@ -497,17 +497,30 @@ export class SeaRenderer {
     // 星星：位置固定死。每帧摇一次的星空会暴露"这是程序画的"。
     // 星星集中在下半部分（0.45~0.95）：整张天空图只有底部一截会出现在屏幕里，
     // 撒在顶部的星星永远是画给谁看的都不知道。
+    // 星星：**要看得见**。第一版最亮只有 0.78 alpha、半径 1.4px，在手机屏上
+    // 只像一层噪点。夜海的情绪有一半在星上，该亮就得亮。
     const rnd = mulberry32(77123);
-    for (let i = 0; i < 130; i++) {
+    for (let i = 0; i < 150; i++) {
       const x = rnd() * this.w;
       const y = H * (0.45 + rnd() * 0.50);
       // 越靠近水面越稀疏：空气里的水汽把低处的星吃掉
-      const fade = clamp(1 - (y - H * 0.45) / (H * 0.55), 0.35, 1);
-      const r = 0.35 + rnd() * 1.05;
-      g.fillStyle = `rgba(214,234,255,${(0.16 + rnd() * 0.62) * fade})`;
+      const fade = clamp(1 - (y - H * 0.45) / (H * 0.55), 0.42, 1);
+      const big = rnd() < 0.16;
+      const r = (big ? 1.1 : 0.45) + rnd() * (big ? 0.9 : 0.85);
+      const a = (big ? 0.72 : 0.26) + rnd() * 0.28;
+      g.fillStyle = `rgba(224,240,255,${a * fade})`;
       g.beginPath();
       g.arc(x, y, r, 0, TAU);
       g.fill();
+      if (big) {
+        // 十字光芒：只给最大的那几颗，撒多了会像雪花
+        g.strokeStyle = `rgba(206,230,255,${0.20 * fade})`;
+        g.lineWidth = 0.8;
+        g.beginPath();
+        g.moveTo(x - r * 3.4, y); g.lineTo(x + r * 3.4, y);
+        g.moveTo(x, y - r * 3.4); g.lineTo(x, y + r * 3.4);
+        g.stroke();
+      }
     }
 
     // 月亮：偏黄、带光晕，落在右上方（不压画面正中）
@@ -515,18 +528,27 @@ export class SeaRenderer {
     // 月亮放在 0.84：贴近水面，任何深度的跃出都看得见
     const my = H * 0.84;
     const mr = Math.min(this.w, H) * 0.048;
-    const halo = g.createRadialGradient(mx, my, mr * 0.7, mx, my, mr * 7);
-    halo.addColorStop(0, 'rgba(255,244,212,0.22)');
-    halo.addColorStop(0.35, 'rgba(238,226,196,0.07)');
+    // 光晕分两层：一层近而亮（贴着月盘），一层远而淡（照亮周围的海雾）。
+    // 一层光晕在深色天空里会读成"贴了个圆"，两层才有光往外溢的感觉。
+    const halo = g.createRadialGradient(mx, my, mr * 0.8, mx, my, mr * 9.5);
+    halo.addColorStop(0, 'rgba(255,246,214,0.40)');
+    halo.addColorStop(0.18, 'rgba(252,240,206,0.16)');
+    halo.addColorStop(0.52, 'rgba(238,226,196,0.055)');
     halo.addColorStop(1, 'rgba(238,226,196,0)');
     g.fillStyle = halo;
     g.fillRect(0, 0, this.w, H);
-    g.fillStyle = 'rgba(255,248,226,0.90)';
+    const halo2 = g.createRadialGradient(mx, my, mr * 0.94, mx, my, mr * 2.1);
+    halo2.addColorStop(0, 'rgba(255,250,226,0.42)');
+    halo2.addColorStop(1, 'rgba(255,250,226,0)');
+    g.fillStyle = halo2;
+    g.fillRect(0, 0, this.w, H);
+    // 月盘：接近纯白，边缘略微偏暖
+    g.fillStyle = 'rgba(255,252,238,1)';
     g.beginPath();
     g.arc(mx, my, mr, 0, TAU);
     g.fill();
     // 月面的一点点凹凸：纯圆读起来是"灯泡"
-    g.fillStyle = 'rgba(226,214,188,0.35)';
+    g.fillStyle = 'rgba(232,220,194,0.26)';
     g.beginPath();
     g.arc(mx - mr * 0.28, my - mr * 0.22, mr * 0.26, 0, TAU);
     g.arc(mx + mr * 0.34, my + mr * 0.18, mr * 0.18, 0, TAU);
@@ -854,7 +876,9 @@ export class SeaRenderer {
     }
 
     // 6) 鲸
-    if (st.whale !== false) {
+    // lateWhale = 玩家在水面之上：这时候它必须画在海面那一层（城市、船）**之后**，
+    // 否则远处的楼会盖在它身上 —— 跃出水面的一瞬间看起来像嵌在楼群里。
+    const drawPlayerWhale = () => {
       const wh = st.whale || {};
       const L = wh.L ?? Math.min(w * 0.92, h * 0.5);
       const wx = wh.x ?? w * 0.5;
@@ -877,10 +901,11 @@ export class SeaRenderer {
           phase: wh.phase ?? 0,
           depth,
           echo: st.echo || 0,
-          silhouette: !light,
+          silhouette: false,   // 兜底也要有颜色：纯黑一团会被当成贴图丢了
         });
       }
-    }
+    };
+    if (st.whale !== false && !st.lateWhale) drawPlayerWhale();
 
     // 6.5) 前景海雪：画在角色之后，粒子从角色前面飘过。
     // 这一步是"贴纸感"的解药 —— 只要有一层东西盖在角色上，它就从"贴在画面上"
@@ -907,6 +932,9 @@ export class SeaRenderer {
     // 7.5) 实体层：网、钩、声呐、海鸥、同类。由玩法层回调，画在暗角之前 ——
     //      暗角代表镜头，实体必须也在镜头里，否则它们会像贴纸浮在最上面。
     if (typeof st.entities === 'function') st.entities(ctx, this);
+
+    // 7.6) 跃出水面的玩家：现在它已经在水面那一层之上了
+    if (st.whale !== false && st.lateWhale) drawPlayerWhale();
 
     // 8) 暗角
     if (this._vignette) {
