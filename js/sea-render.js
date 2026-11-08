@@ -72,6 +72,11 @@ export class SeaRenderer {
     this._caustics = null;
     this._rays = null;
     this._snow = null;
+    // 海床的深度（世界坐标）。整片海只有这一条地面：
+    // 海床画在它上面，珊瑚与鲸落长在它上面，沉底演出也停在它上面。
+    // 之前海床是"跟着相机的高 0.62 处"，珊瑚是"0.80~1.02 的深度带" ——
+    // 两套坐标，珊瑚必然悬空。
+    this.BED_D = 1.28;
     this._vignette = null;
     this._ship = null;
     this._seabed = null;
@@ -265,13 +270,17 @@ export class SeaRenderer {
     const g = cv.getContext('2d');
     const rnd = mulberry32(77031);
     g.clearRect(0, 0, size, size);
-    for (let i = 0; i < 620; i++) {
+    // 用户反馈：白颗粒太多，整屏像在下雪。
+    // 从 620 降到 210，同时把半径上限收到 0.55、alpha 上限压到 0.24 ——
+    // 三件事一起做才有效：只减数量会变成"稀但依然刺眼的大颗"。
+    // 海雪是**水里的碎屑**，它应该偶尔闪一下，而不是一直占着画面。
+    for (let i = 0; i < 210; i++) {
       const x = rnd() * size;
       const y = rnd() * size;
       // 颗粒必须小。第一版半径最大 2px，放大到 2 倍屏就是一团团虚斑，
       // 看起来不是"水里的碎屑"，是"镜头脏了"。
-      const r = 0.22 + rnd() * 0.78;
-      const a = 0.08 + rnd() * 0.34;
+      const r = 0.20 + rnd() * 0.55;
+      const a = 0.06 + rnd() * 0.20;
       g.fillStyle = `rgba(206,236,255,${a})`;
       g.beginPath();
       g.arc(x, y, r, 0, TAU);
@@ -588,7 +597,7 @@ export class SeaRenderer {
     // 最深一档不能真的到 #000204：玩家在第 7 波会一路潜到底，
     // 全黑会让"氧气没了"和"游戏崩了"长得一模一样。留一层极深的蓝，
     // 暗才有层次，结局也才读成"光没了"而不是"画面没了"。
-    const D = ['#0a2a38', '#04141d', '#03101a', '#02090f'];
+    const D = ['#08202c', '#030f17', '#020a12', '#010509'];
     g = this.ctx.createLinearGradient(0, 0, 0, this.h);
     for (let i = 0; i < 4; i++) g.addColorStop(i / 3, mix(T[i], D[i], k));
     this._grads.set(key, g);
@@ -771,9 +780,14 @@ export class SeaRenderer {
     //    浅水看不见（alpha 跟 depth 走），越深越往上顶（位置跟 depth 走）。
     if (this._seabed && st.bed !== false) {
       const bh = h * 0.55;
-      const bedA = clamp((depth - 0.08) / 0.40, 0, 1) * (light ? 0.95 : 0.88);
+      // 地面线：和海里的东西用同一个投影（screenYof），所以它真的在那儿。
+      // 海床图里最近那道脊在 0.44 高度，把那条脊对到地面线上。
+      const bedY = h * 0.28 + (this.BED_D - rawDepth) * K;
+      // 它只在快到底的时候才浮出来：浅处底下是水，不是地。
+      const bedA = clamp(1 - (bedY - h * 0.78) / (h * 0.55), 0, 1)
+        * (light ? 0.95 : 0.88) * (1 - vision * 0.35);
       if (bedA > 0.01) {
-        const by = h - bh * 0.62 + (0.45 - depth) * h * 0.26;
+        const by = bedY - bh * 0.44;
         const drift = Math.sin(this.time * 0.043) * w * 0.05;
         ctx.globalAlpha = bedA;
         ctx.drawImage(this._seabed, -w * 0.35 + drift, by, w * 1.7, bh);
@@ -782,11 +796,13 @@ export class SeaRenderer {
         // 浮游体的冷光：20 张预烘的柔光点，缩放后叠加。
         // 用 lighter —— 它是"自己发光的"，不是"被照亮的灰"。
         if (this._plankton && this._dot) {
-          const top = h * 0.40;
+          // 浮游生物贴着地面往上飘 0.62 屏：地面一动它们就跟着动，
+          // 这是"同一层水体"的证据（以前是钉在屏幕 0.40 处，和地面无关）。
           const span = h * 0.62;
+          const top = bedY - span * 0.9;
           const ps = w / 390;
           ctx.globalCompositeOperation = 'lighter';
-          ctx.globalAlpha = 0.38 * bedA;
+          ctx.globalAlpha = 0.24 * bedA;
           // 生物荧光也在跟着世界一起死：第 7 波只剩一两颗
           const pn = Math.round(this._plankton.length * life);
           for (let i = 0; i < pn; i++) {
@@ -866,13 +882,25 @@ export class SeaRenderer {
         const th = this._snow.height * sc;
         const ox = ((layer * 97 + this.time * (layer ? 13 : 5)) % tw + tw) % tw;
         const oy = ((layer * 53 + this.time * (layer ? 19 : 8)) % th + th) % th;
-        ctx.globalAlpha = (layer ? 0.3 : 0.52) * clamp(1 - depth * 0.55, 0.2, 1) * (0.28 + life * 0.72);
+        ctx.globalAlpha = (layer ? 0.18 : 0.30) * clamp(1 - depth * 0.70, 0.12, 1) * (0.28 + life * 0.72);
         if (!this._fillTile('snow', this._snow, sc, ox, oy, 0, 0, w, h)) {
           ctx.globalAlpha = 0;
         }
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // 5.5) 深渊的黑：不是把颜色调暗，是**光没了**。
+    //      0.48 以下每深一格再压一档，压到 1.00 时只剩轮廓。它必须画在
+    //      实体层之前 —— 珊瑚、水母、沉船是"自己在发光"，黑不该盖住它们。
+    //      这样"海底很黑、只有珊瑚是亮的"就不是一句设定，而是图层顺序。
+    const abyss = clamp((depth - 0.48) / 0.45, 0, 1);
+    if (abyss > 0.01 && vision < 0.85) {
+      ctx.globalAlpha = abyss * 0.46 * (1 - vision * 0.9);
+      ctx.fillStyle = '#01050a';
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalAlpha = 1;
     }
 
     // 6) 鲸
@@ -893,6 +921,11 @@ export class SeaRenderer {
           flip: !!wh.flip,
           depth,
           screenH: h,
+          // 伤：血痕 / 变异 / 塑料袋。漏传这三个字段的后果是"加了伤痕系统，
+          // 但屏幕上一道都没有"—— 上一层（sea.html）传过来了，渲染层必须转发。
+          scars: wh.scars || 0,
+          mut: wh.mut || 0,
+          rings: wh.rings || 0,
         });
       } else {
         // 没图就走矢量占位（形状是准的，但不精致）
@@ -912,13 +945,15 @@ export class SeaRenderer {
     // 变成"真的泡在水里"。放大 3.4 倍让颗粒变成虚的大颗（近处失焦），
     // 移动速度给到背景那层的 2.5 倍做视差。
     if (snow) {
-      const scN = 3.4 * (this.w / 390);
+      const scN = 2.9 * (this.w / 390);
       const twN = this._snow.width * scN;
       const thN = this._snow.height * scN;
       const oxN = ((this.time * 26) % twN + twN) % twN;
       const oyN = ((this.time * 37) % thN + thN) % thN;
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = 0.22 * clamp(1 - depth * 0.35, 0.4, 1);
+      // 前景那层是"镜头前的浮尘"，最招人烦的就是它：从 0.22 收到 0.09，
+      // 而且深处几乎完全消失 —— 深渊里不该有雪，只有自己的呼吸。
+      ctx.globalAlpha = 0.09 * clamp(1 - depth * 0.80, 0.08, 1);
       if (!this._fillTile('snowNear', this._snow, scN, oxN, oyN, 0, 0, w, h)) {
         // createPattern 不可用时直接跳过，别退化成满屏 drawImage
       }

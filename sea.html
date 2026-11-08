@@ -48,6 +48,30 @@ window.addEventListener('error', (e) => {
     transition: color .3s ease;
   }
   #hud .oxy i { font-style: normal; font-size: 15px; opacity: .62; margin-left: 3px; }
+  /* ---- 血条：第二条命 ----
+     用户要"给鲸鱼加一个血条"。它不是装饰：钩子持续扣、塑料和核废水一次扣，
+     扣到 0 就沉底。所以它必须比氧气**细**、比氧气**靠下** ——
+     读的顺序是"气还有多少秒（大字）→ 血还剩多少（细条）"。
+     宽度和氧气数字对齐（132px），一眼能看出本局还剩几条命。 */
+  #hud .hp {
+    width: 140px; height: 4px; margin: 10px auto 0;
+    background: rgba(255,150,140,.16);
+    box-shadow: inset 0 0 0 1px rgba(255,170,160,.18);
+    border-radius: 2px; overflow: hidden;
+    transition: opacity .3s ease;
+  }
+  #hud .hp i {
+    display: block; height: 100%; width: 100%;
+    background: linear-gradient(90deg, #b83c34, #ff8f7a);
+    box-shadow: 0 0 8px rgba(255,110,96,.5);
+    transition: width .22s ease, background .3s ease;
+  }
+  #hud .hp.low i { background: linear-gradient(90deg, #6e1a17, #d8402f); }
+  #hud .hp.hit { animation: hpflash .34s ease; }
+  @keyframes hpflash {
+    0% { transform: scaleY(1); filter: brightness(2.4); }
+    100% { transform: scaleY(1); filter: brightness(1); }
+  }
   #hud .band {
     margin-top: 7px; font-size: 10.5px; letter-spacing: .2em; color: #7fa8ba;
     opacity: 0; transition: opacity .35s ease;
@@ -172,15 +196,16 @@ window.addEventListener('error', (e) => {
 
 <div id="hud">
   <div class="wave" id="hWave"></div>
-  <div class="oxy" id="hOxy">34<i>s</i></div>
+  <div class="oxy" id="hOxy">30<i>s</i></div>
+  <div class="hp" id="hHp"><i></i></div>
   <div class="notes" id="hNotes"></div>
   <div class="obj" id="hObj">目标 · 找到同伴</div>
   <div class="band" id="hBand">水面 · 能被看见</div>
 </div>
 <div id="tut">
-  <div class="step">拖动 · 游</div>
+  <div class="step">往下滑 · 下潜</div>
+  <div class="step">往上滑 · 出水换气</div>
   <div class="step">长按 · 唱</div>
-  <div class="step">浮上去 · 呼吸</div>
 </div>
 <div id="hint"></div>
 <div id="lyric"><div class="t"></div><div class="d"></div></div>
@@ -193,7 +218,7 @@ window.addEventListener('error', (e) => {
   <b>跃</b>
   <div class="rule"></div>
   <div class="sub">上篇 · 一次下潜</div>
-  <div class="sub" style="opacity:.62;margin-top:6px">拖动 · 游　　长按 · 唱</div>
+  <div class="sub" style="opacity:.62;margin-top:6px">往下滑 · 下潜　　往上滑 · 出水换气</div>
   <div class="sub" style="opacity:.44;margin-top:14px;font-size:10.5px;line-height:1.9">
     找到同伴 → 歌多一个音<br>气只在海面回满
   </div>
@@ -216,6 +241,8 @@ const report = document.getElementById('report');
 const elWave = document.getElementById('hWave');
 const elHud = document.getElementById('hud');
 const elOxy = document.getElementById('hOxy');
+const elHp = document.getElementById('hHp');
+const elHpBar = elHp.firstElementChild;
 const elBand = document.getElementById('hBand');
 const elObj = document.getElementById('hObj');
 const elTut = document.getElementById('tut');
@@ -279,6 +306,7 @@ let fpsAcc = 0, fpsN = 0, fpsShown = 0;
 let endShown = '';
 let lyricT = 0;
 let lastStrata = '';
+let lastHp = 1000;   // 上一次画出来的血量（千分位），用来判断"这一帧要不要闪"
 
 const game = new SeaGame(r, sea, whaleArt);
 // 截图用：?gulls=N 直接把 N 只海鸥放进天上（真实游玩由暴露度决定数量）
@@ -295,6 +323,23 @@ if (Q.get('depth') != null) {
   game.aimDepth = game.depth;
 }
 if (Q.get('oxy') != null) game.oxy = clamp(parseFloat(Q.get('oxy')), 0, 1);
+// 调试：?hp=0.4 直接设血量；?god=1 关掉一切伤害（验证"能不能走完"用）
+if (Q.get('hp') != null) game.hp = clamp(parseFloat(Q.get('hp')), 0, 1);
+if (Q.get('god') === '1') game.god = true;
+// 调试：直接摆出伤痕状态（截图核对血痕 / 变异 / 塑料袋的位置）
+if (Q.get('scars') != null) game.scars = Math.min(6, parseInt(Q.get('scars'), 10) || 0);
+if (Q.get('mut') != null) game.mut = Math.min(3, parseInt(Q.get('mut'), 10) || 0);
+if (Q.get('rings') != null) game.plasticRings = Math.min(4, parseInt(Q.get('rings'), 10) || 0);
+// 调试：?codex=5 直接标记前 N 只已被回应（验证"跃出去 = 回去"这个结局）
+if (Q.get('codex') != null) {
+  const n = Math.max(0, Math.min(6, parseInt(Q.get('codex'), 10) || 0));
+  for (let i = 0; i < game.mates.length && i < n; i++) {
+    game.mates[i].answered = true;
+    game.mates[i].found = true;
+    game.codex.push({ name: '', depth: game.mates[i].depth, voice: i + 2 });
+  }
+  game.voices = Math.min(7, 1 + n);
+}
 // 调试：?dives=N 直接把世界推到第 N 阶段（海面对比截图用）
 if (Q.get('dives') != null) game.dives = Math.max(0, parseInt(Q.get('dives'), 10) || 0);
 // 调试：?vision=1 直接进幻象（花园截图用）
@@ -333,18 +378,28 @@ function frameState() {
       x: w * (0.5 + game.lat * 0.42),
       // 跃出水面时整条鲸往上抬：相机跟着走，但身体要比水面先出去，
       // 否则看起来是"水面沉下去"，不是"我跃起来"。
-      y: h * (0.53 + Math.min(0, game.depth) * 0.60),
+      // 沉底那一段额外往下掉 0.30 屏（sinkDrop）—— 死后的身体是**沉**下去的，
+      // 不是镜头往下摇过去的，这两件事在画面上完全不同。
+      y: h * (0.53 + Math.min(0, game.depth) * 0.60 + (game.sinkDrop || 0)),
       // 0.80 屏宽：贴图整图宽 1.05 时鲸本体占 0.75 屏，画面里只剩鲸、看不到环境。
       // 这一关要读的是"水和同类"，不是角色立绘。
       L: w * 0.80,
-      // 下潜时头朝下：倾角直接读垂直速度，比按目标位置算更有"受力"的感觉
-      tilt: clamp(game.vD * 0.13, -0.42, 0.42) + Math.sin(t * 0.31) * 0.012,
+      // 下潜时头朝下：倾角直接读垂直速度，比按目标位置算更有"受力"的感觉。
+      // 沉底那一段固定低头 0.30：死掉的身体不再有浮力，是头朝下沉下去的。
+      tilt: game.mode === 'sinking'
+        ? 0.30 + Math.sin(t * 0.7) * 0.04
+        : clamp(game.vD * 0.13, -0.42, 0.42) + Math.sin(t * 0.31) * 0.012,
       phase: t * 2.62,
       // 这一条之前漏了：海水把它泡到多深，它就该多暗。
       // 漏掉的后果是主角在 1.00 深处依然又蓝又亮，整个"深渊"塌了。
       // 结局压暗也要吃到主角身上：dark 会折算成等效深度，
       // 否则全世界都黑了，只剩它亮着 —— 那是灯，不是鲸。
       depth: clamp(game.depth + game.dark * 0.75, 0, 1),
+      // 伤：血痕 / 核变异 / 尾上的塑料袋。三个数字全是"环境留在它身上的账"，
+      // 贴图层按这三个数去烘伤痕，状态不变就不重画。
+      scars: game.scars,
+      mut: game.mut,
+      rings: game.plasticRings,
     },
     // 水面之上时改到实体层之后画：不然跃出去的那一下会被远处的城市盖住
     lateWhale: game.depth < 0.12,
@@ -405,15 +460,17 @@ function runAuto() {
   let err = '';
   let maxV = 0;
   let minD = 9;
+  const trace = Q.get('trace') === '1';
+  const traceLines = [];
   try {
     for (let i = 0; i < N; i++) {
       // 自动驾驶：找一个同类 → 游过去 → 按住唱 → 没气就上浮。
       // 用来验证「一局到底」能不能真的走完（尤其最后一只够不着那条）。
       if (jumpTest) {
         // 真实的手只能指到水面（aimDepth>=0）；破水靠的是冲上去的速度。
-        // 这里给一次 3.0 的上浮速度，然后看它是不是"出去—被重力拉回来"，
-        // 而不是停在天上不动（那就是上一版的问题）。
-        game.aimDepth = -0.30;
+        // 这里只把手指按到"水面"（0），不越过水面 —— 越过去了就测不出
+        // "能不能真的跃出来"这件事，测的只是"能不能贴到天花板"。
+        game.aimDepth = 0;
         if (!game._jumped) {
           game._jumped = true;
           game.depth = 0.45;
@@ -440,6 +497,13 @@ function runAuto() {
       game.update(1 / 60);
       maxV = Math.max(maxV, -game.vD);
       minD = Math.min(minD, game.depth);
+      // ?trace=1：每 2 秒记一行。机器人卡住的时候，只有这条曲线能说清
+      // 它到底是"没找到"（深度没到）、"上不来"（氧一直低）、还是"被挡"（深度不动）。
+      if (trace && i % 120 === 0) {
+        const nm = game.mates.find((x) => !x.answered);
+        const nd = nm ? Math.hypot((nm.depth - game.depth) * 1.6, nm.lat - game.lat).toFixed(2) : '-';
+        traceLines.push(`${(i / 60).toFixed(0)}s d=${game.depth.toFixed(2)} a=${game.aimDepth.toFixed(2)} v=${game.vD.toFixed(2)} o=${game.oxy.toFixed(2)} c=${game.codex.length} near=${nd} held=${game.held ? 1 : 0}`);
+      }
       if (i % 4 === 0) { syncDom(); paintVeil(); }
     }
   } catch (e) {
@@ -456,7 +520,8 @@ function runAuto() {
     px0 = ` px=${d[0]},${d[1]},${d[2]}`;
   } catch (_) {}
   report.classList.add('on');
-  report.textContent = `frames=${N} mode=${H.mode} depth=${H.depth.toFixed(2)} oxy=${H.oxygen.toFixed(2)} voices=${H.voices}/${H.voicesAll} codex=${H.codex} dives=${H.dives} dark=${H.dark.toFixed(2)} mates=[${game.mates.map(m=>m.depth.toFixed(2)+':'+(m.answered?'Y':(m.found?'n':'-'))).join(' ')}] kit=${game.kit.length} fish=${game.fish.length} gull=${game.gulls.length}${px0} maxV=${maxV.toFixed(2)} minD=${minD.toFixed(2)}${err}`;
+  report.textContent = `frames=${N} mode=${H.mode} depth=${H.depth.toFixed(2)} oxy=${H.oxygen.toFixed(2)} hp=${H.hp.toFixed(2)} scar=${H.scars} mut=${H.mut} ring=${H.rings} voices=${H.voices}/${H.voicesAll} codex=${H.codex} dives=${H.dives} dark=${H.dark.toFixed(2)} mates=[${game.mates.map(m=>m.depth.toFixed(2)+':'+(m.answered?'Y':(m.found?'n':'-'))).join(' ')}] kit=${game.kit.length} fish=${game.fish.length} gull=${game.gulls.length}${px0} maxV=${maxV.toFixed(2)} minD=${minD.toFixed(2)}${err}`;
+  if (trace && traceLines.length) report.textContent += '\n' + traceLines.join('\n');
 }
 
 // ---------------- 循环 ----------------
@@ -466,9 +531,13 @@ const VEIL = {
     d: `海面很亮。\n第 ${H.stage} 阶段的海，你看见了最后一眼。`,
     k: '「想替人世间　说一声抱歉」',
   }),
-  endB: () => ({
+  endB: (H) => ({
     t: '最美丽的花园',
-    d: '珊瑚是彩色的，鱼群绕着你转。\n那是第一层的样子 —— 也是最后的样子。',
+    // 两种死法，同一个花园。但死因不同，最后那句也该不同 ——
+    // 气断是"没撑到"，血尽是"被这片海弄坏的"。
+    d: H.deadReason === 'hp'
+      ? '血散进水里，珊瑚把它接住了。\n它最后看见的，是第一层的样子。'
+      : '珊瑚是彩色的，鱼群绕着你转。\n那是第一层的样子 —— 也是最后的样子。',
     k: '「还是说　有人类就无解」',
   }),
 };
@@ -484,6 +553,18 @@ function syncDom() {
   elOxy.innerHTML = `${H.oxySec}<i>s</i>`;
   elOxy.style.color = H.oxygen > 0.5 ? '#a6e7f7' : H.oxygen > 0.25 ? '#ffcf7a' : '#ff8a76';
 
+  // 血条：只有失血才动。扣到 1/3 以下整条转暗红。
+  // 闪一下用 CSS 动画 + 强制重排重触发，不另建定时器（后台标签页里定时器会漂）。
+  elHpBar.style.width = (H.hp * 100).toFixed(1) + '%';
+  elHp.classList.toggle('low', H.hp < 0.34);
+  const hpNow = Math.round(H.hp * 1000);
+  if (hpNow < lastHp - 1 && H.mode === 'play') {
+    elHp.classList.remove('hit');
+    void elHp.offsetWidth;
+    elHp.classList.add('hit');
+  }
+  lastHp = hpNow;
+
   // 歌：七个点。每回应一只亮一个。这是唯一的进度条。
   while (elNotes.childElementCount < H.voicesAll) elNotes.appendChild(document.createElement('i'));
   for (let i = 0; i < elNotes.childElementCount; i++) {
@@ -493,7 +574,8 @@ function syncDom() {
   const bandOn = H.band !== 'mid';
   elBand.classList.toggle('on', bandOn);
   elBand.textContent = H.band === 'surface'
-    ? (game.kit.some((k) => k.type === 'slick') ? '水面 · 油污，换不了气' : '水面 · 能被看见')
+    ? (!H.atAir ? '水面 · 再上去一点才够得着空气'
+      : game.kit.some((k) => k.type === 'slick') ? '水面 · 油污里，你最显眼' : '水面 · 能被看见')
     : H.band === 'abyss' ? '深渊 · 它看不见你，你也看不见路' : '';
 
   const hint = H.mode === 'play' ? H.hint : '';
@@ -506,8 +588,11 @@ function syncDom() {
     if (H.mateFound) {
       elObj.textContent = '它就在这 · 长按，回应';
       elObj.style.color = '#e8c07a';
+    } else if (H.hp < 0.26) {
+      elObj.textContent = '血快没了 · 别再碰钩子和塑料';
+      elObj.style.color = '#ff8a76';
     } else if (H.oxygen < 0.24) {
-      elObj.textContent = '气不够了 · 浮上去';
+      elObj.textContent = '气不够了 · 往上滑，把头探出去';
       elObj.style.color = '#ff9a86';
     } else if (H.band === 'surface') {
       elObj.textContent = '换完了就走 · 下面才是家';
@@ -516,7 +601,9 @@ function syncDom() {
       elObj.textContent = '你在流血 · 海鸥看见了';
       elObj.style.color = '#d8988a';
     } else {
-      elObj.textContent = '潜下去 · 上面的船看不见你';
+      // 目标行永远带一个分母：这是"流程清不清晰"的答案。
+      // 上一版只写"找到同伴"，玩家不知道要找几只、找了几个。
+      elObj.textContent = `同伴 ${H.codex}/${H.codexAll} · 往下找`;
       elObj.style.color = '#86b3c6';
     }
   } else if (H.visionMode) {

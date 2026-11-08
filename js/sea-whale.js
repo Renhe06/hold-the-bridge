@@ -20,6 +20,9 @@
 
 import { clamp } from './util.js';
 
+/** 本文件里画伤痕要用到整圈；sea-game 里那份常量不跨模块，这里自带一个。 */
+const TAU = Math.PI * 2;
+
 export class SeaWhale {
   constructor() {
     this.parts = null;
@@ -131,6 +134,8 @@ export class SeaWhale {
       key,
       w,
       h,
+      // full 是不挖尾的整图：伤痕层要拿它做遮罩（尾巴上的塑料袋不能被挖掉）
+      full: fullBody,
       body: this._cutTail(fullBody),
       residue: this._tailResidue(fullBody),
       // 给了独立尾鳍图就用它；没给（AI 出图的常态）就从整图自己裁一片
@@ -291,6 +296,163 @@ export class SeaWhale {
     return cv;
   }
 
+  /**
+   * 伤痕层：血痕 / 核变异 / 塑料缠绕。
+   *
+   * 用户要的三件事，本质是同一件：**这片海在它身上留证据**。
+   * 所以它们不是"受击特效"（打完就消失），而是烘在身体上的疤 ——
+   * 这一局里永远在，换气、跃出水面、沉底都还在。
+   *
+   * 关键实现：画完用整图（不是挖了尾的那张）做 destination-in 遮罩。
+   * 不遮的话，血痕会飘在身体轮廓外的水里 —— 那是"贴上去的贴纸"，
+   * 不是"长在皮上的疤"。尾巴上的塑料袋尤其需要整图：尾鳍那张是挖空的。
+   *
+   * 缓存键里带三个计数：状态不变就一次都不重画，最多 6×4×5=120 种组合，
+   * 实际上玩家一局只会走过其中几条。
+   */
+  _marks(b, scars, mut, rings) {
+    if (!scars && !mut && !rings) return null;
+    const key = b.key + '|' + scars + '|' + mut + '|' + rings;
+    if (!this._markCache) this._markCache = new Map();
+    const hit = this._markCache.get(key);
+    if (hit !== undefined) return hit;
+
+    const cv = document.createElement('canvas');
+    cv.width = b.w;
+    cv.height = b.h;
+    const g = cv.getContext('2d');
+    if (!g || !b.full) return null;
+    const W = b.w;
+    const H = b.h;
+
+    // ---- 1) 血痕 ----
+    // 位置钉死在一张表上：同样的伤，每次都在同一个地方 ——
+    // 玩家能认出"这道是上次被钩子挂的"。随机位置只会变成花纹。
+    // 位置是按插画本体量的：这张图的鲸体是一条从右下（头）到左上（尾）的斜带，
+    // 背侧深蓝区的上缘大致是 y = 0.52 − 0.30·(x − 0.45)。血痕全落在这条带里，
+    // 上一版有三道掉在白肚皮外侧的水里 —— 遮罩会把它裁掉，等于白写。
+    // 六道伤要**分开长**：挤在一条斜线上的六道短线，在手机上读作"一撮稻草"。
+    // 这一版把它们摊到尾柄、体侧、胸鳍上方、眼下、肩背，各自的倾角也不同 ——
+    // 伤是陆续来的，位置本来就不该排队。
+    const SPOTS = [
+      [0.352, 0.448, -0.62], [0.470, 0.508, 0.24], [0.560, 0.462, -0.38],
+      [0.612, 0.545, 0.55], [0.706, 0.418, -0.10], [0.782, 0.344, 0.70],
+    ];
+    for (let i = 0; i < Math.min(scars, SPOTS.length); i++) {
+      const [nx, ny, ang] = SPOTS[i];
+      const x = nx * W;
+      const y = ny * H;
+      const len = W * 0.038;
+      const dx = Math.cos(ang) * len * 0.5;
+      const dy = Math.sin(ang) * len * 0.5;
+      // 深色的口子 + 一道浅色的愈合边：两道线才是"疤"，一道线只是划痕
+      g.lineCap = 'round';
+      g.strokeStyle = 'rgba(92,22,26,0.62)';
+      g.lineWidth = Math.max(1.4, W * 0.0085);
+      g.beginPath();
+      g.moveTo(x - dx, y - dy);
+      g.lineTo(x + dx, y + dy);
+      g.stroke();
+      g.strokeStyle = 'rgba(240,214,206,0.88)';
+      g.lineWidth = Math.max(0.9, W * 0.0042);
+      g.beginPath();
+      g.moveTo(x - dx, y - dy);
+      g.lineTo(x + dx, y + dy);
+      g.stroke();
+    }
+
+    // ---- 2) 核污染变异：从头部往后长 ----
+    // 头在右边（尾鳍裁切带在 0.13~0.34，见 tailCut）。所以变异从 0.88 起，
+    // 一级一级往回啃：1 级只在吻端，3 级已经啃到胸鳍。
+    if (mut > 0) {
+      let seed = 20261108;
+      const rr = () => {
+        seed = (seed * 1664525 + 1013904223) & 0xffffffff;
+        return ((seed >>> 8) & 0xffffff) / 0xffffff;
+      };
+      const back = 0.10 + mut * 0.075;   // 往回长的比例
+      const n = 5 + mut * 5;
+      for (let i = 0; i < n; i++) {
+        const nx = 0.885 - rr() * back;
+        const ny = 0.285 + rr() * 0.165;
+        const r = W * (0.008 + rr() * 0.020);
+        // 底：暗紫的坏死斑
+        g.fillStyle = `rgba(96,58,120,${0.20 + rr() * 0.20})`;
+        g.beginPath();
+        g.ellipse(nx * W, ny * H, r * 1.5, r, rr() * TAU, 0, TAU);
+        g.fill();
+        // 上：一点点发亮的病灶中心（读作"在变异"，不是"脏了"）
+        g.fillStyle = `rgba(196,150,238,${0.14 + rr() * 0.16})`;
+        g.beginPath();
+        g.arc(nx * W, ny * H, r * 0.55, 0, TAU);
+        g.fill();
+      }
+      // 头顶一层很淡的紫雾：变异要读作"从里面渗出来的"，不是"围了一圈腮红"。
+      // 上一版画了一个椭圆描边，落在吻端直接变成一张脸 —— 删掉，只留弥散。
+      const mist = g.createRadialGradient(W * 0.80, H * 0.33, 0, W * 0.80, H * 0.33, W * 0.10);
+      mist.addColorStop(0, `rgba(138,92,170,${0.10 + mut * 0.055})`);
+      mist.addColorStop(1, 'rgba(138,92,170,0)');
+      g.fillStyle = mist;
+      g.fillRect(0, 0, W, H);
+    }
+
+    // ---- 3) 尾巴上的塑料袋：每碰一次多一圈 ----
+    // 画成"绕在尾柄上的带子"：细椭圆 + 一截垂下来的空袋。
+    // 只画圆环会像皮筋；必须有一段**垂着的、鼓起来的**塑料，才读得出是袋子。
+    for (let i = 0; i < Math.min(rings, 4); i++) {
+      // 尾柄在 0.42~0.50：0.34 以左是白色的尾鳍，袋子压上去看不出来。
+      const cx = W * (0.382 + i * 0.020);
+      const cy = H * (0.470 + i * 0.005);
+      const rx = W * 0.0095;
+      const ry = H * (0.150 - i * 0.006);
+      g.save();
+      g.translate(cx, cy);
+      g.rotate(0.08 - i * 0.04);
+      // 一条"绕了一圈"的带子：先铺半透明的膜，再描两道边。
+      // 只描一道细线在手机上等于没画（1.5px 的白线压在白尾巴上）。
+      const lg = g.createLinearGradient(-rx, 0, rx, 0);
+      lg.addColorStop(0, 'rgba(150,186,192,0.10)');
+      lg.addColorStop(0.45, 'rgba(196,224,226,0.30)');
+      lg.addColorStop(1, 'rgba(150,186,192,0.10)');
+      g.fillStyle = lg;
+      g.beginPath();
+      g.ellipse(0, 0, rx, ry, 0, 0, TAU);
+      g.fill();
+      g.strokeStyle = 'rgba(214,238,238,0.62)';
+      g.lineWidth = Math.max(1.3, W * 0.006);
+      g.beginPath();
+      g.ellipse(0, 0, rx, ry, 0, 0, TAU);
+      g.stroke();
+      // 膜的边：贴着轮廓再描一道更细的亮边，读作"绷紧的塑料"而不是"气泡"
+      g.strokeStyle = 'rgba(240,252,252,0.34)';
+      g.lineWidth = Math.max(0.7, W * 0.0028);
+      g.beginPath();
+      g.ellipse(rx * 0.55, 0, rx * 0.55, ry * 0.96, 0, 0, TAU);
+      g.stroke();
+      // 垂下来的一截空袋
+      g.fillStyle = 'rgba(198,226,226,0.26)';
+      g.beginPath();
+      g.moveTo(-rx * 0.8, ry * 0.25);
+      g.quadraticCurveTo(-rx * 2.4, ry * 1.05, -rx * 0.2, ry * 1.32);
+      g.quadraticCurveTo(rx * 1.5, ry * 1.05, rx * 0.7, ry * 0.35);
+      g.closePath();
+      g.fill();
+      g.strokeStyle = 'rgba(224,244,244,0.40)';
+      g.lineWidth = Math.max(0.8, W * 0.0035);
+      g.stroke();
+      g.restore();
+    }
+
+    // 遮罩：只留在身体上
+    g.globalCompositeOperation = 'destination-in';
+    g.drawImage(b.full, 0, 0, W, H);
+
+    this._markCache.set(key, cv);
+    // 键会随状态增长，但一局最多几十种；超过 200 就清一次，别让它一直涨
+    if (this._markCache.size > 200) this._markCache.clear();
+    return cv;
+  }
+
   /** 绕归一化枢轴旋转一块 */
   _piece(ctx, img, w, h, px, py, ang) {
     const cx = (px - 0.5) * w;
@@ -365,6 +527,14 @@ export class SeaWhale {
 
     paint(b, A);
     const dk = clamp(o.depth || 0, 0, 1);
+    // 伤痕层：画在两条身体之后、器官件之前。
+    // 越深越淡 —— 不是"伤好了"，是水把细节吃掉了；上浮时它又会全部浮出来。
+    const marks = this._marks(b, o.scars | 0, o.mut | 0, o.rings | 0);
+    if (marks) {
+      ctx.globalAlpha = A * (1 - dk * 0.86);
+      ctx.drawImage(marks, -b.w / 2, -b.h / 2);
+      ctx.globalAlpha = 1;
+    }
     // 0.95 而不是 1.15：按 1.15 时 depth=0.5 就混了 57% 的"最深"版本，
     // 角色在中层水里已经糊成一片 —— 玩家看不清自己控制的角色是硬伤。
     // 雾化应该"浅处几乎不生效、深处才彻底吃掉"，而不是线性地一路变暗。

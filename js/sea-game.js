@@ -51,8 +51,16 @@ const LITTER_SHAPE = {
 const GRAV = 3.4;
 /** 空气阻力：只作用在出水的那一段。 */
 const AIR = 0.55;
-/** 水的托举（深度/秒²）：停手时鲸会慢慢浮上来一点。 */
-const BUOY = 0.30;
+/** 水的托举（深度/秒）。不参与受力，只让"松手之后"目标自己慢慢上漂。 */
+const BUOY_DRIFT = 0.02;
+
+/**
+ * 跃出水面的一次冲量（深度/秒）。手指只指得到水面（aimDepth=0），
+ * 但"指到水面"这件事本身应该读作"我要出去"。
+ * 只靠弹簧做不到：目标是 0 时它只会渐近 0，vD 一起趋于 0，身体永远破不了水。
+ * 配上升段 2.0 的重力，滞空约 0.5 秒，够看清天上的月亮和城市。
+ */
+const JUMP_VMAX = 1.25;
 
 const SURFACE_D = 0.14;
 const ABYSS_D = 0.62;
@@ -64,9 +72,12 @@ const MAX_DEPTH = 1.0;
  * 「我时而跃出海面」不是修辞 —— 玩家真的能把头探出去，看见月亮、海平线、
  * 远处的船和灯。这是这一关唯一"抬头"的时刻，也是氧气唯一能回满的地方。
  */
-// 跃出水面的最高点。0.30 的时候整头鲸会飞到城市天际线以上，像在楼顶上飞；
-// 0.13 ≈ 半屏多一点，身体完全出水、尾巴还在水面上 —— 这才是"跃"。
-const MIN_DEPTH = -0.13;
+// 跃出水面的最高点。
+// 0.13 那版为了治"悬空"收得太狠，结果连"离开"的判定（depth < -0.20）都到不了，
+// 海面等于被封死 —— 玩家按到手指发酸也只能把头顶出来。
+// 0.22 是量出来的：水面线在 0.28h，0.22 深度抬升 0.44h，整条鲸都在水面之上、
+// 天空还剩一半，既读得出"跃出去了"，又不会像在楼顶飞。
+const MIN_DEPTH = -0.22;
 /**
  * 「跃」本身不设门槛 —— 鲸想上去就上去。
  *
@@ -80,13 +91,34 @@ const SURFACE_SKIN = 0.018;
 /**
  * 一口气的长度（秒）。
  *
- * 一层大约要 12 秒：听两三声歌、判断方向、游过去、停下来唱完一句。
- * 34 秒 ≈ 三层。七层要走完，必须上浮两次 —— 也就是整局的节奏：
- *   下潜三层 → 跃上去换气 → 下潜三层 → 跃上去 → 最后一层，不回来。
+ * 用户定版：固定 30 秒，而且**只有把头探出水面才算换气** ——
+ * 停在 0.10 那种"贴着水面"的位置不再回气。海面因此从"背景"变成
+ * 一个必须真的抵达的地点：你得把整个头送出去。
  *
  * 这个数字是全关的节拍器，改它等于改整局的长度。
  */
-const OXY_SEC = 34;
+const OXY_SEC = 30;
+
+/**
+ * 血条。环境本身在杀它 —— 这是这一版新加的第二条命。
+ *
+ *   钩子   持续扣（挂住期间每秒 ~0.045），慢，但会一直拽着你
+ *   塑料   一次一截（0.075），并且尾巴多缠一圈
+ *   核废水 一次一截（0.13），并且从头部开始变异
+ *
+ * 为什么要有血条：上一版只有氧气一条命，玩家分不清"我快死了"和
+ * "我快没气了"—— 两种完全不同的危险被压成同一个数字。现在分开了：
+ * 氧气管"回不回得去"，血管"还撑不撑得住"。氧气还可以靠上浮解决，
+ * 血不会自己回来。
+ */
+const HP_MAX = 1;
+// 这几个数是从"机器人硬闯"标定出来的，不是拍的：
+// 第一版（0.045/0.075/0.13）机器人 10 秒掉 74% —— 人类躲得再好，
+// 一趟下潜也要穿过十来个垃圾，那等于必死。现在按"一局允许被扣掉 60%"
+// 反推：钩子 0.03/s、塑料 0.055、核废水 0.10。
+const DMG_HOOK = 0.030;   // 每秒（挂钩状态）
+const DMG_PLASTIC = 0.055;
+const DMG_OUTFALL = 0.10;
 
 /**
  * 歌词的七段，现在不是七关，而是**一根水柱上的七段深度**。
@@ -170,6 +202,19 @@ export class SeaGame {
     this.visionT = 0;
     this.visionK = 0;
     this.blood = [];           // 血雾：受伤的证据，海鸥看的方向
+    // ---- 伤：环境留在它身上的东西，一条都消不掉 ----
+    // 这三样不是特效，是"你被这片海改造过"的账本。它们跟着鲸体走，
+    // 玩家每次下潜都能看见自己上一次贪心留下的代价。
+    this.hp = HP_MAX;          // 血条：钩子持续、塑料/核废水一次
+    this.scars = 0;            // 血痕：每流一次血多一道（最多 6）
+    this.mut = 0;              // 核污染变异：0~3，从头部往后长
+    this.plasticRings = 0;     // 尾巴上的塑料袋：0~4 圈
+    this.hooked = 0;           // 挂钩中：0~1，用来画被拽住的姿态
+    this.dmgFlash = 0;         // 受伤闪红（HUD 用）
+    this.deadReason = '';      // 'hp' | 'oxy'
+    this.sinkT = 0;            // 沉底演出计时
+    this.sinkDrop = 0;         // 沉底时鲸在屏幕上下坠的量（0~0.30 屏）
+    this.hurtCd = 0;           // 一次伤害的共用冷却，防止贴着钩子每帧结算
     this.maxDepth = 0;
     this.rnd = mulberry32(4021);
     this.gulls = [];
@@ -215,7 +260,7 @@ export class SeaGame {
     out.push({ type: 'current', d: 0.67, h: 0.13, dir: 1, sp: 0.07, ph: rnd() * TAU });
 
     // 「乳白色蜉蝣」—— 越往下越多，而且不会腐朽。这是全关唯一"只增不减"的东西。
-    const kinds = ['bag', 'bottle', 'foam', 'can', 'bag', 'bottle', 'foam', 'can', 'bottle', 'bag'];
+    const kinds = ['bag', 'bottle', 'foam', 'can', 'bag', 'bottle', 'foam', 'can'];
     for (let i = 0; i < kinds.length; i++) {
       const k = i / (kinds.length - 1);
       out.push({
@@ -277,6 +322,29 @@ export class SeaGame {
 
     // 声呐：船在找鲸。不伤人，但让你被找到。
     out.push({ type: 'sonar', t: 6, gap: 8 });
+
+    // ---- 深渊：让人害怕，但它很美（用户定版）----
+    // 两组东西，都只在 0.5 以下出现，而且都是"光"——
+    // 深渊里没有太阳，能让玩家还愿意往下游的，只能是别的东西在发光。
+    //
+    // 1) 发光水母：深渊里唯一会**动**的光。它比珊瑚近，会从身边飘过去，
+    //    伞盖一收一放，像有人在很深的地方呼吸。数量少（7 只），
+    //    因为多了就变成"路灯"，少了才像"遇见"。
+    for (let i = 0; i < 7; i++) {
+      out.push({
+        type: 'jelly',
+        depth: 0.55 + (i / 6) * 0.50 + (rnd() - 0.5) * 0.03,
+        lat: -0.80 + rnd() * 1.60,
+        r: 0.050 + rnd() * 0.042,
+        ph: rnd() * TAU,
+        sp: 0.32 + rnd() * 0.46,
+        cold: i % 2,          // 冷白 / 淡紫，交替换，别让七只是一只复制七遍
+      });
+    }
+    // 2) 鲸落：一具很大的骨架，肋骨之间长着珊瑚。
+    //    它不参与玩法，它只回答一个问题 ——「下面有什么」。
+    //    答案：一具和你一样的骨头，已经在这儿躺了很久了。
+    out.push({ type: 'boneland', depth: 0.958, lat: -0.05, ph: rnd() * TAU });
 
     this.kit = out;
   }
@@ -356,8 +424,10 @@ export class SeaGame {
     const dy = y - this._pt.y;
     this._pt.x = x;
     this._pt.y = y;
-    // 手只能指到水面为止：跃出水面是**冲上去的**，不是被手指拖上去的
-    this.aimDepth = clamp(this.aimDepth - (dy / h) * 1.25, MIN_DEPTH, MAX_DEPTH);
+    // 用户定版：**手指往下滑 = 往下潜**（上一版是反的，手指向下反而上浮）。
+    // 这不是口味问题 —— 手往下走、身体往下走，是唯一不用想的映射。
+    // 手只能指到水面为止：跃出水面是**冲上去的**，不是被手指拖上去的。
+    this.aimDepth = clamp(this.aimDepth + (dy / h) * 1.25, 0, MAX_DEPTH);
     const nl = this.aimLat + (dx / w) * 2.1;
     // 隐形边界：撞上去会被水推回来，不是硬停。硬停读作"bug"，推回读作"墙"。
     if (Math.abs(nl) > 1) {
@@ -385,6 +455,52 @@ export class SeaGame {
   update(dt) {
     this.t += dt;
     this.waveT = this.t;
+
+    // ---- 沉底：死法变了，收尾也变了 ----
+    // 上一版死了是直接切到"幻象"，画面一跳 —— 玩家看到的是"游戏结束了"，
+    // 不是"它沉下去了"。用户要的是**缓缓沉入海底**：身体还在往下飘，
+    // 光一点点回来，珊瑚从黑里亮起来，最后才是那座花园。
+    // 这段时间不判任何玩法，只演这一件事。
+    if (this.mode === 'sinking') {
+      this.sinkT += dt;
+      // 先停一拍再往下：刚死的那半秒它还在抽动，不该立刻匀速下坠
+      const k = clamp((this.sinkT - 0.45) / 1.1, 0, 1);
+      // 指数靠近海床，不用匀速 —— 水越深越慢，这是水阻的样子
+      // 停在地面线之上一点：沉到底不是“埋进去”，是“落在礁盘上”
+      const target = 0.985;
+      this.depth += (target - this.depth) * Math.min(0.9, dt * 0.62 * k);
+      this.aimDepth = this.depth;
+      this.vD = lerp(this.vD, 0.12, Math.min(1, dt * 2.2));
+      // 身体沉下去：屏幕上往下掉 0.30 屏，人看着它落到礁盘上
+      this.sinkDrop = Math.min(0.16, this.sinkDrop + dt * 0.040 * k);
+      // 花园渐入：跟下沉同步，不是沉到底才开灯
+      this.visionK = Math.max(this.visionK, clamp((this.sinkT - 0.6) / 3.0, 0, 1) * 0.98);
+      // 幻象里的鱼群提前回来（真实鱼群在深处几乎没有，这里正好用"回来"表达）
+      if (this.fish.length < 22 && this.sinkT > 1.4) {
+        this.fish.push({
+          lat: this.lat + (this.rnd() - 0.5) * 0.9,
+          depth: clamp(this.depth + (this.rnd() - 0.5) * 0.26, 0.55, 1.0),
+          vlat: 0, vdepth: 0, ph: this.rnd() * TAU,
+          sp: 0.5 + this.rnd() * 0.7, size: 0.5 + this.rnd() * 0.7,
+        });
+      }
+      this._fish(dt);
+      // 血还在往外散：它已经不动了，只有血在动
+      for (const b of this.blood) {
+        b.x += b.vx * dt * 0.4;
+        b.y += b.vy * dt * 0.4;
+        b.life -= dt * 0.12;
+      }
+      this.blood = this.blood.filter((b) => b.life > 0);
+      // 沉到底（或演够了）→ 交给幻象那 8 秒
+      if (this.depth > 0.955 || this.sinkT > 7.5) {
+        this.mode = 'vision';
+        this.visionT = 1.4;   // 从"已经亮着"接上去，避免亮度跳回去
+        this.visionK = 1;
+        this.sea.motif({ vol: 0.07 });
+      }
+      return;
+    }
 
     // ---- 幻象花园：氧气归零不是黑屏，是死前看见的那一版海 ----
     // 「珊瑚在海底蜿蜒　我看见 最美丽的花园」：它只出现在结束的路上。
@@ -425,6 +541,10 @@ export class SeaGame {
 
     this.echo = Math.max(0, this.echo - dt / 1.3);
     this.breathFlash = Math.max(0, this.breathFlash - dt * 1.4);
+    this.hurtCd = Math.max(0, this.hurtCd - dt);
+    this.dmgFlash = Math.max(0, this.dmgFlash - dt * 1.6);
+    // 挂钩是"当前状态"，不是事件：离开钩子它就松开，不需要单独收尾
+    this.hooked = Math.max(0, this.hooked - dt * 3.2);
     // 血雾：散开、变淡、往上飘。它不伤害任何人，只是标记你
     for (const b of this.blood) {
       b.x += b.vx * dt;
@@ -470,15 +590,16 @@ export class SeaGame {
       if (!this.cur.mate) this.sea.hull();
     }
 
-    // 收手：**跃出水面**并停住。注意它和换气不是同一个位置 ——
-    // 把头探出水面（0 ~ 0.14）只是呼吸，整个身体跃出去（< -0.14）才是离开。
-    // 这两件事必须分开，否则玩家每次回气都会被系统判成"游戏结束"。
+    // 收手：**跃出水面**并停住。
+    // 现在"跃"是一次真正的抛物线（按到底 → 冲出去 → 落回来），一次滞空只有
+    // 半秒左右，所以判定不能要求"连续 2.4 秒都在水面之上"——那永远攒不满。
+    // 改成"在水面之上的时间累加，落水后缓慢回落"：按住不放，跳三四次就能走。
     const canLeave = this.codex.length >= 5;
-    if (canLeave && this.depth < -0.14) {
+    if (canLeave && this.depth < -0.10) {
       this.surfaceT += dt;
-      if (this.surfaceT > 3.0) this._end('A');
+      if (this.surfaceT > 1.2) this._end('A');
     } else {
-      this.surfaceT = 0;
+      this.surfaceT = Math.max(0, this.surfaceT - dt * 0.8);
     }
 
     // 终局：能找的都找到了，你也下到了自己的极限 1.00 ——
@@ -491,10 +612,70 @@ export class SeaGame {
       this.lastT = 0;
     }
 
+    // 两条命，两种死法，同一个结尾：气断了 / 血尽了。
+    // 分开报，是因为玩家得知道自己死在哪一条上 —— 下一局才知道该躲什么。
     if (this.oxy <= 0) {
       this.oxy = 0;
-      this._end('B');
+      this._die('oxy');
+    } else if (this.hp <= 0) {
+      this.hp = 0;
+      this._die('hp');
     }
+  }
+
+  /**
+   * 受伤。所有伤害都必须走这里。
+   *
+   * 作用有三个，缺一个都会让"环境在伤害它"变成一句空话：
+   *   1) 扣血（血条是玩家唯一能读到的"还有没有下一趟"）
+   *   2) 留下一道血痕（永久，跟着身体走 —— 用户要的那条）
+   *   3) 放血（海鸥就是靠这个找到它的）
+   */
+  _hit(amount, opt = {}) {
+    if (this.mode !== 'play' || this.hp <= 0) return;
+    if (this.god) return;                              // 调试用：?god=1 关掉伤害
+    // 全局冷却：一次触碰会被"钩子 / 塑料 / 羽流"三个判定同时看见，
+    // 不拦的话同一秒钟能叠三次，读起来像"莫名其妙掉一大截"。
+    if (this.hurtCd > 0) return;
+    this.hurtCd = 0.55;
+    this.hp = Math.max(0, this.hp - amount);
+    this.dmgFlash = 1;
+    if (opt.scar !== false) this.scars = Math.min(6, this.scars + 1);
+    if (opt.blood !== false) this._bleed();
+    this.sea.hull();
+    if (this.hp <= 0) this._die('hp');
+  }
+
+  /** 放血：28 团 + 原地伤口。原来写在 _leak 里，现在伤害和出血分开了。 */
+  _bleed() {
+    for (let i = 0; i < 28; i++) {
+      this.blood.push({
+        x: this.lat + (this.rnd() - 0.5) * 0.06,
+        y: this.depth + (this.rnd() - 0.5) * 0.05,
+        vx: (this.rnd() - 0.5) * 0.16 - this.vL * 0.35,
+        vy: (this.rnd() - 0.5) * 0.08 + 0.015,
+        life: 1,
+        r: 2.6 + this.rnd() * 5.2,
+      });
+    }
+    this.blood.push({
+      x: this.lat, y: this.depth,
+      vx: 0, vy: 0.004, life: 1.6,
+      r: 7 + this.rnd() * 4,
+    });
+  }
+
+  /** 死。不再区分 A/B 入口：两条命断掉都先沉下去，再开花园。 */
+  _die(reason) {
+    if (this.mode !== 'play') return;
+    this.deadReason = reason;
+    this.mode = 'sinking';
+    this.sinkT = 0;
+    this.sinkDrop = 0;
+    this.hint = '';
+    this.held = false;
+    this.singing = false;
+    this.sea.call({ pan: 0, base: reason === 'hp' ? 62 : 70, dur: 4.6, vol: 0.12, reach: 0.15 });
   }
 
   _move(dt) {
@@ -504,11 +685,7 @@ export class SeaGame {
     // 「我时而跃出海面，我时而脸抚深渊」—— 这两个动作的时间感不一样。
     // 下去是慢的（水压、重量、要看清下面有什么），上来是一跃。
     // 所以刚度不是常数：向上 4.4，向下 2.2。这是节奏里最便宜也最有效的一刀。
-    if (this._landCd > 0) {
-      this._landCd = Math.max(0, this._landCd - dt);
-      // 刚落回水里：这半秒只允许它停在水面下，不许再弹出去
-      if (this.aimDepth < 0.02) this.aimDepth = 0.02;
-    }
+    if (this._landCd > 0) this._landCd = Math.max(0, this._landCd - dt);
     const wv = this.aimDepth < this.depth - 0.004 ? 4.4 : 2.2;
     const w = 2.6;
     // 洋流：不直接改位置（那样像指针失灵），改"你想去的那个点"。
@@ -518,10 +695,15 @@ export class SeaGame {
       }
     }
     if (this.depth < 0) {
-      // --- 出水之后：弹簧失效，只有重力和空气 ---
+      // --- 出水之后：弹簧失效，只有空气和重力 ---
       // 上一版没有这一段：鲸可以停在半空里不动（玩家往上拖就停在那儿），
       // 这在物理上说不通，在画面上也直接破功 —— 它看起来像贴纸飘着。
-      this.vD += GRAV * dt;
+      //
+      // 重力分两档：**上去慢、下来快**。这是"跃"和"被扔出去"的区别 ——
+      // 上升 2.0 让它有滞空（能看到天空、月亮、城市），下落 4.2 让它砸回水里，
+      // 而不是像气球一样飘下来。一个 GRAV 常数做不出这两种感觉。
+      const g = this.vD < 0 ? 2.0 : 4.2;
+      this.vD += g * dt;
       this.vD -= this.vD * AIR * dt;
       this.depth += this.vD * dt;
       if (this.depth <= MIN_DEPTH) {
@@ -533,9 +715,25 @@ export class SeaGame {
       // --- 水里：临界阻尼的弹簧 + 一点点托举 ---
       // 阻尼取 0.94×临界：留一点点过冲，身体会自己"荡"一下 —— 这就是浮力感。
       // 完全临界阻尼（2w）会让鲸像被钉在目标点上，像拖着一个图标。
+      //
+      // 托举**不能做成常力**。上一版是 `vD -= BUOY*dt`，它和弹簧的
+      // `(aim-depth)*w²` 在稳态抵消 → 鲸永远停在比目标浅 0.06 的地方
+      // （BUOY/w² = 0.30/4.84）。浅的这一层看不出来，可同伴是钉死深度的，
+      // 于是玩家会"贴着它但永远碰不到"—— 上一版不是玩家菜，是物理错了。
+      // 现在托举改成"没按住时目标自己慢慢往上漂"：没有稳态误差，
+      // 松手还是会浮，但指到哪就到哪。
       this.vD += ((this.aimDepth - this.depth) * wv * wv - this.vD * 2 * wv * 0.94) * dt;
-      // 水一直在往上托：停手的时候它会慢慢浮，不会死死挂在一个深度上
-      this.vD -= BUOY * dt;
+      if (!this.held) this.aimDepth = Math.max(0, this.aimDepth - dt * BUOY_DRIFT);
+
+      // 跃：手指按到底（aimDepth≈0）= 我要出去。**给一次冲量**，不是持续推力。
+      // 为什么不能持续推：水里的阻尼是 2w×0.94 ≈ 8.3/s，3.2 的推力稳定下来
+      // 只有 0.39 的速度 —— 连水面都顶不穿（实测最高只到 -0.09）。
+      // 冲量绕过了这个死结：一次给到 1.25，抛物线交给重力。
+      // 条件里的 vD > -0.4 是"已经在上升就别再踢"，落地冷却 0.6s 防连跳。
+      if (this._landCd <= 0 && this.aimDepth <= 0.04 && this.depth < 0.60 && this.vD > -0.40) {
+        this.vD = -JUMP_VMAX;
+        this._landCd = 0.22;
+      }
       const before = this.depth;
       this.depth += this.vD * dt;
       if (this.depth < 0) {
@@ -544,6 +742,10 @@ export class SeaGame {
         // 在浅处点头换气就只是把头顶出去 —— 不然每次呼吸都像被弹射。
         const from = this._upFrom == null ? 0 : this._upFrom;
         if (before >= 0 && from > 0.22 && this.vD < -0.9) this.vD *= 1.12;
+        // 出水速度上限：不封顶的话，从 0.45 冲上来会带着 -3.0 直接撞上
+        // 天花板（MIN_DEPTH），一帧就贴顶 —— 玩家看到的是"跳了一下"，不是"跃"。
+        // 1.25 配上升段 2.0 的重力，滞空约 0.5 秒，刚好够看清天上的月亮。
+        if (this.vD < -1.25) this.vD = -1.25;
         this._upFrom = null;
         this.bump = 1;
         this.sea.surface();
@@ -617,25 +819,31 @@ export class SeaGame {
     // 把它锁死等于让所有人必死。油污的代价是"你在油里最显眼" ——
     // 能呼吸，但每一次呼吸都在被看着。见 _kit 里的 slick 分支。
     const above = this.depth < SURFACE_D;
+    // 用户定版：**只有头真的探出水面才算换气**。
+    // 上一版的门槛是 0.14，等于贴在水平面下一点点也能把气回满 ——
+    // 玩家学会赖在 0.12 不动，海面就不再是"要去的地方"，只是一个区域。
+    // 现在门槛压在 0.02（皮肤线），要换气得真的把头顶出去。
+    const air = this.depth < 0.025;
 
     if (above) {
-      const wasDeep = this._wasDeep;
-      this.oxy = Math.min(1, this.oxy + dt * 0.55);
       this.exposure = Math.min(1, this.exposure + dt * 0.34);
-      // 从深处第一次冒出水面 = 一次"跃"。给一次呼吸音和一道月光闪。
-      if (wasDeep) {
-        this.dives += 1;
-        this.breathFlash = 1;
-        this.sea.breath();
-        this.sea.surface();
-        if (this.depth < 0) {
-          this.bump = 1;
-          this.exposure = Math.min(1, this.exposure + 0.30);
+      if (air) {
+        const wasDeep = this._wasDeep;
+        // 回气很快：30 秒的气 0.55 秒回满。探一次头就该走，不该泡在水面
+        this.oxy = Math.min(1, this.oxy + dt * 1.85);
+        // 从深处第一次冒出水面 = 一次"跃"。给一次呼吸音和一道月光闪。
+        if (wasDeep) {
+          this.dives += 1;
+          this.breathFlash = 1;
+          this.sea.breath();
+          this.sea.surface();
+          if (this.depth < 0) {
+            this.bump = 1;
+            this.exposure = Math.min(1, this.exposure + 0.30);
+          }
         }
-        // 上来一趟不是免费的：没回应的那些会游走，你刚才记的方向作废。
-        this._driftMates();
+        this._wasDeep = false;
       }
-      this._wasDeep = false;
     } else {
       // 锁存：只要这一趟真的深过，就记住。不能每帧重算 ——
       // 上浮经过 0.15 的时候它会被算成 false，"跃"于是永远不会被记一次。
@@ -703,12 +911,11 @@ export class SeaGame {
     this.mate = null;
   }
 
-  _driftMates() {
-    for (const m of this.mates) {
-      if (m.answered) continue;
-      m.lat0 = clamp(m.lat0 + (this.rnd() - 0.5) * 0.34, -0.88, 0.88);
-    }
-  }
+  // 同伴的位置是**钉死的**（用户定版）。
+  // 上一版每次上浮换气都会把没回应的同类随机挪一段，本意是"你记的方向会作废"，
+  // 实际效果是玩家永远背不下来海图 —— 找同伴变成了碰运气，而不是"我记得
+  // 0.50 那一层偏左有一只"。现在不挪了：位置固定，听见的方向就是真的。
+  // 它还会缓慢横游（见 _mate 里的 ±0.045 摆动），但那是呼吸，不是搬家。
 
   /**
    * 献祭：整局只有一件东西可以交出去 —— 海底项链。
@@ -787,6 +994,7 @@ export class SeaGame {
 
     for (const t of this.kit) {
       t.hit = Math.max(0, (t.hit || 0) - dt * 1.6);
+      if (t.hurtT > 0) t.hurtT -= dt;
 
       if (t.type === 'net') {
         // 网是墙：从海面垂下来，只挡到 t.bottom。可以从下面绕，也可以
@@ -799,13 +1007,41 @@ export class SeaGame {
       } else if (t.type === 'hook') {
         const hx = t.lat + Math.sin(this.waveT * t.sp + t.ph) * 0.055;
         if (Math.abs(px - hx) < 0.07 && Math.abs(py - t.depth) < 0.05) {
-          this._leak(t, dt, 0.45);
+          // 钩子不是"刮一下就过"：挂住是**持续**的。
+          // 血一直在掉，身体一直被往钩尖拽（aimDepth 被推向上），
+          // 而且每隔一秒多真的划破一次 —— 那一下才放血、才留血痕。
+          this.hooked = 1;
+          if (!this.god) this.hp = Math.max(0, this.hp - dt * DMG_HOOK);
+          this.exposure = Math.min(1, this.exposure + dt * 0.42);
+          this.aimDepth = clamp(this.aimDepth - dt * 0.12, 0, MAX_DEPTH);
+          t.hurtT = (t.hurtT || 0) - dt;
+          if (t.hurtT <= 0) {
+            t.hurtT = 1.4;
+            this._hit(0.012);
+          }
         }
       } else if (t.type === 'plastic') {
-        // 塑料：缠住 = 游不动 + 持续耗气。它不会消失。
+        // 塑料：一次一截血，尾巴多缠一圈。它不会消失，你也不会好。
+        // 一次接触只结算一次（每块垃圾各有 2 秒冷却）——
+        // 否则贴着袋子待三秒就会连扣七八下，那不是"缠住"，那是绞肉机。
         if (Math.abs(px - t.lat) < t.r + 0.05 && Math.abs(py - t.depth) < t.r + 0.035) {
-          this._leak(t, dt, 0.35);
-          this.aimDepth = clamp(this.aimDepth + dt * 0.06, MIN_DEPTH, MAX_DEPTH);
+          this.aimDepth = clamp(this.aimDepth + dt * 0.05, 0, MAX_DEPTH);
+          if ((t.hurtT || 0) <= 0) {
+            t.hurtT = 2.8;
+            this._hit(DMG_PLASTIC);
+            this.plasticRings = Math.min(4, this.plasticRings + 1);
+            this.hint = '塑料缠住了尾巴。';
+          }
+        }
+      } else if (t.type === 'outfall') {
+        // 核废水：一股热的、浑的水柱。碰到不是"划伤"，是身体开始不对劲。
+        // 判定区比画出来的羽流窄 —— 让玩家"看着像碰到了"才掉血，别冤枉人。
+        const inPlume = Math.abs(px - t.lat) < 0.20 && py > 0.06 && py < 0.58;
+        if (inPlume && (t.hurtT || 0) <= 0) {
+          t.hurtT = 3.0;
+          this._hit(DMG_OUTFALL);
+          this.mut = Math.min(3, this.mut + 1);
+          this.hint = '水是热的。它在往里渗。';
         }
       } else if (t.type === 'slick') {
         if (py < t.bottom) this.exposure = Math.min(1, this.exposure + dt * 0.16);
@@ -829,31 +1065,21 @@ export class SeaGame {
     }
   }
 
+  /**
+   * 网：只缠、不割。
+   *
+   * 上一版它和钩子共用这一条，于是"被网兜住"也会掉血、也会留血痕 ——
+   * 可网是绳子，它的问题是**出不去**，不是流血。分开之后规则才说得清：
+   *   网     扣气 + 暴露（你被困在浅处，光正照着你）
+   *   钩子   扣血（持续）+ 血痕
+   *   塑料   扣血（一次）+ 尾巴缠一圈
+   *   核废水 扣血（一次）+ 头部变异
+   */
   _leak(t, dt, amount) {
     if (t.hit > 0.2) return;
     t.hit = 1.6;
     this.exposure = Math.min(1, this.exposure + amount * 0.5);
     this.oxy = Math.max(0, this.oxy - amount * 0.055);
-    // 血引来了海鸥：泄漏的反馈不是红屏，是身后散开的一团红
-    // 和海鸥转向它的那一秒。声音只是配的。
-    // 血要够多：一次划伤 ≈ 28 团，半径也大一倍，并在原地留一片久一点的血雾。
-    // 上一版 10 团、半径 1.5~4.5，在手机屏上几乎看不见 —— 「血引来了海鸥」白写。
-    for (let i = 0; i < 28; i++) {
-      this.blood.push({
-        x: this.lat + (this.rnd() - 0.5) * 0.06,
-        y: this.depth + (this.rnd() - 0.5) * 0.05,
-        vx: (this.rnd() - 0.5) * 0.16 - this.vL * 0.35,
-        vy: (this.rnd() - 0.5) * 0.08 + 0.015,
-        life: 1,
-        r: 2.6 + this.rnd() * 5.2,
-      });
-    }
-    // 伤口本身：一团几乎不散的红，挂在原地
-    this.blood.push({
-      x: this.lat, y: this.depth,
-      vx: 0, vy: 0.004, life: 1.6,
-      r: 7 + this.rnd() * 4,
-    });
     this.sea.hull();
   }
 
@@ -1182,6 +1408,200 @@ export class SeaGame {
   }
 
   /**
+   * 发光水母（256×256，两种颜色各烘一次）。
+   *
+   * 深渊里能看见的东西必须自己发光 —— 没有太阳，反射这条路是不存在的。
+   * 所以这里不用"半透明的白色伞盖"（那在深蓝背景上会变成一块灰），
+   * 而是烘一张**从内向外衰减的光**：中心几乎白，边缘落到 alpha 0。
+   * 画的时候用 lighter 叠上去，它才像"亮着"，而不是"被照亮"。
+   *
+   * 伞盖的形用一个扁椭圆 + 四道内收的弧（水母收伞时的褶）。
+   */
+  _jellyTex(cold) {
+    const key = cold ? 'c' : 'v';
+    if (!this._jelly) this._jelly = {};
+    if (this._jelly[key]) return this._jelly[key];
+    const S = 256;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = S;
+    const g = cv.getContext('2d');
+    if (!g) return null;
+
+    // 伞：一个**扁半球**（不是圆、也不是蘑菇盖）。
+    // 上一版把光铺满整张画布，画到屏幕上就是一团发光的蘑菇 ——
+    // 水母的形状几乎全在伞缘那条线上，所以这里把精力全放在伞缘。
+    const cx = S * 0.5;
+    const top = S * 0.20;
+    const rx = S * 0.30;
+    const ry = S * 0.245;
+
+    // 伞内：越靠顶越亮（光是从伞里透出来的）
+    const bell = g.createLinearGradient(0, top, 0, top + ry);
+    bell.addColorStop(0, cold ? 'rgba(240,253,255,0.90)' : 'rgba(246,238,255,0.86)');
+    bell.addColorStop(0.42, cold ? 'rgba(176,232,250,0.44)' : 'rgba(203,176,246,0.40)');
+    bell.addColorStop(0.86, cold ? 'rgba(120,196,226,0.20)' : 'rgba(158,128,212,0.18)');
+    bell.addColorStop(1, cold ? 'rgba(110,190,222,0.05)' : 'rgba(150,120,206,0.04)');
+    g.fillStyle = bell;
+    g.beginPath();
+    g.ellipse(cx, top + ry, rx, ry, 0, Math.PI, TAU);
+    g.closePath();
+    g.fill();
+
+    // 伞缘：整只水母最亮的一笔。没有它，伞和背景糊在一起
+    g.strokeStyle = cold ? 'rgba(232,252,255,0.70)' : 'rgba(246,234,255,0.64)';
+    g.lineWidth = S * 0.011;
+    g.beginPath();
+    g.ellipse(cx, top + ry, rx, ry, 0, Math.PI, TAU);
+    g.stroke();
+
+    // 放射管：四条，从伞顶往伞缘走
+    g.strokeStyle = cold ? 'rgba(214,246,255,0.30)' : 'rgba(230,214,255,0.28)';
+    g.lineWidth = S * 0.008;
+    for (let i = 1; i <= 4; i++) {
+      const k = i / 5;
+      const x = cx + (k - 0.5) * 2 * rx * 0.78;
+      const yy = top + ry * (0.25 + Math.abs(k - 0.5) * 0.9);
+      g.beginPath();
+      g.moveTo(cx + (k - 0.5) * 2 * rx * 0.15, top + ry * 0.12);
+      g.quadraticCurveTo(x * 0.9 + cx * 0.1, yy, x, top + ry * 0.96);
+      g.stroke();
+    }
+
+    // 伞心那一点核：很小，但它是活着的证据
+    const core = g.createRadialGradient(cx, top + ry * 0.5, 0, cx, top + ry * 0.5, S * 0.10);
+    core.addColorStop(0, cold ? 'rgba(255,255,255,0.85)' : 'rgba(255,250,255,0.80)');
+    core.addColorStop(1, cold ? 'rgba(180,240,255,0)' : 'rgba(210,180,255,0)');
+    g.fillStyle = core;
+    g.fillRect(0, 0, S, S);
+
+    this._jelly[key] = cv;
+    return cv;
+  }
+
+  /**
+   * 鲸落骨架（900×360，烘焙一次，按屏宽缩放）。
+   *
+   * 为什么是"鲸落"而不是随便一堆骨头：这一关讲的是同类。
+   * 玩家在 0.90 看见一具很大的、和自己一个形状的骨架，
+   * 肋骨之间还长着珊瑚 —— 不需要一句台词，它已经说完了
+   * 「它们都在这儿，你也会」。
+   *
+   * 画法：一条微弯的脊椎 + 一排往下兜的肋骨 + 右侧一个长吻的头骨。
+   * 不画细节纹理：深水里只有轮廓，任何"写实"的骨头都会变成雾里的白石头。
+   */
+  _boneTex() {
+    if (this._bone) return this._bone;
+    const W = 900;
+    const H = 420;
+    const cv = document.createElement('canvas');
+    cv.width = W;
+    cv.height = H;
+    const g = cv.getContext('2d');
+    if (!g) return null;
+
+    const BONE = 'rgba(198,214,216,0.78)';
+    const BONE_FAR = 'rgba(150,172,180,0.40)';
+    // 脊椎的弧线：一头高一头低，别画成一根水平棍
+    const spineY = (x) => H * 0.46 - Math.sin((x / W) * Math.PI * 0.95) * H * 0.11;
+
+    // ---- 1) 脊椎 + 椎节 ----
+    g.lineCap = 'round';
+    g.strokeStyle = BONE;
+    g.lineWidth = H * 0.030;
+    g.beginPath();
+    g.moveTo(W * 0.06, spineY(W * 0.06));
+    for (let i = 1; i <= 12; i++) {
+      const x = W * (0.06 + i * 0.063);
+      g.lineTo(x, spineY(x));
+    }
+    g.stroke();
+    g.strokeStyle = 'rgba(168,190,196,0.46)';
+    g.lineWidth = H * 0.010;
+    for (let i = 0; i < 24; i++) {
+      const x = W * (0.07 + i * 0.0315);
+      const y = spineY(x);
+      g.beginPath();
+      g.moveTo(x - H * 0.012, y - H * 0.008);
+      g.lineTo(x + H * 0.012, y + H * 0.008);
+      g.stroke();
+    }
+
+    // ---- 2) 肋骨：七对，**越靠头越短、越靠尾越长** ----
+    // 上一版是十根一样长的弧，等距排开 —— 屏幕上是"一排白栏杆"，
+    // 不是胸腔。真正的肋骨是一组同心的 C：靠头短而陡，靠尾长而缓，
+    // 末端都往腹侧收，形成一只空篮子。
+    for (let pass = 0; pass < 2; pass++) {
+      const far = pass === 0;
+      for (let i = 0; i < 9; i++) {
+        const k = i / 8;
+        const x = W * (0.255 + k * 0.395);
+        const y = spineY(x);
+        const len = H * (0.20 + k * 0.20);
+        const reach = W * (0.030 + k * 0.014);
+        g.strokeStyle = far ? BONE_FAR : 'rgba(212,228,230,0.56)';
+        g.lineWidth = H * (far ? 0.016 : 0.028);
+        // 末端向**同一条腹线**收口：这是"篮子"和"栏杆"的唯一区别。
+        // 十根肋骨都垂直落地时，屏幕上一排等距的白弧就是一排栏杆。
+        const ex = W * 0.355 + (k - 0.5) * W * 0.075;
+        const ey = spineY(ex * 0.9) + len * 1.02;
+        g.beginPath();
+        g.moveTo(x + (far ? W * 0.014 : 0), y + (far ? H * 0.014 : 0));
+        // 单控制点的二次曲线：贝塞尔两根控制杆会互相穿过去，
+        // 屏幕上就是一团交叉的白线（第一版那样）。
+        g.quadraticCurveTo(x - reach * 1.25, y + len * 0.62, ex, ey);
+        g.stroke();
+      }
+    }
+
+    // ---- 3) 头骨：**填实**的长吻。骨架上唯一有体积的一块 ----
+    // 只描线的话，在一堆弧线里根本读不出"头"；鲸落最先被认出来的就是这颗头。
+    g.fillStyle = 'rgba(206,222,224,0.50)';
+    g.strokeStyle = 'rgba(222,236,236,0.72)';
+    g.lineWidth = H * 0.010;
+    g.beginPath();
+    g.moveTo(W * 0.735, H * 0.300);
+    g.quadraticCurveTo(W * 0.845, H * 0.300, W * 0.930, H * 0.395);
+    g.quadraticCurveTo(W * 0.900, H * 0.442, W * 0.820, H * 0.430);
+    g.quadraticCurveTo(W * 0.760, H * 0.418, W * 0.735, H * 0.385);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    // 下颌：一条分开的细线，读作"嘴"
+    g.strokeStyle = 'rgba(214,230,230,0.60)';
+    g.lineWidth = H * 0.009;
+    g.beginPath();
+    g.moveTo(W * 0.775, H * 0.408);
+    g.quadraticCurveTo(W * 0.860, H * 0.428, W * 0.905, H * 0.462);
+    g.stroke();
+    // 眼窝：整具骨架上唯一"看着你"的地方
+    g.fillStyle = 'rgba(8,18,24,0.92)';
+    g.beginPath();
+    g.ellipse(W * 0.788, H * 0.352, H * 0.019, H * 0.015, -0.15, 0, TAU);
+    g.fill();
+    g.strokeStyle = 'rgba(200,220,222,0.42)';
+    g.lineWidth = H * 0.006;
+    g.stroke();
+
+    // ---- 4) 长在骨头上的珊瑚：少量暖色点 ----
+    // 骨架不该是道具，它是礁盘的一部分 —— 这些点让它和周围的活物长在一起。
+    const rnd = mulberry32(99117);
+    for (let i = 0; i < 46; i++) {
+      const x = W * (0.22 + rnd() * 0.60);
+      const y = H * (0.42 + rnd() * 0.38);
+      const r = H * (0.005 + rnd() * 0.010);
+      const warm = rnd() > 0.42;
+      g.fillStyle = warm
+        ? `rgba(228,${120 + (rnd() * 50) | 0},${96 + (rnd() * 40) | 0},${0.28 + rnd() * 0.30})`
+        : `rgba(150,${220 + (rnd() * 30) | 0},230,${0.20 + rnd() * 0.26})`;
+      g.beginPath();
+      g.arc(x, y, r, 0, TAU);
+      g.fill();
+    }
+    this._bone = cv;
+    return cv;
+  }
+
+  /**
    * 珊瑚层（1024×256，两版只烘一次）。
    *
    * 「珊瑚在海底蜿蜒」是「曾是我纯洁的家园」的直接物证 ——
@@ -1350,38 +1770,75 @@ export class SeaGame {
     const cam = this.depth;
     const sy = (d) => R.screenYof(d, cam);
 
-    // ---- 珊瑚：**深渊里的礁盘** ----
-    // 原来画在 0.04~0.24（浅水），结果在浅处像几棵白色的树挂在画面底下，
-    // 而且和"深渊"这个词毫无关系。它属于 0.66 以下：只有潜到底才看得见。
-    // 深水里没有阳光，所以它必须**自己发光** —— 加色叠一遍就是发光，
-    // 再叠一层正片就是实心的枝干。这是「我看见 最美丽的花园」的实物。
+    // 海床的地面线。整片海只有这一条地面（见 sea-render 的 BED_D），
+    // 骨架和珊瑚都钉在它上面 —— 不是"某个深度带"。
+    const bedY = sy(R.BED_D);
+
+    // ---- 鲸落：一具很大的骨架，躺在礁盘上 ----
+    // 画在珊瑚之前：珊瑚是"长在它身上"的，所以必须在它上面。
+    // 它不发光（骨头不发光），只有上缘一线被珊瑚照亮的边 ——
+    // 深渊里能看见它，靠的是旁边那些活物的光，这个关系本身就在讲故事。
+    for (const t of this.kit) {
+      if (t.type !== 'boneland') continue;
+      const bone = this._boneTex();
+      if (!bone) continue;
+      const bw = w * 0.86;
+      const bh = bw * (bone.height / bone.width);
+      // 骨架沉在礁盘的底上：下沿落到地面线下面一点，
+      // 珊瑚长起来会盖住它一半 —— 那是"鲸落"，不是"摆件"。
+      const by = bedY - bh * 0.78;
+      if (by > h + bh * 0.3 || by < -bh * 1.2) continue;
+      const fog = clamp(1 - Math.abs(bedY - h * 0.62) / (h * 0.9), 0.18, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.30 * fog;
+      ctx.drawImage(bone, w * 0.5 - bw * 0.5, by + Math.sin(this.waveT * 0.22 + t.ph) * h * 0.003, bw, bh);
+      ctx.restore();
+    }
+
+    // ---- 珊瑚：长在海床上的礁盘 ----
+    // 上一版按"深度带 0.80~1.02"画，而海床是另一套跟着相机的背景 ——
+    // 两套坐标永远对不上，于是珊瑚悬在水里（用户两次提到这件事）。
+    // 现在只有一条地面线 BED_D：珊瑚的根钉在它上面，海床也画在它上面。
+    // 深水里没有阳光，所以它必须自己发光 —— 加色叠一遍是发光，
+    // 再叠一层正片是实心的枝干。这是「我看见 最美丽的花园」的实物。
     {
-      const top = sy(0.80);
-      const bot = sy(1.02);
-      if (bot > 0 && top < h) {
+      const tex = this._coralTex(true);
+      if (tex && bedY > -h * 0.15) {
         const cw = w * 1.34;
-        const y0 = Math.max(top, -h * 0.2);
-        const y1 = Math.min(bot, h * 1.2);
-        const ch = Math.max(2, y1 - y0);
+        const ch = cw * (tex.height / tex.width);
+        const y0 = bedY - ch;              // 顶端
+        // 刚进画面时几乎看不见，越靠近越实 —— 这是"接近海底"的过程
+        const fade = clamp((h * 1.16 - bedY) / (h * 0.36), 0, 1);
         // 深渊里的珊瑚只是"暗了一点"，不是白成骨头 —— 这是玩家唯一还会
         // 抬头看的东西。白化留给幻想/结局那一版。
         const health = clamp(1 - this.murk * 0.5, 0.5, 1);
         const pulse = 0.86 + Math.sin(this.waveT * 0.7) * 0.14;
-        const tex = this._coralTex(true);
         // 1) 发光：加色、扩散一点（画得比本体大 6%）
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = 0.26 * pulse;
+        ctx.globalAlpha = (0.30 + this.visionK * 0.26) * pulse * fade;
         ctx.drawImage(tex, -w * 0.20, y0 - ch * 0.03, cw * 1.06, ch * 1.06);
         ctx.restore();
         // 2) 本体
-        ctx.globalAlpha = 0.52 + health * 0.24;
+        ctx.globalAlpha = (0.58 + health * 0.24 + this.visionK * 0.12) * fade;
         ctx.drawImage(tex, -w * 0.17, y0, cw, ch);
         // 3) 世界坏下去时叠一点白化（不盖满）
         if (health < 0.99) {
-          ctx.globalAlpha = (1 - health) * 0.5;
+          ctx.globalAlpha = (1 - health) * 0.5 * fade;
           ctx.drawImage(this._coralTex(false), -w * 0.17, y0, cw, ch);
         }
+        // 4) 根部的过渡：珊瑚贴图的下沿是一条直线，直接压在地面线上会留一道
+        //    "贴纸边"。用一条从上透明到下压黑的窄带把它埋进海底。
+        if (!this._baseGrad || this._baseGrad.h !== Math.round(h * 0.07)) {
+          const bg = ctx.createLinearGradient(0, bedY - h * 0.07, 0, bedY + h * 0.01);
+          bg.addColorStop(0, 'rgba(2,8,12,0)');
+          bg.addColorStop(0.75, 'rgba(2,8,12,0.55)');
+          bg.addColorStop(1, 'rgba(2,8,12,0.85)');
+          this._baseGrad = { g: bg, h: Math.round(h * 0.07) };
+        }
+        ctx.globalAlpha = fade;
+        ctx.fillStyle = this._baseGrad.g;
+        ctx.fillRect(-w * 0.17, bedY - h * 0.07, cw, h * 0.08);
         ctx.globalAlpha = 1;
       }
     }
@@ -2111,26 +2568,28 @@ export class SeaGame {
       ctx.restore();
     }
 
-    // ---- 海鸥：**在左上的天上**，不是贴着水面 ----
-    // 「血引来了海鸥」——它们是从远处被血引过来的，所以出现在天空里、
-    // 在月亮那一层的高度，一小群，慢慢地盘旋。
+    // ---- 海鸥：在天空里，但要**看得见** ----
+    // 「血引来了海鸥」——它们从远处被血引过来，所以在天上慢慢地盘旋。
+    // 上一版为了"别贴着水面"把它们放到月亮那一层（skyH 的 0.16），
+    // 结果是平时根本进不了画面 —— 玩家只在跃到最高点那半秒才瞥见一眼。
+    // 现在压到天空下缘（0.055），月亮还高悬在上面，鸟飞在月亮和水面之间。
     // 数量仍然等于暴露度：你越亮，天上盯你的眼睛越多。
     if (this.gulls.length) {
       const seaY = sy(0);
       if (seaY > -h * 0.2) {
-        // 月亮烘焙在天空图的 0.84 高度，天空图底边贴着水面线
-        const skyH = R._sky ? R._sky.height : h * 1.08;
-        const moonY = seaY - skyH * 0.16;
-        const gY = moonY - h * 0.02;
+        // 高度按"可见天空的比例"算，不按天空图的高度算。
+        // 天空图有 1.08 屏，但平时只露出水面以上那一小条（0.28 屏）：
+        // 按图算，跃出时鸟会贴着水皮；按条算，它永远在天空的中段。
+        const gY = seaY * 0.60;
         if (gY > -60 && gY < h + 60) {
           ctx.save();
           for (let i = 0; i < this.gulls.length; i++) {
             const g = this.gulls[i];
-            // 横向固定落在画面左侧 1/3，纵向在月亮高度上下轻微起伏
-            const bx = w * (0.07 + (i / Math.max(1, this.gulls.length - 1)) * 0.30);
+            // 横向铺开在画面左半边：右边留给月亮和城市
+            const bx = w * (0.08 + (i / Math.max(1, this.gulls.length - 1)) * 0.42);
             const x = bx + Math.sin(g.ph * 0.7 + i) * w * 0.02;
             const y = gY + Math.sin(g.ph * 0.9 + i * 1.7) * h * 0.014;
-            const s = (0.055 + g.r * 0.10) * w;
+            const s = (0.062 + g.r * 0.115) * w;
             const flap = Math.sin(g.ph * 3.4 + i) * 0.5 + 0.5;
             // 月光从右下打过来：翅尖亮、身体暗
             ctx.fillStyle = 'rgba(9,16,22,0.92)';
@@ -2284,9 +2743,12 @@ export class SeaGame {
     if (this.mode === 'play') {
       const m = this.mate;
       if (this.bump > 0.45) hint = '你被看见了。';
-      else if (this.surfaceT > 0.5) hint = '别动。就这样回去。';
-      else if (this.codex.length >= 5 && this.depth < SURFACE_D - 0.02) hint = '停在这里 —— 你可以回去。';
+      else if (this.surfaceT > 0.5) hint = '按住别松 —— 再跃一次就回去了。';
+      // 回去的动作变了：不再是"停在水面不动"，而是**沉下去再冲上来**。
+      // 提示必须跟着改，否则玩家会照着旧提示在水面泡到没气。
+      else if (this.codex.length >= 5 && this.depth < SURFACE_D - 0.02) hint = '想回去：沉下去，再冲上来。';
       else if (m && m.found && !m.answered) hint = '长按 · 回应它';
+      else if (this.hp < 0.34) hint = '血止不住。离那些东西远点。';
       else if (this.oxy < 0.30) hint = '气不够了。浮上去。';
       // 不能写 !m —— mate 是"最近的那一只"，没更新前是 null，
       // 会对着有同类的层也喊"没有回应"。要判的是"附近到底有没有还没回应的"。
@@ -2306,6 +2768,9 @@ export class SeaGame {
       oxySec: Math.ceil(clamp(this.oxy, 0, 1) * OXY_SEC),
       exposure: this.exposure,
       band: this.depth < SURFACE_D ? 'surface' : this.depth > ABYSS_D ? 'abyss' : 'mid',
+      // 头真的出水面了没有。换气只认这一条（见 _breath），
+      // HUD 靠它把"到了水面"和"喝到空气"分开 —— 这两件事差 0.14 个深度。
+      atAir: this.depth < 0.025,
       singing: this.singing,
       voices: this.voices,
       voicesAll: 7,
@@ -2315,6 +2780,10 @@ export class SeaGame {
       canSacrifice: this.necklace && this.oxy < 0.22 && this.depth > 0.45,
       necklace: this.necklace,
       codex: this.codex.length,
+      // "流程清不清晰"最直接的答案：屏幕右上永远有一个分母。
+      // 六只是上限（第七只永远够不到），所以写死 6 而不是 mates.length ——
+      // mates.length 哪天改了，这个分母不该跟着变。
+      codexAll: 6,
       dives: this.dives,
       endedAt: this.endedAt,
       reached: this.depth > 0.97,
@@ -2325,8 +2794,17 @@ export class SeaGame {
       stage: this.stage,
       murk: this.murk,
       vision: this.visionK,
-      visionMode: this.mode === 'vision',
+      visionMode: this.mode === 'vision' || this.mode === 'sinking',
       blood: this.blood.length,
+      // ---- 伤 ----
+      hp: clamp(this.hp / HP_MAX, 0, 1),
+      scars: this.scars,
+      mut: this.mut,
+      rings: this.plasticRings,
+      hooked: this.hooked,
+      damage: this.dmgFlash,
+      deadReason: this.deadReason,
+      sinking: this.mode === 'sinking',
     };
   }
 }
