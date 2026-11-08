@@ -674,7 +674,9 @@ function syncDom() {
 
   // 开场任务卡：进关卡就出现，玩家第一次动手（或 11 秒）就收。
   // 它只在 codex 还是 0 的时候有意义 —— 找到第一只之后目标已经自明了。
-  const guideOn = H.mode === 'play' && !guideSeen && H.codex === 0 && game.t < 11;
+  // ?auto / ?bench 是自动化路径：任务卡会挡在管口和同类身上，截图时关掉
+  const guideOn = H.mode === 'play' && !guideSeen && H.codex === 0
+    && game.t < 11 && !Q.get('auto') && Q.get('bench') !== '1';
   domSet(elGuide, 'on', guideOn, (v) => {
     elGuide.classList.toggle('on', v);
     // 卡片收起的那一下，把本段歌词补回来。

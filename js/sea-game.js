@@ -330,7 +330,10 @@ export class SeaGame {
       out.push({
         type: 'hook',
         lat: -0.9 + rnd() * 1.8,
-        depth: 0.54 + k * 0.44 + (rnd() - 0.5) * 0.03,
+        // 用户实拍：钩子几乎全在 0.54~0.98，也就是海的下半部分 ——
+        // 可它是从渔船垂下来的，物理上就该在水面附近。
+        // 现在 0.14~0.58：玩家一下潜就先穿过钩阵，越深反而越干净。
+        depth: 0.14 + k * 0.44 + (rnd() - 0.5) * 0.03,
         ph: rnd() * TAU,
         sp: 0.5 + rnd() * 0.5,
         hit: 0,
@@ -1124,7 +1127,7 @@ export class SeaGame {
       } else if (t.type === 'outfall') {
         // 核废水：一股热的、浑的水柱。碰到不是"划伤"，是身体开始不对劲。
         // 判定区比画出来的羽流窄 —— 让玩家"看着像碰到了"才掉血，别冤枉人。
-        const inPlume = Math.abs(px - t.lat) < 0.20 && py > 0.06 && py < 0.58;
+        const inPlume = Math.abs(px - t.lat) < 0.26 && py > 0.06 && py < 0.66;
         if (inPlume && (t.hurtT || 0) <= 0) {
           t.hurtT = 3.0;
           this._hit(DMG_OUTFALL);
@@ -1466,32 +1469,116 @@ export class SeaGame {
    * 出管时窄而浓，往下越散越淡，最后混进海水里。
    * 用 26 个由小到大的径向渐变叠出来 —— 烘一次，之后每帧只 drawImage。
    */
+  /**
+   * 核废水羽流（320×640）。
+   *
+   * 上一版是 26 团"脏绿"，alpha 0.22、半径 0.06~0.50W —— 画到屏幕上
+   * 就是一层若有若无的绿雾，玩家读不出这是"排污"，只觉得水有点脏。
+   * 核废水必须有**工业感**：荧光黄绿的核 + 褐绿的浑浊边 + 往下沉的沉积。
+   * 颜色是个符号，不是写实：真实核废水是透明的，但透明的东西没人怕。
+   */
   _plumeTex() {
     if (this._plume) return this._plume;
-    const W = 256;
-    const H = 512;
+    const W = 320;
+    const H = 640;
     const cv = document.createElement('canvas');
     cv.width = W;
     cv.height = H;
     const g = cv.getContext('2d');
     if (!g) return null;
-    for (let i = 0; i < 26; i++) {
-      const k = i / 26;
-      const y = H * k * 0.97;
-      // 羽流会顺着水流偏向一侧，同时越来越宽
-      const x = W * 0.5 - Math.sin(k * 2.2) * W * 0.10 - k * W * 0.06;
-      const r = W * (0.06 + k * 0.44);
-      const a = 0.22 * (1 - k * 0.62);
+
+    // 1) 浑浊的底：越往下越宽、越淡。
+    //    摆动从 0.10W 收到 0.05W —— 上一版摆得太厉害，两层一旋转
+    //    整根柱子就散成"一片绿水"，读不出"从管口倒下来"这个动作。
+    for (let i = 0; i < 30; i++) {
+      const k = i / 30;
+      const y = H * k * 0.98;
+      const x = W * 0.5 - Math.sin(k * 1.6) * W * 0.05 - k * W * 0.03;
+      const r = W * (0.09 + k * 0.55);
+      const a = 0.30 * (1 - k * 0.55);
       const gr = g.createRadialGradient(x, y, 0, x, y, r);
-      gr.addColorStop(0, `rgba(104,120,52,${a})`);
-      gr.addColorStop(0.55, `rgba(86,104,46,${a * 0.6})`);
-      gr.addColorStop(1, 'rgba(70,88,40,0)');
+      gr.addColorStop(0, `rgba(96,112,48,${a})`);
+      gr.addColorStop(0.5, `rgba(78,94,42,${a * 0.62})`);
+      gr.addColorStop(1, 'rgba(62,76,34,0)');
       g.fillStyle = gr;
       g.beginPath();
       g.arc(x, y, r, 0, TAU);
       g.fill();
     }
+
+    // 2) 荧光核心：只在前 62% 有，越往下越弱。
+    //    这一层是"一眼认出来"的全部依仗 —— 用 additivie 的思路烘死，
+    //    画的时候不再开 lighter（少一次大图混合）。
+    for (let i = 0; i < 22; i++) {
+      const k = i / 22;
+      const y = H * k * 0.62;
+      const x = W * 0.5 - Math.sin(k * 2.4) * W * 0.07 - k * W * 0.03;
+      const r = W * (0.05 + k * 0.26);
+      const a = 0.40 * (1 - k * 0.78);
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, `rgba(214,240,96,${a})`);
+      gr.addColorStop(0.42, `rgba(170,206,72,${a * 0.55})`);
+      gr.addColorStop(1, 'rgba(140,180,60,0)');
+      g.fillStyle = gr;
+      g.beginPath();
+      g.arc(x, y, r, 0, TAU);
+      g.fill();
+    }
+
+    // 3) 垂直的丝状流：几道更亮的细条，从管口一直垂下去。
+    //    这是"液体"和"雾"的区别 —— 雾是均匀的，液体有流线。
+    for (let i = 0; i < 7; i++) {
+      const x0 = W * (0.36 + i * 0.045);
+      const wob = (i - 3) * W * 0.012;
+      g.strokeStyle = `rgba(196,226,82,${0.10 + (i % 3) * 0.05})`;
+      g.lineWidth = W * (0.006 + (i % 3) * 0.004);
+      g.beginPath();
+      g.moveTo(x0, H * 0.02);
+      g.quadraticCurveTo(x0 + wob, H * 0.44, x0 + wob * 2.2, H * 0.86);
+      g.stroke();
+    }
+
+    // 4) 悬浮的颗粒：核废水里有东西在往下掉
+    const rnd = mulberry32(31811);
+    for (let i = 0; i < 90; i++) {
+      const k = rnd();
+      const x = W * (0.30 + rnd() * 0.42);
+      const y = H * k * 0.92;
+      const r = 0.8 + rnd() * 2.2;
+      g.fillStyle = `rgba(226,248,140,${0.10 + rnd() * 0.28})`;
+      g.beginPath();
+      g.arc(x, y, r, 0, TAU);
+      g.fill();
+    }
+
     this._plume = cv;
+    return cv;
+  }
+
+  /**
+   * 排污口周围的**浑浊云**（512×512，径向）。
+   *
+   * 「起码靠近海面的水要是浑浊的」—— 一根管子 + 一条羽流不够：
+   * 玩家要的是"这一片海被染了"。所以再叠一张大范围的脏水云，
+   * 以管口为中心铺到半屏，越远越透明。
+   */
+  _murkTex() {
+    if (this._murkCv) return this._murkCv;
+    const S = 512;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = S;
+    const g = cv.getContext('2d');
+    if (!g) return null;
+    const cx = S * 0.5;
+    const cy = S * 0.44;
+    const gr = g.createRadialGradient(cx, cy, 0, cx, cy, S * 0.5);
+    gr.addColorStop(0, 'rgba(150,176,58,0.50)');
+    gr.addColorStop(0.30, 'rgba(124,146,54,0.36)');
+    gr.addColorStop(0.62, 'rgba(92,110,46,0.19)');
+    gr.addColorStop(1, 'rgba(70,86,40,0)');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, S, S);
+    this._murkCv = cv;
     return cv;
   }
 
@@ -1933,20 +2020,37 @@ export class SeaGame {
       // 自己算水面线：这一段现在画在"海面之上"那个块之前（羽流要在水下也看得见），
       // 那时候 seaY 还没定义。
       const oy = sy(0);
-      const pw = w * 0.92;
-      const ph = h * 0.78;
+      // 用户实拍："核废水要让人一眼就知道是核废水，晕染扩散加深加大，
+      // 起码靠近海面的水要是浑浊的。"
+      // 上一版 pw=0.92w / ph=0.78h，两层 alpha 0.60/0.30 —— 在手机上
+      // 只读得出"水有点脏"。现在分三件事：
+      //   ① 一大片浑浊云（把"这一片海被染了"交代清楚）
+      //   ② 更大更浓的羽流（荧光黄绿的核心一路沉下去）
+      //   ③ 管口刷工业警示条纹（一眼看出这是"人干的"）
+      const pw = w * 1.35;
+      const ph = h * 1.05;
       // 水越深，羽流越淡（这是雾化，不是随手调的透明度）
-      const fog = clamp(1 - this.depth * 0.55, 0.35, 1);
+      const fog = clamp(1 - this.depth * 0.45, 0.42, 1);
 
-      // 1) 羽流：三层叠加 —— 窄而浓的核心 + 中景 + 一大片几乎看不见的扩散
+      // 1) 浑浊云：以管口为中心铺到半屏。它画在羽流**之前** ——
+      //    羽流的亮绿要压在这层脏水上面，才有"从里面涌出来"的感觉。
+      const murkCv = this._murkTex();
+      if (murkCv) {
+        ctx.save();
+        ctx.globalAlpha = (0.72 + this.murk * 0.20) * fog;
+        ctx.drawImage(murkCv, ox - w * 0.85, oy - h * 0.12, w * 1.70, h * 1.18);
+        ctx.restore();
+      }
+
+      // 2) 羽流：两层 —— 浓的核 + 散的边。
+      //    三层就是三次半屏混合，画面看不出差别，帧率先掉。
       const plume = this._plumeTex();
       if (plume) {
         ctx.save();
-        // 两层就够：一层浓的核、一层散的边。三层叠着画，手机上就是三次
-        // 全屏 alpha 混合 —— 画面看不出差别，帧率先掉。
         const layers = [
-          { a: (0.60 + this.murk * 0.24) * fog, sx: 0.55, rot: 0.12, dx: -0.03 },
-          { a: (0.30 + this.murk * 0.16) * fog, sx: 1.05, rot: 0.32, dx: -0.18 },
+          // 核心层不旋转：它必须是"一根柱"，一转就散
+          { a: (0.82 + this.murk * 0.18) * fog, sx: 0.52, rot: 0.0, dx: -0.01 },
+          { a: (0.34 + this.murk * 0.14) * fog, sx: 1.04, rot: 0.16, dx: -0.10 },
         ];
         for (const L of layers) {
           ctx.globalAlpha = L.a;
@@ -1957,14 +2061,19 @@ export class SeaGame {
           ctx.restore();
         }
         ctx.restore();
-    }
+      }
 
-      // 2) 水面上的管口：水面被染出一块脏绿
+      // 3) 水面上的管口：水面被染出一块荧光绿，外面一圈浑
       ctx.save();
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = 'rgba(86,104,52,1)';
+      ctx.globalAlpha = 0.62;
+      ctx.fillStyle = 'rgba(92,116,44,1)';
       ctx.beginPath();
-      ctx.ellipse(ox + w * 0.01, oy + 2, w * 0.055, h * 0.008, 0, 0, TAU);
+      ctx.ellipse(ox + w * 0.01, oy + 2, w * 0.14, h * 0.016, 0, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = 'rgba(198,226,88,1)';
+      ctx.beginPath();
+      ctx.ellipse(ox + w * 0.005, oy + 2, w * 0.055, h * 0.007, 0, 0, TAU);
       ctx.fill();
       ctx.restore();
 
@@ -1981,6 +2090,24 @@ export class SeaGame {
       if (ctx.roundRect) ctx.roundRect(ox - w * 0.150, py0, w * 0.160, ph0, ph0 * 0.45);
       else ctx.rect(ox - w * 0.150, py0, w * 0.160, ph0);
       ctx.fill();
+      // 工业警示条纹：黄黑斜条，clip 在管身上。
+      // 核废水必须"一眼看出来是人干的"—— 一根纯黑管子在深蓝水里
+      // 只会被当成又一截沉船，读不出"排污"这两个字。
+      ctx.save();
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(ox - w * 0.150, py0, w * 0.160, ph0, ph0 * 0.45);
+      else ctx.rect(ox - w * 0.150, py0, w * 0.160, ph0);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(216,180,54,0.66)';
+      for (let i = -2; i < 10; i++) {
+        ctx.save();
+        ctx.translate(ox - w * 0.150 + i * w * 0.024, py0);
+        ctx.rotate(0.62);
+        ctx.fillRect(0, -ph0 * 2, w * 0.011, ph0 * 4);
+        ctx.restore();
+      }
+      ctx.restore();
+
       // 管顶的月光：一条很细的亮线
       ctx.strokeStyle = 'rgba(146,176,190,0.30)';
       ctx.lineWidth = 1;
