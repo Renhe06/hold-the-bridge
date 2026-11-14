@@ -250,8 +250,8 @@ window.addEventListener('error', (e) => {
 </div>
 <div id="guide">
   <div class="t">你要做什么</div>
-  <div class="r"><b>1</b><span>往下潜，找到 <em>6</em> 只同类</span></div>
-  <div class="r"><b>2</b><span>靠近后 <em>长按屏幕</em>，回应它的歌</span></div>
+  <div class="r"><b>1</b><span>游过去找 <em>6</em> 只同类，它们一直在海里</span></div>
+  <div class="r"><b>2</b><span>靠得够近，<em>它会自己回应</em>你的歌</span></div>
   <div class="r"><b>3</b><span>氧气只有 30 秒 · <em>上浮到水面</em>才能换气</span></div>
   <div class="r"><b>4</b><span>海很宽 · <em>左右拖动</em>能游到很远的地方</span></div>
   <div class="k">往下滑 · 下潜　　往上滑 · 出水　　左右滑 · 游</div>
@@ -393,8 +393,13 @@ if (Q.get('oxy') != null) game.oxy = clamp(parseFloat(Q.get('oxy')), 0, 1);
 if (Q.get('hp') != null) game.hp = clamp(parseFloat(Q.get('hp')), 0, 1) * game.hpMax;
 if (Q.get('god') === '1') game.god = true;
 // 调试：直接摆出伤痕状态（截图核对血痕 / 变异 / 塑料袋的位置）
-if (Q.get('scars') != null) game.scars = Math.min(9, parseInt(Q.get('scars'), 10) || 0);
-if (Q.get('mut') != null) game.mut = Math.min(3, parseInt(Q.get('mut'), 10) || 0);
+// 现在伤痕与病灶是**从污染量换算**出来的（见 _derivedMarks），
+// 所以调 ?soil=0.5 比调 ?scars=5 更接近真实状态 —— 两个都支持：
+// 给了 scars/mut 就写一遍 soil，让后续的换算得到同样的结果。
+if (Q.get('soil') != null) game.soil = clamp(parseFloat(Q.get('soil')), 0, 1);
+if (Q.get('scars') != null) game.soil = Math.max(game.soil, Math.min(9, parseInt(Q.get('scars'), 10) || 0) / 10 + 0.03);
+if (Q.get('mut') != null) game.soil = Math.max(game.soil, [0, 0.30, 0.52, 0.80][Math.min(3, parseInt(Q.get('mut'), 10) || 0)]);
+game._derivedMarks();
 if (Q.get('rings') != null) game.plasticRings = Math.min(5, parseInt(Q.get('rings'), 10) || 0);
 // 调试：?codex=5 直接标记前 N 只已被回应（验证"跃出去 = 回去"这个结局）
 if (Q.get('codex') != null) {
@@ -406,10 +411,20 @@ if (Q.get('codex') != null) {
   }
   game.voices = Math.min(7, 1 + n);
 }
-// 调试：?dives=N 直接把世界推到第 N 阶段（海面对比截图用）
-if (Q.get('dives') != null) game.dives = Math.max(0, parseInt(Q.get('dives'), 10) || 0);
+// 调试：?dives=N 以前是世界阶段；现在阶段跟着**污染量**走，
+// 所以这个参数改成写 soil（截图对比海面用），保持旧链接还能用。
+if (Q.get('dives') != null) game.soil = clamp((parseInt(Q.get('dives'), 10) || 0) / 4.4 + 0.02, 0, 1);
 // 调试：?vision=1 直接进幻象（花园截图用）
 if (Q.get('vision') === '1') { game.mode = 'vision'; game.visionT = 2.5; game.visionK = 1; }
+
+// 截图用：?clean=1 把所有 DOM 层（任务卡 / HUD / 提示 / 歌词）全部藏掉。
+// 沿用主游戏 tools/shot.html 的同名参数 —— 换个人来截图也不会先问一遍。
+if (Q.get('clean') === '1') {
+  for (const id of ['hud', 'guide', 'hint', 'lyric', 'prog', 'back', 'veil', 'boot']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
+}
 
 function fit() {
   const w = Math.max(240, window.innerWidth);
@@ -480,6 +495,10 @@ function frameState() {
       scars: game.scars,
       mut: game.mut,
       rings: game.plasticRings,
+      // 污染程度 0~1。这是**连续**的，和上面三个离散计数分开：
+      // 三个计数是"长了什么东西"，它是"整条鲸脏到什么程度"。
+      // 用户："过渡也不明显" —— 离散的东西只能阶段跳变，脏是能一点的。
+      grime: game.soil,
     },
     // 水面之上时改到实体层之后画：不然跃出去的那一下会被远处的城市盖住
     lateWhale: game.depth < 0.12,
@@ -697,7 +716,7 @@ function syncDom() {
   let objTxt = '';
   let objColor = '#86b3c6';
   if (H.mode === 'play') {
-    if (H.mateFound) { objTxt = '它就在这 · 长按，回应'; objColor = '#e8c07a'; }
+    if (H.mateFound) { objTxt = '它就在这 · 停一下'; objColor = '#e8c07a'; }
     else if (H.hp < 0.26) { objTxt = '血快没了 · 别再碰钩子和塑料'; objColor = '#ff8a76'; }
     else if (H.oxygen < 0.24) { objTxt = '气不够了 · 往上滑，把头探出去'; objColor = '#ff9a86'; }
     else if (H.band === 'surface') { objTxt = '换完了就走 · 下面才是家'; objColor = '#a6c8d8'; }

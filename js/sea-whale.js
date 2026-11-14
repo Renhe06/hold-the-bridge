@@ -18,7 +18,7 @@
 //  所以按显示尺寸烘一层缓存，正常帧只做小尺寸 blit。尺寸变了才重烘。
 // ---------------------------------------------------------------------------
 
-import { clamp } from './util.js';
+import { clamp, mulberry32 } from './util.js';
 
 /** 本文件里画伤痕要用到整圈；sea-game 里那份常量不跨模块，这里自带一个。 */
 const TAU = Math.PI * 2;
@@ -148,6 +148,8 @@ export class SeaWhale {
     };
     // 光晕用未挖空的整图，轮廓才完整
     b.glow = this._bakeGlow(fullBody);
+    // 污染层：整条鲸慢慢变脏的那一层（连续量，画的时候只改 alpha）
+    b.grime = this._bakeGrime(fullBody, w, h);
     // 深处版本：按水下雾化模型预烘一档"最深"，画的时候用 alpha 交叉淡入。
     // 不做实时 filter —— 移动端 Canvas 2D 的 filter 极慢，而且 iOS 16.4 以下根本不支持。
     const DEEP = 0.92;
@@ -293,6 +295,86 @@ export class SeaWhale {
     g.globalCompositeOperation = 'source-atop';
     g.fillStyle = 'rgba(6, 30, 46, 0.62)';
     g.fillRect(0, 0, cv.width, cv.height);
+    return cv;
+  }
+
+  /**
+   * 污染层：整条鲸"脏了"的那一层。
+   *
+   * 用户实拍："鲸鱼的污染程度太快了，过渡也不明显。"
+   * 前半句是数值（见 game 里的 soil 模型），后半句是**这个函数存在的理由**：
+   * 伤痕和病变是离散的 —— 它们只能"第 3 道口子出现了"，
+   * 两次出现之间身体没有任何变化，读起来像卡住了。
+   * 这一层是连续的：0.02 和 1.00 之间是一条不间断的曲线，
+   * 玩家在水里会看见自己慢慢变成别的颜色。
+   *
+   * 做法上只烘一次（尺寸变了才重烘），画的时候只改 alpha。
+   * 脏的东西有三样，颜色全不一样，混在一起才不会读成"蒙了一层灰"：
+   *   藻绿（浮游生物）+ 褐黑（油和泥）+ 尾部的拖痕（脏东西顺着水流往后挂）
+   */
+  _bakeGrime(full, w, h) {
+    if (!full) return null;
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const g = cv.getContext('2d');
+    if (!g) return null;
+    const rnd = mulberry32(9137);
+
+    // 1) 底子：整条鲸**均匀地**脏一档。没有这一层，斑点会浮在干净的皮肤上，
+    //    读作"花纹"；有了它，那些斑才是"脏东西积在皮上"。
+    g.fillStyle = 'rgba(46,50,36,0.30)';
+    g.fillRect(0, 0, w, h);
+
+    // 2) 斑：小而多。上一版是 54 颗大斑（0.018~0.074w），在手机上读作
+    //    "迷彩/豹纹" —— 那是图案，不是污渍。真污渍的颗粒永远比你想的小。
+    for (let i = 0; i < 120; i++) {
+      const x = w * (0.16 + rnd() * 0.74);
+      const y = h * (0.26 + rnd() * 0.56);
+      const r = Math.max(2.5, w * (0.007 + rnd() * 0.020));
+      // 三色：藻绿 / 泥褐 / 近乎黑的焦油。饱和度都压得很低。
+      const c = i % 5 === 0 ? '78,82,54' : (i % 3 === 0 ? '52,46,36' : '34,32,26');
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, `rgba(${c},${0.12 + rnd() * 0.14})`);
+      gr.addColorStop(1, `rgba(${c},0)`);
+      g.fillStyle = gr;
+      g.beginPath();
+      g.arc(x, y, r, 0, TAU);
+      g.fill();
+    }
+
+    // 3) 背脊一条更深的带：脏东西是顺着水流往背上积的（背上最先被晒到、最先脏）
+    for (let i = 0; i < 26; i++) {
+      const x = w * (0.24 + i * 0.022);
+      const y = h * (0.34 + (i % 3) * 0.012 + rnd() * 0.02);
+      const r = w * (0.014 + rnd() * 0.018);
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, `rgba(30,30,24,${0.16 + rnd() * 0.12})`);
+      gr.addColorStop(1, 'rgba(30,30,24,0)');
+      g.fillStyle = gr;
+      g.beginPath();
+      g.arc(x, y, r, 0, TAU);
+      g.fill();
+    }
+
+    // 4) 尾部拖痕：脏东西往后挂，越靠尾柄越密
+    for (let i = 0; i < 14; i++) {
+      const x = w * (0.24 + i * 0.005);
+      const y = h * (0.44 + rnd() * 0.22);
+      const r = w * (0.012 + rnd() * 0.018);
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, `rgba(38,36,28,${0.16 + rnd() * 0.12})`);
+      gr.addColorStop(1, 'rgba(38,36,28,0)');
+      g.fillStyle = gr;
+      g.beginPath();
+      g.arc(x, y, r, 0, TAU);
+      g.fill();
+    }
+
+    // 遮罩：只留在身体上（和伤痕层同一条规矩）
+    g.globalCompositeOperation = 'destination-in';
+    g.drawImage(full, 0, 0, w, h);
+    g.globalCompositeOperation = 'source-over';
     return cv;
   }
 
@@ -502,10 +584,10 @@ export class SeaWhale {
       g.fillStyle = 'rgba(10,22,28,0.34)';
       g.fill();
       g.restore();
-      g.fillStyle = 'rgba(232,228,212,0.40)';
+      g.fillStyle = 'rgba(226,220,198,0.34)';
       g.fill();
-      g.strokeStyle = 'rgba(250,248,238,0.82)';
-      g.lineWidth = Math.max(1.4, W * 0.0038);
+      g.strokeStyle = 'rgba(250,248,238,0.58)';
+      g.lineWidth = Math.max(1.1, W * 0.0028);
       g.stroke();
       // 褶皱：三道横向短痕。塑料的褶是**横向**的，纵向的会读成布。
       g.strokeStyle = 'rgba(246,255,255,0.34)';
@@ -529,9 +611,11 @@ export class SeaWhale {
     // 上一版把它画在遮罩之前，于是整截都被裁掉 —— 屏幕上只剩几道几乎看不见的亮边。
     for (let i = 0; i < Math.min(rings, 5); i++) {
       // 垂下来那截挂在尾柄下缘（0.70 是那里的身体下界），所以它在水里
-      const cx = W * (0.306 + i * 0.024);
-      const cy = H * 0.700;
-      const ww = W * (0.048 + (i % 2) * 0.012);
+      // 五只袋子必须**散开**：上一版间距 0.024W、直径 0.048W，
+      // 四只叠在一起变成一簇皂泡 —— 传的不是"缠住了"，是"贴了一串气球"。
+      const cx = W * (0.300 + i * 0.038);
+      const cy = H * (0.700 + (i % 2) * 0.018);
+      const ww = W * (0.032 + (i % 2) * 0.008);
       g.save();
       g.translate(cx, cy);
       // 袋口在左、袋身在右下：被水推着，所以不是垂直的
@@ -668,6 +752,16 @@ export class SeaWhale {
     // 角色在中层水里已经糊成一片 —— 玩家看不清自己控制的角色是硬伤。
     // 雾化应该"浅处几乎不生效、深处才彻底吃掉"，而不是线性地一路变暗。
     if (dk > 0.02) paint(b.deep, Math.min(1, dk * 0.95) * A);
+
+    // 污染层：画在伤痕**之前** —— 脏是底子，伤是皮上的口子，口子必须在脏的上面。
+    // 0.06 以下是干净的（刚下水不该一脸泥），0.06~0.75 之间线性加深，
+    // 之后压到 0.86 封顶：再往上就吃掉贴图本身的明暗，读成"另一只鲸"了。
+    const grime = clamp(o.grime || 0, 0, 1);
+    if (grime > 0.06 && b.grime) {
+      ctx.globalAlpha = A * Math.min(0.86, (grime - 0.06) * 1.16);
+      ctx.drawImage(b.grime, -b.w / 2, -b.h / 2);
+      ctx.globalAlpha = 1;
+    }
 
     // 伤痕层：**画在雾化层之后**。
     // 上一版画在之前，depth=0.5 时会被 47% 的水色盖掉一半 ——

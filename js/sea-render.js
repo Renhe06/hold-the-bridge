@@ -977,7 +977,13 @@ export class SeaRenderer {
         ctx.globalCompositeOperation = 'screen';
         const sway = Math.sin(this.time * 0.22) * w * 0.03;
         ctx.globalAlpha = shaftA * (0.38 + life * 0.62);
-        ctx.drawImage(this._rays, sway - w * 0.15 + camPx * 0.22, surfaceY, w * 1.35, lh);
+        // 光柱钉在**世界**里：镜头横移多少它就移多少，鲸游过去时它是从身边
+        // 掠过去的光，不是跟着鲸走的一束追光。所以视差是 1.0，不是 0.22 ——
+        // 那 0.22 就是"海里的光影跟着鲸鱼一起动"的直接原因。
+        // 图宽 1.35 屏，铺两份才够盖住 ±1 屏的镜头行程。
+        const rayX = sway - w * 0.15 + camPx;
+        ctx.drawImage(this._rays, rayX, surfaceY, w * 1.35, lh);
+        ctx.drawImage(this._rays, rayX + w * 1.35, surfaceY, w * 1.35, lh);
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = 'source-over';
       }
@@ -991,7 +997,7 @@ export class SeaRenderer {
       if (surfaceY < h && surfaceY + bh > 0) {
         ctx.globalCompositeOperation = 'screen';
         ctx.globalAlpha = clamp(shaftA * 1.0, 0, 1);
-        const ox = ((this.time * 9) % band.width + band.width) % band.width + camPx * 0.45;
+        const ox = ((this.time * 9) % band.width + band.width) % band.width + camPx;
         if (!this._fillTileX('caustics', band, ox, surfaceY, w, bh)) {
           for (let x = -band.width; x < w + band.width; x += band.width) {
             ctx.drawImage(band, x + ox, surfaceY);
@@ -1016,7 +1022,7 @@ export class SeaRenderer {
         const sc = base * (layer ? 1.45 : 1);
         const tw = this._snow.width * sc;
         const th = this._snow.height * sc;
-        const ox = ((layer * 97 + this.time * (layer ? 13 : 5)) % tw + tw) % tw + camPx * (layer ? 0.42 : 0.28);
+        const ox = ((layer * 97 + this.time * (layer ? 13 : 5)) % tw + tw) % tw + camPx;
         const oy = ((layer * 53 + this.time * (layer ? 19 : 8)) % th + th) % th;
         ctx.globalAlpha = a;
         if (!this._fillTile('snow', this._snow, sc, ox, oy, 0, 0, w, h)) {
@@ -1093,7 +1099,7 @@ export class SeaRenderer {
       const scN = 2.9 * (this.w / 390);
       const twN = this._snow.width * scN;
       const thN = this._snow.height * scN;
-      const oxN = ((this.time * 26) % twN + twN) % twN + camPx * 0.85;
+      const oxN = ((this.time * 26) % twN + twN) % twN + camPx;
       const oyN = ((this.time * 37) % thN + thN) % thN;
       ctx.globalCompositeOperation = 'lighter';
       // 前景那层是"镜头前的浮尘"，最招人烦的就是它：从 0.22 收到 0.09，
