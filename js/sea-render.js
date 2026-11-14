@@ -392,11 +392,17 @@ export class SeaRenderer {
    * 一条笔直的垂直切线，水里的东西不该有直线。
    */
   _bakeSeabed() {
-    const W = Math.round(this.w * 1.7);
+    // 3.6 屏宽：世界横向扩到三屏之后，海床必须跟着铺满，否则镜头一横移
+    // 就会在画面边缘露出"没有地"的黑边。加宽而不是平铺 —— 平铺会在接缝
+    // 处留一条笔直的切线，水里的东西不该有直线（见上一版注释）。
+    const W = Math.round(this.w * 3.6);
     const H = Math.round(this.h * 0.55);
     const cv = this._off(W, H);
     const g = cv.getContext('2d');
     const rnd = mulberry32(60517);
+    // 山脊的尺度基准仍然是"一屏 1.7 屏宽的旧图"：加宽只让海岸线更长，
+    // 不让每座山变成一座丘陵。
+    const U = this.w * 1.7;
 
     // 底光先铺：山脊要"从光里长出来"，不是贴在黑纸上。
     const lg = g.createLinearGradient(0, H * 0.14, 0, H);
@@ -423,7 +429,7 @@ export class SeaRenderer {
       const ridgePath = () => {
         g.beginPath();
         for (let x = 0; x <= W; x += 5) {
-          const u = x / W;
+          const u = x / U;
           const w1 = 0.52 + Math.sin(u * 1.7 + p1) * 0.14;   // 低频权重自己也在缓慢起伏
           const y = H * L.base - H * L.amp * (
             w1 * Math.sin(u * f1 * TAU + p1) +
@@ -452,20 +458,21 @@ export class SeaRenderer {
     // 全部烘进贴图（只跑一次），所以它对帧率零成本。
     const sandY = H * 0.52;
     g.strokeStyle = 'rgba(120,186,206,0.055)';
-    for (let i = 0; i < 26; i++) {
-      const y = sandY + (i / 26) * (H - sandY);
+    // 数量按宽度比例加：图宽了 2.1 倍，沙纹也得是 2.1 倍，否则海床会变秃
+    for (let i = 0; i < 56; i++) {
+      const y = sandY + (i / 56) * (H - sandY);
       const x0 = rnd() * W;
-      const len = W * (0.05 + rnd() * 0.14);
+      const len = U * (0.05 + rnd() * 0.14);
       g.lineWidth = 0.8 + rnd() * 1.6;
       g.beginPath();
       g.moveTo(x0, y);
       g.quadraticCurveTo(x0 + len * 0.5, y - 2 - rnd() * 3, x0 + len, y);
       g.stroke();
     }
-    for (let i = 0; i < 34; i++) {
+    for (let i = 0; i < 72; i++) {
       const x = rnd() * W;
       const y = sandY + rnd() * (H - sandY) * 0.96;
-      const rx = W * (0.004 + rnd() * 0.013);
+      const rx = U * (0.004 + rnd() * 0.013);
       const ry = rx * (0.5 + rnd() * 0.5);
       g.fillStyle = 'rgba(14,38,50,0.85)';
       g.beginPath();
@@ -476,7 +483,7 @@ export class SeaRenderer {
       g.stroke();
     }
     g.fillStyle = 'rgba(170,226,244,0.10)';
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 127; i++) {
       const x = rnd() * W;
       const y = sandY + rnd() * (H - sandY);
       g.beginPath();
@@ -487,11 +494,11 @@ export class SeaRenderer {
     // 沉在海底的碎石：极少量，只在最前一层上面露一点头，提供"尺度"参照。
     // 不能多 —— 三块是地形，十块就是装饰。
     g.fillStyle = 'rgba(1,6,10,0.9)';
-    for (let i = 0; i < 3; i++) {
-      const x = W * (0.18 + i * 0.29 + rnd() * 0.08);
+    for (let i = 0; i < 6; i++) {
+      const x = W * (0.06 + i * 0.148 + rnd() * 0.05);
       const y = H * (0.60 + rnd() * 0.06);
       g.beginPath();
-      g.ellipse(x, y, W * (0.012 + rnd() * 0.018), H * (0.030 + rnd() * 0.035), rnd() * 0.5 - 0.25, 0, TAU);
+      g.ellipse(x, y, U * (0.012 + rnd() * 0.018), H * (0.030 + rnd() * 0.035), rnd() * 0.5 - 0.25, 0, TAU);
       g.fill();
     }
 
@@ -765,6 +772,11 @@ export class SeaRenderer {
     // 往下潜一格就"越过"一格东西 —— 沉船、地形都按这条线走，不会各走各的。
     const K = h * 2.0;
     const surfaceY = h * 0.28 - rawDepth * K;
+    // 镜头横向位移（像素）。世界有三屏宽，所有"钉在世界里"的东西都要吃这一条，
+    // 否则镜头一动它们就留在原地 —— 看起来像贴纸浮在屏幕上。
+    // 1 lat = 0.42 屏宽，和玩法层的 SX 必须是同一个数。
+    const camLat = st.camLat || 0;
+    const camPx = camLat * 0.42 * w;
     // 基准必须和水面线一致（0.28h）：以前这里写 0.5h，水面和所有实体之间
     // 差了 0.22 屏 —— 玩家在深处看不到水面所以没暴露，一浮上来船就沉进水里了。
     const screenYof = (worldDepth) => h * 0.28 + (worldDepth - rawDepth) * K;
@@ -792,8 +804,51 @@ export class SeaRenderer {
       ctx.globalCompositeOperation = 'source-over';
     }
 
-    // 1.5) 水面之上：夜空。
-    //      它不是背景板，是另一个世界 —— 只有浮上去才存在，而浮上去就等于
+    // 「像酒红色污垢」——不是血雾，是**水本身**变了颜色。
+    // 血雾是一团一团的，污垢是整片水都脏了：所以这一层铺满画面，极淡。
+    // 它只在猎场那一段（世界横向 -1~1）出现 —— 静海不该是红的。
+    if (st.camLat != null && st.camLat > -1.7 && st.camLat < 1.7) {
+      const wineK = 1 - clamp((Math.abs(st.camLat) - 0.55) / 1.1, 0, 1);
+      if (wineK > 0.01) {
+        ctx.globalAlpha = 0.055 * wineK * (1 - vision);
+        ctx.fillStyle = '#5a1620';
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // 1.4) 「像藏蓝色丝绸」
+    //      水不是一块渐变，是一匹布。绸缎和水纹的区别在**方向**：
+    //      水纹是圆的、一圈一圈的；绸缎的折痕是长的、斜的、一根压一根。
+    //      所以这里不画波纹，画六条极宽、极淡的斜向柳叶。
+    //      它们随深度慢慢错动 —— 玩家看到的不是"水面动"，是"布在漂"。
+    //      只在 0.66 以上画：深渊里没有光，也就没有绸缎。
+    if (depth < 0.66 && vision < 0.9) {
+      const silkA = 1 - depth / 0.66;
+      ctx.globalCompositeOperation = 'lighter';
+      const bands = 6;
+      for (let i = 0; i < bands; i++) {
+        const base = (i + 0.5) / bands;
+        const drift = ((this.time * 0.012 + i * 0.17) % 1);
+        const y = h * (base * 1.15 - 0.10 + drift * 0.05) + (rawDepth * h * 0.55);
+        const slope = (i % 2 ? -1 : 1) * h * (0.05 + (i % 3) * 0.015);
+        const x0 = -w * 0.15 + Math.sin(this.time * 0.10 + i * 1.7) * w * 0.05;
+        const x1 = w * 1.15;
+        const wid = h * (0.035 + (i % 2) * 0.018);
+        ctx.globalAlpha = silkA * (0.055 + (i % 3) * 0.016);
+        ctx.fillStyle = i % 3 === 0 ? 'rgba(126,200,222,1)' : 'rgba(92,164,190,1)';
+        ctx.beginPath();
+        ctx.moveTo(x0, y);
+        ctx.quadraticCurveTo(w * 0.5, y + slope - wid, x1, y + slope);
+        ctx.quadraticCurveTo(w * 0.5, y + slope + wid, x0, y);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // 1.5) 水面之上：夜空。    //      它不是背景板，是另一个世界 —— 只有浮上去才存在，而浮上去就等于
     //      站在月光底下被看见。整关"呼吸 vs 安全"的对立在画面上就是这一条线。
     if (this._sky && surfaceY > -4) {
       const skyA = clamp(surfaceY / (h * 0.06), 0, 1);
@@ -822,6 +877,30 @@ export class SeaRenderer {
       }
     }
 
+    // 2.2) 「月光无声弹奏」
+    //      月光落在水面上，是一排竖着的弦：长短不一、微微弯，随波被拨。
+    //      不画月亮的倒影 —— 倒影是碎银子，弦是"有人在水面上弹"。
+    //      只在靠近水面时出现，潜下去它就没了。
+    if (surfaceY > -h * 0.15 && surfaceY < h * 0.95 && murk < 0.8) {
+      ctx.globalCompositeOperation = 'lighter';
+      const strings = 8;
+      for (let i = 0; i < strings; i++) {
+        const sx = w * (0.05 + i * 0.128) + Math.sin(this.time * 0.35 + i * 1.3) * w * 0.008;
+        const len = h * (0.045 + (i % 3) * 0.020);
+        const y0 = surfaceY + h * 0.004;
+        const bend = Math.sin(this.time * 1.15 + i * 0.9) * w * 0.0045;
+        ctx.globalAlpha = (0.13 + (i % 2) * 0.04) * (1 - murk);
+        ctx.strokeStyle = 'rgba(255,246,220,1)';
+        ctx.lineWidth = 1 + (i % 3) * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, y0);
+        ctx.quadraticCurveTo(sx + bend, y0 + len * 0.5, sx + bend * 1.7, y0 + len);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
     // 2.5) 海床：画面底座。
     //    它锚在"相机下方固定距离"而不是某个世界深度 —— 海底是无限大的平面，
     //    给它一个深度值会让它在下潜时从头顶飞过去。所以这里用两件事表达深度：
@@ -838,7 +917,9 @@ export class SeaRenderer {
         const by = bedY - bh * 0.44;
         const drift = Math.sin(this.time * 0.043) * w * 0.05;
         ctx.globalAlpha = bedA;
-        ctx.drawImage(this._seabed, -w * 0.35 + drift, by, w * 1.7, bh);
+        // 3.6 屏宽的底图，中心钉在世界 lat=0：镜头横移多少，它就横移多少。
+        // 海床和珊瑚必须同速，否则"长在地里的珊瑚"会在沙上滑来滑去。
+        ctx.drawImage(this._seabed, w * 0.5 - w * 1.8 - camPx + drift, by, w * 3.6, bh);
         ctx.globalAlpha = 1;
 
         // 浮游体的冷光：20 张预烘的柔光点，缩放后叠加。
@@ -882,7 +963,8 @@ export class SeaRenderer {
         // 0.80 起：0.62 的时候它在 0.48 深度几乎和背景同色，
         // 玩家从旁边游过去也认不出那是"那艘沉没的舰"。
         ctx.globalAlpha = clamp(0.80 - dist * 0.34 - depth * 0.10 + boost * 0.24, 0.10, 0.95);
-        ctx.drawImage(this._ship, w * 0.5 - sw * 0.5 + w * 0.05, sy + bob, sw, sh);
+        // 沉船钉在世界 lat=0.05：它是中区的地标，镜头划过时要从左边经过。
+        ctx.drawImage(this._ship, w * 0.5 - sw * 0.5 + (0.05 - camLat) * 0.42 * w, sy + bob, sw, sh);
         ctx.globalAlpha = 1;
       }
     }
@@ -895,7 +977,7 @@ export class SeaRenderer {
         ctx.globalCompositeOperation = 'screen';
         const sway = Math.sin(this.time * 0.22) * w * 0.03;
         ctx.globalAlpha = shaftA * (0.38 + life * 0.62);
-        ctx.drawImage(this._rays, sway - w * 0.15, surfaceY, w * 1.35, lh);
+        ctx.drawImage(this._rays, sway - w * 0.15 + camPx * 0.22, surfaceY, w * 1.35, lh);
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = 'source-over';
       }
@@ -909,7 +991,7 @@ export class SeaRenderer {
       if (surfaceY < h && surfaceY + bh > 0) {
         ctx.globalCompositeOperation = 'screen';
         ctx.globalAlpha = clamp(shaftA * 1.0, 0, 1);
-        const ox = ((this.time * 9) % band.width + band.width) % band.width;
+        const ox = ((this.time * 9) % band.width + band.width) % band.width + camPx * 0.45;
         if (!this._fillTileX('caustics', band, ox, surfaceY, w, bh)) {
           for (let x = -band.width; x < w + band.width; x += band.width) {
             ctx.drawImage(band, x + ox, surfaceY);
@@ -934,7 +1016,7 @@ export class SeaRenderer {
         const sc = base * (layer ? 1.45 : 1);
         const tw = this._snow.width * sc;
         const th = this._snow.height * sc;
-        const ox = ((layer * 97 + this.time * (layer ? 13 : 5)) % tw + tw) % tw;
+        const ox = ((layer * 97 + this.time * (layer ? 13 : 5)) % tw + tw) % tw + camPx * (layer ? 0.42 : 0.28);
         const oy = ((layer * 53 + this.time * (layer ? 19 : 8)) % th + th) % th;
         ctx.globalAlpha = a;
         if (!this._fillTile('snow', this._snow, sc, ox, oy, 0, 0, w, h)) {
@@ -1011,7 +1093,7 @@ export class SeaRenderer {
       const scN = 2.9 * (this.w / 390);
       const twN = this._snow.width * scN;
       const thN = this._snow.height * scN;
-      const oxN = ((this.time * 26) % twN + twN) % twN;
+      const oxN = ((this.time * 26) % twN + twN) % twN + camPx * 0.85;
       const oyN = ((this.time * 37) % thN + thN) % thN;
       ctx.globalCompositeOperation = 'lighter';
       // 前景那层是"镜头前的浮尘"，最招人烦的就是它：从 0.22 收到 0.09，

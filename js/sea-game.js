@@ -35,8 +35,25 @@ import { clamp, lerp, mulberry32 } from './util.js';
 
 const TAU = Math.PI * 2;
 
-/** 横向坐标 lat ∈ [-1,1] → 屏幕 x 的映射比例。 */
+/** 横向坐标 lat → 屏幕 x 的映射比例。1 个 lat = 0.42 屏宽。 */
 const SX = 0.42;
+
+/**
+ * 世界的横向半宽（lat）。原来是 1 —— 一屏就是一个世界。
+ *
+ * 现在 3：左右各扩一屏，一共三屏宽，镜头横向跟。
+ * 为什么要扩：一屏里塞了整首《跃》的场景（丝绸、蜉蝣、沉舰、灯塔、
+ * 血、海鸥、网、钩、船、冰山、沥青、实验、宫殿、项链、图鉴、珊瑚），
+ * 结果每一样都只分到几十像素，"海"读起来像一张贴满东西的桌布。
+ * 扩成三屏之后按歌词的推进分三段：左边静海、中间猎场、右边废墟。
+ */
+export const WORLD_HALF = 3;
+
+/** 镜头横向中心能走到的极限。留 0.5 个 lat 的余量，鲸撞到世界边缘时还在画面里。 */
+const CAM_MAX = WORLD_HALF - 0.5;
+
+/** 镜头死区（lat）：鲸在屏幕中央这一圈里时镜头不动，超出去才跟。 */
+const CAM_DEAD = 0.34;
 
 /** 四种垃圾的长宽比。瓶子是竖长的，泡沫块是横宽的 —— 形状不同才像"杂"。 */
 const LITTER_SHAPE = {
@@ -134,32 +151,35 @@ const DMG_OUTFALL = 0.10;
  */
 export const SEA_STRATA = [
   {
-    d: 0.00, mate: [0.16, 0.00],
+    // 第一只不再放在正中央：它在左边的静海里。玩家得先学会"横着游"，
+    // 才配谈"往下潜"。位置也不远（0.57 屏），第一次寻找不该是长途。
+    d: 0.00, mate: [0.16, -1.35],
     name: '海洋静谧依旧',
     line: '我用背鳍裁开起伏的褶皱',
   },
   {
-    d: 0.20, mate: [0.34, 0.32],
+    d: 0.20, mate: [0.34, -2.55],
     name: '乳白色蜉蝣',
     line: '它竟不会腐朽　总是陪我徜徉渐暖的洋流',
   },
   {
+    // 从这一只开始回到中间：左边是静海，中间是猎场。
     d: 0.38, mate: [0.52, -0.30],
     name: '是那沉没的舰',
     line: '是那盏灯塔在忽明忽灭',
   },
   {
-    d: 0.54, mate: [0.68, 0.20],
+    d: 0.54, mate: [0.68, 0.60],
     name: '血引来了海鸥',
     line: '我在漏网之后　留下了伤口',
   },
   {
-    d: 0.70, mate: [0.84, -0.16],
+    d: 0.70, mate: [0.84, 1.60],
     name: '当泛滥的鱼钩',
     line: '让所有变稀有　海上谁领唱满载而去的歌',
   },
   {
-    d: 0.84, mate: [0.96, 0.08],
+    d: 0.84, mate: [0.96, 2.50],
     name: '看疯狂的实验',
     line: '看冰山在崩裂　看沥青在蔓延',
   },
@@ -192,6 +212,9 @@ export class SeaGame {
     this.aimDepth = 0.02;
     this.lat = 0;
     this.aimLat = 0;
+    // 镜头横向中心。和 lat 分开：lat 是鲸，camLat 是镜头 ——
+    // 两者之间隔一个死区，所以"游出去"才会有距离感。
+    this.camLat = 0;
     this.vD = 0;
     this.vL = 0;
     this.oxy = 1;
@@ -300,39 +323,57 @@ export class SeaGame {
 
     const out = [];
 
-    // 「总是陪我徜徉渐暖的洋流」—— 唯一会替你走路的东西。不伤人，只是不问。
-    out.push({ type: 'current', d: 0.09, h: 0.15, dir: 1, sp: 0.10, ph: rnd() * TAU });
-    out.push({ type: 'current', d: 0.37, h: 0.18, dir: -1, sp: 0.13, ph: rnd() * TAU });
-    out.push({ type: 'current', d: 0.67, h: 0.13, dir: 1, sp: 0.07, ph: rnd() * TAU });
+    // =====================================================================
+    //  世界横向分三段（lat -3 ~ 3，三屏宽）。分法不是"三个副本"，
+    //  是歌词自己的走向：先是静的，再是被人碰过的，最后是被拿空的。
+    //
+    //    左区 -3 ~ -1   静海     藏蓝丝绸 / 月光 / 鱼群 / 乳白色蜉蝣 / 渐暖的洋流
+    //    中区 -1 ~  1   猎场     沉没的舰 / 灯塔 / 血 / 海鸥 / 网 / 钩 / 船
+    //    右区  1 ~  3   废墟     冰山 / 沥青 / 实验 / 宫殿 / 盛宴 / 枪械 / 图鉴 / 花园
+    //
+    //  一屏装不下的不是"东西"，是这三段之间的差别。以前它们叠在一起，
+    //  玩家看到的是一锅杂烩；现在游过去，才能看见海是怎么一段段坏掉的。
+    // =====================================================================
 
-    // 「乳白色蜉蝣」—— 越往下越多，而且不会腐朽。这是全关唯一"只增不减"的东西。
+    // 「总是陪我徜徉渐暖的洋流」—— 唯一会替你走路的东西。不伤人，只是不问。
+    // 三条都在左区：那是"暖"的地方。洋流现在带横向范围（wLat），
+    // 不再是一整屏的亮带 —— 一屏的亮带在三屏的世界里就是三条横线。
+    out.push({ type: 'current', d: 0.09, h: 0.15, dir: 1, sp: 0.10, ph: rnd() * TAU, lat: -2.35, wLat: 1.40 });
+    out.push({ type: 'current', d: 0.37, h: 0.18, dir: -1, sp: 0.13, ph: rnd() * TAU, lat: -1.75, wLat: 1.55 });
+    out.push({ type: 'current', d: 0.67, h: 0.13, dir: 1, sp: 0.07, ph: rnd() * TAU, lat: -2.55, wLat: 1.10 });
+
+    // 「像乳白色蜉蝣　它竟不会腐朽」—— 左区最多，越往右越少。
+    // 它们不是"收集物"，是浮游生物的形状：白、轻、成群、永不腐烂。
     const kinds = ['bag', 'bottle', 'foam', 'can', 'bag', 'bottle', 'foam', 'can'];
     for (let i = 0; i < kinds.length; i++) {
       const k = i / (kinds.length - 1);
+      // 5 块在静海，2 块在猎场，1 块被冲到废墟 —— 垃圾也是会走的
+      const lat = i < 5
+        ? -2.75 + rnd() * 1.55
+        : (i < 7 ? -0.85 + rnd() * 1.6 : 1.55 + rnd() * 1.1);
       out.push({
         type: 'plastic',
         kind: kinds[i],
         depth: 0.26 + k * 0.64 + (rnd() - 0.5) * 0.04,
-        lat: -0.82 + rnd() * 1.64,
+        lat,
         r: 0.075 + rnd() * 0.05,
         ph: rnd() * TAU,
         hit: 0,
       });
     }
 
-    // 「是那沉没的舰」「是那盏灯塔在忽明忽灭」
-    out.push({ type: 'wreck', depth: 0.48 });
-    out.push({ type: 'lighthouse', lat: 0.70, d: 0.52, ph: 1.2, on: true, k: 1 });
+    // 「是那沉没的舰」—— 中区，海床上最完整的一件人类的东西。
+    out.push({ type: 'wreck', depth: 0.62, lat: 0.05 });
+    // 「是那盏灯塔在忽明忽灭」—— 在岸上，中区偏右，是全图唯一的坐标。
+    out.push({ type: 'lighthouse', lat: 0.78, d: 0.52, ph: 1.2, on: true, k: 1 });
 
-    // 「当泛滥的鱼钩」—— 从 0.54 开始，越往下越密
+    // 「当泛滥的鱼钩」—— 从 0.14 开始，中区最密，右区也有几枚。
+    // 左区一枚都没有：静海里不该有钩子。
     for (let i = 0; i < 15; i++) {
       const k = i / 14;
       out.push({
         type: 'hook',
-        lat: -0.9 + rnd() * 1.8,
-        // 用户实拍：钩子几乎全在 0.54~0.98，也就是海的下半部分 ——
-        // 可它是从渔船垂下来的，物理上就该在水面附近。
-        // 现在 0.14~0.58：玩家一下潜就先穿过钩阵，越深反而越干净。
+        lat: i < 11 ? -0.95 + rnd() * 1.9 : 1.15 + rnd() * 1.7,
         depth: 0.14 + k * 0.44 + (rnd() - 0.5) * 0.03,
         ph: rnd() * TAU,
         sp: 0.5 + rnd() * 0.5,
@@ -343,56 +384,69 @@ export class SeaGame {
     // 「血引来了海鸥」：它们只在有血的地方出现，见 _gull
     out.push({ type: 'gull' });
 
-    // 「海上谁领唱满载而去的歌」—— 船队只在海面上，从不下来
-    for (let i = 0; i < 5; i++) {
+    // 「海上谁领唱满载而去的歌」—— 船队只在海面上，从不下来。
+    // 现在它们铺满三屏：越往右越密（越"满载"）。
+    for (let i = 0; i < 7; i++) {
       out.push({
         type: 'fleet',
-        lat: -0.9 + (i + 0.5) * (1.8 / 5) + (rnd() - 0.5) * 0.1,
+        lat: -2.75 + (i + 0.5) * (5.5 / 7) + (rnd() - 0.5) * 0.14,
         scale: 0.5 + rnd() * 0.75,
         ph: rnd() * TAU,
       });
     }
 
-    // 「网」是墙：从水面垂下来，只挡到 bottom。上浮时这两道帘子会拦住你。
-    // 网就是**贴着海面挂着的一张张大网**（拖网/流网都这样），不是垂到海底的帘子。
-    // 左边一大张、右边一小张，中间留一条上浮换气的口子 ——
-    // 这个口子是刻意的：气只能从没网的地方换，网就成了"回家路上的墙"。
-    out.push({ type: 'net', lat: -0.36, w: 0.82, bottom: 0.075, ph: 1.9, hit: 0, gap: 0.06 });
-    out.push({ type: 'net', lat: 0.66, w: 0.34, bottom: 0.105, ph: 4.4, hit: 0, gap: 0.10 });
+    // 「网」是墙：从水面垂下来，只挡到 bottom。
+    // 中区两张，中间留一条上浮换气的口子 —— 这个口子是刻意的：
+    // 气只能从没网的地方换，网就成了"回家路上的墙"。
+    out.push({ type: 'net', lat: -0.52, w: 0.72, bottom: 0.075, ph: 1.9, hit: 0, gap: 0.06, torn: 0.62 });
+    out.push({ type: 'net', lat: 0.62, w: 0.34, bottom: 0.105, ph: 4.4, hit: 0, gap: 0.10 });
 
-    // 「看沥青在蔓延」—— 水面那一层已经不能换气了。它只盖住最上面一截。
-    out.push({ type: 'slick', top: -0.04, bottom: 0.05, ph: rnd() * TAU });
+    // 「看沥青在蔓延」—— 右区的水面那一层已经不能换气了。
+    out.push({ type: 'slick', top: -0.04, bottom: 0.05, ph: rnd() * TAU, lat: 2.05, wLat: 1.75 });
 
-    // 「看冰山在崩裂」「高楼大厦车水马龙」—— 都在水面，只有跃出去才看得见
-    out.push({ type: 'berg', lat: -0.62, w: 0.32, ph: rnd() * TAU });
+    // 「看冰山在崩裂」—— 右区。它一直在那儿，只是每次回来都小一点。
+    out.push({ type: 'berg', lat: 2.35, w: 0.34, ph: rnd() * TAU });
+    // 「高楼大厦车水马龙」—— 城市是整条海岸线，不属于任何一个区。
     out.push({ type: 'city', ph: rnd() * TAU });
-    // 核废水排污口：在城市的岸边，稍微偏右 —— 不压月亮，也不挡鲸的正面
-    out.push({ type: 'outfall', lat: 0.17 });
+    // 核废水排污口：在城市的岸边，右区 —— 那里是"人"最集中的地方。
+    out.push({ type: 'outfall', lat: 1.78 });
 
-    // 声呐：船在找鲸。不伤人，但让你被找到。
+    // 声呐：船在找鲸。不伤人，但让你被找到。中区。
     out.push({ type: 'sonar', t: 6, gap: 8 });
 
     // ---- 深渊：让人害怕，但它很美（用户定版）----
-    // 两组东西，都只在 0.5 以下出现，而且都是"光"——
-    // 深渊里没有太阳，能让玩家还愿意往下游的，只能是别的东西在发光。
-    //
-    // 1) 发光水母：深渊里唯一会**动**的光。它比珊瑚近，会从身边飘过去，
-    //    伞盖一收一放，像有人在很深的地方呼吸。数量少（7 只），
-    //    因为多了就变成"路灯"，少了才像"遇见"。
+    // 发光水母：深渊里唯一会**动**的光。中区偏右到右区，7 只。
     for (let i = 0; i < 7; i++) {
       out.push({
         type: 'jelly',
         depth: 0.55 + (i / 6) * 0.50 + (rnd() - 0.5) * 0.03,
-        lat: -0.80 + rnd() * 1.60,
+        lat: i < 2 ? -0.35 + rnd() * 1.0 : 1.15 + rnd() * 1.75,
         r: 0.050 + rnd() * 0.042,
         ph: rnd() * TAU,
         sp: 0.32 + rnd() * 0.46,
         cold: i % 2,          // 冷白 / 淡紫，交替换，别让七只是一只复制七遍
       });
     }
-    // 2) 鲸落：一具很大的骨架，肋骨之间长着珊瑚。
-    //    它不参与玩法，它只回答一个问题 ——「下面有什么」。
-    //    答案：一具和你一样的骨头，已经在这儿躺了很久了。
+
+    // =====================================================================
+    //  补：歌词里有、之前一屏装不下所以没做的场景
+    //
+    //  都是**意象**，不是插画：
+    //    「又在鱼缸里面」   → 世界两端的玻璃（tank，画在最外侧，撞上去才看清）
+    //    「那沉睡的宫殿」   → 被珊瑚吞掉一半的石柱，不是童话城堡
+    //    「唱贪婪的盛宴」   → 吃剩的骨与壳堆成的小丘，旁边是人的餐具
+    //    「唱宝藏的航线」   → 沙上一条被光走过的航迹，不是宝箱
+    //    「这肆虐的枪械」   → 插在沙里的一排鱼叉，锈了，像墓碑
+    //    「看疯狂的实验」   → 一排标本罐，泡着这片海以后的形状
+    //    「唱给书里的图鉴」 → 一本泡开的书，页上是鲸的线描图，墨正在散
+    // =====================================================================
+    out.push({ type: 'tank' });
+    out.push({ type: 'palace', lat: 2.10 });
+    out.push({ type: 'feast', lat: 1.42 });
+    out.push({ type: 'route', lat: 1.02, lat2: 2.62 });
+    out.push({ type: 'harpoon', lat: 2.72 });
+    out.push({ type: 'lab', lat: 1.92, depth: 0.68 });
+    out.push({ type: 'book', lat: 1.62, depth: 1.135 });
 
     this.kit = out;
   }
@@ -401,8 +455,13 @@ export class SeaGame {
   _seedFish() {
     this.fish = [];
     for (let i = 0; i < 26; i++) {
+      // 16 条在静海（左边），7 条在中区，3 条被冲到废墟。
+      // 这个分布就是"越往右越空"：不是靠一句旁白，是靠数得出来的鱼。
+      const lat = i < 16
+        ? -3.0 + this.rnd() * 2.05
+        : (i < 23 ? -0.85 + this.rnd() * 1.85 : 1.05 + this.rnd() * 1.6);
       this.fish.push({
-        lat: (this.rnd() - 0.5) * 1.9,
+        lat,
         depth: 0.04 + this.rnd() * 0.60,
         vlat: 0,
         vdepth: 0,
@@ -485,10 +544,12 @@ export class SeaGame {
     this.aimDepth = clamp(raw, 0, MAX_DEPTH);
     const nl = this.aimLat + (dx / w) * 2.1;
     // 隐形边界：撞上去会被水推回来，不是硬停。硬停读作"bug"，推回读作"墙"。
-    if (Math.abs(nl) > 1) {
+    // 世界现在有三屏宽，这堵"墙"在最外侧 —— 玩家要游很久才会撞到，
+    // 撞到之后看见的是鱼缸玻璃（见 drawEntities 的 tank）。
+    if (Math.abs(nl) > WORLD_HALF) {
       this.wallHit = 1;
       this.wallX = Math.sign(nl);
-      this.aimLat = Math.sign(nl) * 1;
+      this.aimLat = Math.sign(nl) * WORLD_HALF;
     } else {
       this.aimLat = nl;
     }
@@ -723,20 +784,24 @@ export class SeaGame {
 
   /** 放血：28 团 + 原地伤口。原来写在 _leak 里，现在伤害和出血分开了。 */
   _bleed() {
-    for (let i = 0; i < 28; i++) {
+    // 血在水里是**散**的，不是往上冒的一根。
+    // 上一版 28 团全挤在 ±0.06 lat 里、vy 又统一朝上，画出来是一根红色光柱 ——
+    // 在深渊里看着像激光。现在横向铺开、速度各异、颗粒更小：
+    // 它应该像一团慢慢化开的水，不是一束烟。
+    for (let i = 0; i < 22; i++) {
       this.blood.push({
-        x: this.lat + (this.rnd() - 0.5) * 0.06,
-        y: this.depth + (this.rnd() - 0.5) * 0.05,
-        vx: (this.rnd() - 0.5) * 0.16 - this.vL * 0.35,
-        vy: (this.rnd() - 0.5) * 0.08 + 0.015,
+        x: this.lat + (this.rnd() - 0.5) * 0.18,
+        y: this.depth + (this.rnd() - 0.5) * 0.07,
+        vx: (this.rnd() - 0.5) * 0.34 - this.vL * 0.30,
+        vy: (this.rnd() - 0.5) * 0.05 + 0.004,
         life: 1,
-        r: 2.6 + this.rnd() * 5.2,
+        r: 1.9 + this.rnd() * 3.2,
       });
     }
     this.blood.push({
       x: this.lat, y: this.depth,
-      vx: 0, vy: 0.004, life: 1.6,
-      r: 7 + this.rnd() * 4,
+      vx: 0, vy: 0.003, life: 1.6,
+      r: 6 + this.rnd() * 3,
     });
   }
 
@@ -767,7 +832,7 @@ export class SeaGame {
     // 洋流：不直接改位置（那样像指针失灵），改"你想去的那个点"。
     for (const t of this.kit) {
       if (t.type === 'current' && Math.abs(this.depth - t.d) < t.h * 0.5) {
-        this.aimLat = clamp(this.aimLat + t.dir * t.sp * dt * 0.55, -1, 1);
+        this.aimLat = clamp(this.aimLat + t.dir * t.sp * dt * 0.55, -WORLD_HALF, WORLD_HALF);
       }
     }
     if (this.depth < 0) {
@@ -843,7 +908,19 @@ export class SeaGame {
 
     this.vL += ((this.aimLat - this.lat) * w * w - this.vL * 2 * w) * dt;
     this.lat += this.vL * dt;
-    this.lat = clamp(this.lat, -1, 1);
+    this.lat = clamp(this.lat, -WORLD_HALF, WORLD_HALF);
+
+    // ---- 镜头横向跟随 ----
+    // 死区：鲸在屏幕中间 CAM_DEAD 这个范围内时，镜头完全不动 ——
+    // 玩家小幅摆动不会让整片海跟着晃（那是最廉价的"晕"）。
+    // 只有身体真的游出死区，镜头才开始追，而且追得比身体慢一点：
+    // 于是"游出去"这件事在画面上是有重量的，不是瞬移。
+    let want = this.camLat;
+    const dCam = this.lat - this.camLat;
+    if (dCam > CAM_DEAD) want = this.lat - CAM_DEAD;
+    else if (dCam < -CAM_DEAD) want = this.lat + CAM_DEAD;
+    want = clamp(want, -CAM_MAX, CAM_MAX);
+    this.camLat += (want - this.camLat) * Math.min(1, dt * 3.4);
   }
 
   /** 鱼群：绕着浅处慢慢转，玩家一靠近就散开。深处看不见它们。 */
@@ -862,7 +939,7 @@ export class SeaGame {
       }
       f.vlat *= 0.98;
       f.vdepth *= 0.98;
-      f.lat = clamp(f.lat + f.vlat, -1.2, 1.2);
+      f.lat = clamp(f.lat + f.vlat, -WORLD_HALF - 0.25, WORLD_HALF + 0.25);
       f.depth = clamp(f.depth + f.vdepth, 0.02, 0.72);
     }
   }
@@ -872,7 +949,8 @@ export class SeaGame {
     const want = Math.round(clamp(this.exposure - 0.22, 0, 1) * 8);
     while (this.gulls.length < want) {
       this.gulls.push({
-        lat: (this.rnd() - 0.5) * 1.7,
+        // 海鸥围着**你**：它们是被血引来的，你在哪，它们就在哪片天上
+        lat: this.lat + (this.rnd() - 0.5) * 1.7,
         ph: this.rnd() * TAU,
         r: 0.14 + this.rnd() * 0.12,
         sp: 0.5 + this.rnd() * 0.5,
@@ -1135,7 +1213,9 @@ export class SeaGame {
           this.hint = '水是热的。它在往里渗。';
         }
       } else if (t.type === 'slick') {
-        if (py < t.bottom) this.exposure = Math.min(1, this.exposure + dt * 0.16);
+        if (py < t.bottom && Math.abs(px - t.lat) < t.wLat * 0.5) {
+          this.exposure = Math.min(1, this.exposure + dt * 0.16);
+        }
       } else if (t.type === 'sonar') {
         t.t -= dt;
         if (t.t <= 0) {
@@ -1196,8 +1276,14 @@ export class SeaGame {
     this.sea.call({ pan: 0, base: 92, dur: 3.4, vol: 0.1, reach: 0.2 });
   }
 
+  /** 世界横向坐标 → 屏幕 x。镜头（camLat）在这里唯一生效的地方。 */
   screenX(lat) {
-    return this.R.w * (0.5 + lat * SX);
+    return this.R.w * (0.5 + (lat - this.camLat) * SX);
+  }
+
+  /** 屏幕宽度对应的世界横向宽度：用来把"铺满一屏"的东西换算成世界尺寸。 */
+  get viewLat() {
+    return 1 / SX;
   }
 
   /**
@@ -1362,7 +1448,10 @@ export class SeaGame {
    * 中间夹两根烟囱。等宽矮方块是围栏，不是城市。
    */
   _cityTex() {
-    const W = Math.round(this.R.w);
+    // 3.1 屏宽：海岸线跟着世界一起变长。楼的大小仍按**一屏**做基准，
+    // 加宽只增加楼的栋数，不把每栋楼拉成一排厂房。
+    const w0 = Math.round(this.R.w);
+    const W = Math.round(w0 * 3.1);
     if (this._city && this._cityW === W) return this._city;
     const H = Math.round(this.R.h * 0.125);
     const cv = document.createElement('canvas');
@@ -1374,19 +1463,19 @@ export class SeaGame {
 
     // 楼宽/位置：不等宽、不等距；两栋最高的放在 1/4 与 2/3 处做天际线的骨
     const towers = [];
-    let x = -W * 0.03;
+    let x = -w0 * 0.03;
     while (x < W * 1.02) {
-      const bw = W * (0.030 + rnd() * 0.045);
-      const tall = (towers.length === 2 || towers.length === 7);
+      const bw = w0 * (0.030 + rnd() * 0.045);
+      const tall = (towers.length === 4 || towers.length === 17);
       const bh = H * (tall ? 0.86 + rnd() * 0.14 : 0.28 + rnd() * 0.46);
       towers.push({ x, bw, bh, tall });
-      x += bw + W * (0.004 + rnd() * 0.012);
+      x += bw + w0 * (0.004 + rnd() * 0.012);
     }
 
     for (const t of towers) {
-      // 在左侧留一个缺口（0.12w~0.30w）：冰山就站在那个缺口里。
+      // 在右侧留一个缺口（0.80W~0.90W）：冰山就站在那个缺口里。
       // 不留缺口的话，楼一挡，冰山在画面上等于不存在。
-      if (t.x + t.bw > W * 0.115 && t.x < W * 0.305) continue;
+      if (t.x + t.bw > W * 0.80 && t.x < W * 0.90) continue;
       // 楼体：接近纯黑，但不是纯黑 —— 城市的夜不是一块剪纸
       g.fillStyle = 'rgba(6,11,16,0.98)';
       g.fillRect(t.x, H - t.bh, t.bw, t.bh);
@@ -1395,7 +1484,7 @@ export class SeaGame {
       g.fillRect(t.x, H - t.bh, t.bw, 1);
 
       // 窗灯：成排成列。这是"写字楼"三个字的全部含义 —— 一整片整齐的窗格。
-      const cols = Math.max(2, Math.floor(t.bw / (W * 0.011)));
+      const cols = Math.max(2, Math.floor(t.bw / (w0 * 0.011)));
       const rows = Math.max(3, Math.floor(t.bh / (H * 0.045)));
       const cw = (t.bw * 0.72) / cols;
       const rh = (t.bh * 0.80) / rows;
@@ -1673,9 +1762,9 @@ export class SeaGame {
    *   远层小珊瑚剪影（压出纵深）→ 礁体（上缘受光、下部入黑）→ 珊瑚本身。
    * 高度也加了一档，礁盘在屏幕上有厚度，枝干才有地方长。
    */
-  _coralTex(alive) {
+  _coralTex(alive, seed = 0) {
     if (!this._coral) this._coral = {};
-    const key = alive ? 1 : 0;
+    const key = `${alive ? 1 : 0}:${seed}`;
     if (this._coral[key]) return this._coral[key];
     const W = 1024;
     const H = 520;
@@ -1685,7 +1774,8 @@ export class SeaGame {
     const g = cv.getContext('2d');
     if (!g) return (this._coral[key] = cv);
     // 同一颗种子：白化版和活版的形状完全一样，变的只有颜色
-    const rnd = mulberry32(4242);
+    // seed 让三份礁盘各长各的 —— 同一张图并排三次，玩家一眼就看出来是复制。
+    const rnd = mulberry32(4242 + seed * 977);
     const PAL = alive
       ? ['rgba(226,110,132,0.72)', 'rgba(232,150,86,0.66)', 'rgba(96,204,186,0.68)',
          'rgba(176,138,214,0.64)', 'rgba(228,196,110,0.64)']
@@ -1837,6 +1927,20 @@ export class SeaGame {
       }
     }
 
+    // ---- 6.5) 两端渐隐 ----
+    // 礁盘现在是三份拼起来铺满三屏的。硬边的贴图拼在一起，
+    // 交界处就是一条笔直的竖切线 —— 水里的东西不该有直线。
+    // 左右各 5% 把 alpha 压到 0，靠重叠把缝藏起来。
+    g.globalCompositeOperation = 'destination-in';
+    const edge = g.createLinearGradient(0, 0, W, 0);
+    edge.addColorStop(0, 'rgba(0,0,0,0)');
+    edge.addColorStop(0.05, 'rgba(0,0,0,1)');
+    edge.addColorStop(0.95, 'rgba(0,0,0,1)');
+    edge.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = edge;
+    g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = 'source-over';
+
     this._coral[key] = cv;
     return cv;
   }
@@ -1984,7 +2088,12 @@ export class SeaGame {
     // 深水里没有阳光，所以它必须**自己发光**：加色叠的是枝梢，
     // 正片叠的是实心枝干。两层分工明确 —— 整块加色会让礁盘变成一朵发光的云，
     // 那是"雾"，不是"珊瑚"。
-    const tex = this._coralTex(true);
+    //
+    // 现在礁盘铺满三屏：三份，钉在世界锚点 -2.8 / 0 / +2.8。
+    // 间隔（2.8 lat）比一份礁盘（3.19 lat）窄，所以交界处总是**重叠**的 ——
+    // 后一份盖住前一份的直边，不需要镜像或者额外修接缝。
+    // 可视范围只有 2.38 lat，一屏里最多同时看见一份半，重复看不出来。
+    const tex = this._coralTex(true, 0);
     if (!tex) return;
     const cw = w * 1.34;
     const ch = cw * (tex.height / tex.width);
@@ -1996,39 +2105,445 @@ export class SeaGame {
     const health = clamp(1 - this.murk * 0.5, 0.5, 1);
     const pulse = 0.88 + Math.sin(this.waveT * 0.7) * 0.12;
 
-    // 1) 发光：clip 到枝梢那 58% 高度。整块加色 = 一块发光的云
-    ctx.save();
-    ctx.beginPath();
-    // clip 到枝干区（贴图 0~0.82H，礁体本身不发光 —— 石头不该自己亮）
-    ctx.rect(-w * 0.24, y0 - ch * 0.04, cw * 1.16, ch * 0.82);
-    ctx.clip();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = (0.44 + this.visionK * 0.42) * pulse * fade;
-    ctx.drawImage(tex, -w * 0.18, y0, cw * 1.03, ch);
-    ctx.restore();
+    for (let ci = 0; ci < 3; ci++) {
+      // 锚点间隔 3.0 lat，比一份礁盘（3.19）窄一点 —— 交界永远是重叠的。
+      const x0 = this.screenX(-3.0 + ci * 3.0) - cw * 0.5;
+      if (x0 > w + cw * 0.2 || x0 + cw < -cw * 0.2) continue;
+      // 每份用不同的随机种子：复制同一张图并排三次，一眼就看出是贴图。
+      const ctex = this._coralTex(true, ci + 1) || tex;
+      // 「我看见 最美丽的花园」在右边、在深处。左边是同一个海底还没被照亮的样子：
+      // 不是没有珊瑚，是光不够。同一件事，两种亮法。
+      const regionK = [0.50, 0.76, 1.0][ci];
 
-    // 2) 本体：**实色**。alpha 只承担"刚进画面"这一段
-    ctx.globalAlpha = fade;
-    ctx.drawImage(tex, -w * 0.17, y0, cw, ch);
+      // 1) 发光：clip 到枝梢那 58% 高度。整块加色 = 一块发光的云
+      ctx.save();
+      ctx.beginPath();
+      // clip 到枝干区（贴图 0~0.82H，礁体本身不发光 —— 石头不该自己亮）
+      ctx.rect(x0 - w * 0.07, y0 - ch * 0.04, cw * 1.16, ch * 0.82);
+      ctx.clip();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = (0.44 + this.visionK * 0.42) * pulse * fade * regionK;
+      ctx.drawImage(ctex, x0 - w * 0.01, y0, cw * 1.03, ch);
+      ctx.restore();
 
-    // 3) 白化：世界坏下去时叠一层骨白（这是真实的颜色变化，不是遮丑）
-    if (health < 0.99) {
-      ctx.globalAlpha = (1 - health) * 0.55 * fade;
-      ctx.drawImage(this._coralTex(false), -w * 0.17, y0, cw, ch);
+      // 2) 本体：**实色**。alpha 只承担"刚进画面"这一段
+      ctx.globalAlpha = fade * regionK;
+      ctx.drawImage(ctex, x0, y0, cw, ch);
+
+      // 3) 白化：世界坏下去时叠一层骨白（这是真实的颜色变化，不是遮丑）
+      if (health < 0.99) {
+        ctx.globalAlpha = (1 - health) * 0.55 * fade * regionK;
+        ctx.drawImage(this._coralTex(false, ci + 1), x0, y0, cw, ch);
+      }
+
+      // 4) 根部：珊瑚贴图下沿是一条直线，直接压在地面线上会留一道"贴纸边"。
+      //    用一条从上透明到下压黑的窄带把它埋进海底。
+      if (!this._baseGrad || this._baseGrad.h !== Math.round(h * 0.07)) {
+        const bg = ctx.createLinearGradient(0, bedY - h * 0.07, 0, bedY + h * 0.01);
+        bg.addColorStop(0, 'rgba(2,8,12,0)');
+        bg.addColorStop(0.75, 'rgba(2,8,12,0.55)');
+        bg.addColorStop(1, 'rgba(2,8,12,0.85)');
+        this._baseGrad = { g: bg, h: Math.round(h * 0.07) };
+      }
+      ctx.globalAlpha = fade * regionK;
+      ctx.fillStyle = this._baseGrad.g;
+      ctx.fillRect(x0, bedY - h * 0.07, cw, h * 0.08);
+    }
+    ctx.globalAlpha = 1;
+
+    // =====================================================================
+    //  海床上"人留下过什么"
+    //
+    //  这一组不是关卡道具，是歌词里那些没被画出来的句子：
+    //    「唱谁又发现 那沉睡的宫殿」 —— 柱子还在，只是珊瑚先住进去了
+    //    「唱贪婪的盛宴」             —— 吃剩的骨与壳堆成小丘，旁边是餐具
+    //    「请停歇 这肆虐的枪械」       —— 插在沙里的鱼叉，一排，像墓碑
+    //    「唱给书里的图鉴」           —— 一本泡开的书，页上是鲸的线描
+    //    「唱宝藏的航线」             —— 沙上一条被光走过的路，不是宝箱
+    //
+    //  全部画在珊瑚之后、同一层海床上，并且只用很低的对比度：
+    //  它们在深渊里不该"跳出来"，只该"被认出来"。
+    // =====================================================================
+    this._drawBedStories(ctx, R, bedY, fade);
+  }
+
+  /** 海床上的五件叙事物。拆出来只为让 drawBedLayer 还能读。 */
+  _drawBedStories(ctx, R, bedY, fade) {
+    const w = R.w;
+    const h = R.h;
+    const a0 = fade;
+
+    // ---- 沉睡的宫殿 ----
+    // 不是童话城堡：五根石柱，两根断了，一根塌成横梁。
+    // 柱子的下半截被珊瑚和沙埋掉，所以只在柱脚补几枝珊瑚 —— 那是"吞没"的证据。
+    for (const t of this.kit) {
+      if (t.type !== 'palace') continue;
+      const px = this.screenX(t.lat);
+      if (px < -w * 0.7 || px > w * 1.7) continue;
+      const colX = [-0.30, -0.12, 0.06, 0.23, 0.36];
+      // 柱高从 0.28 屏降到 0.13：0.28 屏的柱子在海床上升起来像工厂烟囱，
+      // 不像宫殿 —— 宫殿是"半埋着的"，露出来的只是残段。
+      const colH = [0.130, 0.180, 0.100, 0.160, 0.070];
+      const colLean = [0, 0, -0.006, 0.004, 0.012];
+      ctx.save();
+      ctx.globalAlpha = 0.90 * a0;
+      for (let i = 0; i < colX.length; i++) {
+        const cx = px + colX[i] * w;
+        const hh = h * colH[i];
+        const top = bedY - hh;
+        const cwid = w * (0.050 - (i % 3) * 0.005);
+        ctx.fillStyle = 'rgba(34,52,58,0.97)';
+        ctx.fillRect(cx - cwid * 0.5, top, cwid, hh);
+        // 受光的一侧：石柱是圆的，圆的东西只有一条边亮
+        ctx.fillStyle = 'rgba(118,164,172,0.30)';
+        ctx.fillRect(cx - cwid * 0.5, top, cwid * 0.22, hh);
+        // 柱头与柱础
+        ctx.fillStyle = 'rgba(42,62,68,0.98)';
+        ctx.fillRect(cx - cwid * 0.72, top - h * 0.010, cwid * 1.44, h * 0.013);
+        ctx.fillRect(cx - cwid * 0.64, bedY - h * 0.013, cwid * 1.28, h * 0.013);
+        // 断口：顶上不是平的，是一道斜的缺口
+        ctx.fillStyle = 'rgba(4,10,14,0.55)';
+        ctx.beginPath();
+        ctx.moveTo(cx - cwid * 0.72, top - h * 0.010);
+        ctx.lineTo(cx - cwid * 0.20, top - h * 0.020);
+        ctx.lineTo(cx + cwid * 0.10, top - h * 0.010);
+        ctx.closePath();
+        ctx.fill();
+        // 柱身裂纹：一条极暗的斜线，柱子才不是一根方管
+        ctx.strokeStyle = 'rgba(8,16,20,0.55)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx - cwid * 0.10, top + hh * 0.30 + colLean[i] * h);
+        ctx.lineTo(cx + cwid * 0.22, top + hh * 0.58);
+        ctx.stroke();
+        // 凹槽：古典柱是带竖槽的。三条暗线，成本几乎为零，
+        // 但"水泥墩"和"石柱"的差别全在这里。
+        ctx.strokeStyle = 'rgba(10,18,22,0.30)';
+        for (let f = 0; f < 3; f++) {
+          const fx = cx - cwid * 0.18 + f * cwid * 0.19;
+          ctx.beginPath();
+          ctx.moveTo(fx, top + h * 0.010);
+          ctx.lineTo(fx, bedY - h * 0.014);
+          ctx.stroke();
+        }
+      }
+      // 残拱：两根柱子之间架半个圆。
+      // 没有拱的柱子永远是电线杆 —— 一有拱，它立刻就是"门"。
+      // 只画左半（右侧早塌了），缺口朝上，珊瑚从缺口里长出来。
+      ctx.strokeStyle = 'rgba(40,60,66,0.95)';
+      ctx.lineWidth = w * 0.014;
+      ctx.beginPath();
+      ctx.arc(px - w * 0.21, bedY - h * 0.090, w * 0.090, Math.PI * 1.02, Math.PI * 1.62);
+      ctx.stroke();
+      // 拱石的分缝：三道短线，让它读成一块块石头，不是一根弯管
+      ctx.strokeStyle = 'rgba(10,20,24,0.55)';
+      ctx.lineWidth = 1;
+      for (let i = 1; i <= 3; i++) {
+        const aa = Math.PI * (1.02 + i * 0.15);
+        const ax = px - w * 0.21 + Math.cos(aa) * w * 0.090;
+        const ay = bedY - h * 0.090 + Math.sin(aa) * w * 0.090;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(px - w * 0.21 + Math.cos(aa) * w * 0.110, bedY - h * 0.090 + Math.sin(aa) * w * 0.110);
+        ctx.stroke();
+      }
+
+      // 塌下来的那根横梁：压在两根断柱之间
+      ctx.fillStyle = 'rgba(22,38,44,0.96)';
+      const bx = px - w * 0.21;
+      ctx.save();
+      ctx.translate(bx, bedY - h * 0.052);
+      ctx.rotate(0.06);
+      ctx.fillRect(-w * 0.12, -h * 0.008, w * 0.24, h * 0.017);
+      ctx.restore();
+      // 柱脚的珊瑚：几笔弧线，颜色取自珊瑚调色板
+      const PALC = ['rgba(226,110,132,0.55)', 'rgba(96,204,186,0.5)', 'rgba(232,150,86,0.5)'];
+      for (let i = 0; i < colX.length; i++) {
+        const cx = px + colX[i] * w;
+        ctx.strokeStyle = PALC[i % 3];
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        for (let k = 0; k < 3; k++) {
+          const dir = k === 1 ? -1 : 1;
+          ctx.beginPath();
+          ctx.moveTo(cx + dir * w * (0.012 + k * 0.006), bedY - h * 0.012);
+          ctx.quadraticCurveTo(
+            cx + dir * w * (0.026 + k * 0.010), bedY - h * (0.030 + k * 0.010),
+            cx + dir * w * (0.034 + k * 0.012), bedY - h * (0.050 + k * 0.014)
+          );
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
     }
 
-    // 4) 根部：珊瑚贴图下沿是一条直线，直接压在地面线上会留一道"贴纸边"。
-    //    用一条从上透明到下压黑的窄带把它埋进海底。
-    if (!this._baseGrad || this._baseGrad.h !== Math.round(h * 0.07)) {
-      const bg = ctx.createLinearGradient(0, bedY - h * 0.07, 0, bedY + h * 0.01);
-      bg.addColorStop(0, 'rgba(2,8,12,0)');
-      bg.addColorStop(0.75, 'rgba(2,8,12,0.55)');
-      bg.addColorStop(1, 'rgba(2,8,12,0.85)');
-      this._baseGrad = { g: bg, h: Math.round(h * 0.07) };
+    // ---- 贪婪的盛宴 ----
+    // 不是一桌菜：是吃剩的东西。鱼骨、贝壳、几只盘子斜插在沙里。
+    for (const t of this.kit) {
+      if (t.type !== 'feast') continue;
+      const fx = this.screenX(t.lat);
+      if (fx < -w * 0.4 || fx > w * 1.4) continue;
+      ctx.save();
+      ctx.globalAlpha = 0.80 * a0;
+      // 骨丘：三层鱼脊椎，越上面越小
+      for (let k = 0; k < 3; k++) {
+        const y = bedY - h * (0.010 + k * 0.014);
+        const len = w * (0.105 - k * 0.020);
+        const cx = fx + (k - 1) * w * 0.020;
+        ctx.strokeStyle = `rgba(212,214,200,${0.62 - k * 0.10})`;
+        ctx.lineWidth = 2.4 - k * 0.4;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(cx - len, y);
+        ctx.quadraticCurveTo(cx, y - h * 0.010, cx + len, y);
+        ctx.stroke();
+        // 肋骨
+        for (let i = 1; i <= 7; i++) {
+          const u = -1 + (i / 4);
+          const bx0 = cx + u * len * 0.82;
+          const bh0 = h * (0.026 + (1 - Math.abs(u)) * 0.020) * (1 - k * 0.2);
+          ctx.beginPath();
+          ctx.moveTo(bx0, y);
+          ctx.quadraticCurveTo(bx0 + w * 0.005, y - bh0 * 0.7, bx0 + w * 0.012, y - bh0);
+          ctx.stroke();
+        }
+        // 头骨：一个三角
+        ctx.fillStyle = `rgba(216,218,204,${0.48 - k * 0.08})`;
+        ctx.beginPath();
+        ctx.moveTo(cx + len, y + 2);
+        ctx.lineTo(cx + len + w * 0.030, y - h * 0.015);
+        ctx.lineTo(cx + len + w * 0.012, y + h * 0.007);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // 盘子：三只，斜插在沙里（人类的餐具，比骨头更刺眼）
+      for (let i = 0; i < 3; i++) {
+        const dx = fx + (i - 1) * w * 0.062 + w * 0.012;
+        const dy = bedY - h * 0.008;
+        ctx.save();
+        ctx.translate(dx, dy);
+        ctx.rotate(-0.42 + i * 0.10);
+        ctx.strokeStyle = 'rgba(226,226,214,0.55)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.ellipse(0, -h * 0.026, w * 0.032, h * 0.012, 0, 0, TAU);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(0, -h * 0.026, w * 0.020, h * 0.0075, 0, 0, TAU);
+        ctx.stroke();
+        ctx.restore();
+      }
+      // 一只碎掉的高脚杯
+      ctx.strokeStyle = 'rgba(204,218,210,0.46)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(fx - w * 0.095, bedY - h * 0.006);
+      ctx.lineTo(fx - w * 0.090, bedY - h * 0.044);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(fx - w * 0.090, bedY - h * 0.050, w * 0.014, 0.15, Math.PI - 0.15);
+      ctx.stroke();
+      ctx.restore();
     }
-    ctx.globalAlpha = fade;
-    ctx.fillStyle = this._baseGrad.g;
-    ctx.fillRect(-w * 0.17, bedY - h * 0.07, cw, h * 0.08);
+
+    // ---- 肆虐的枪械 ----
+    // 一排鱼叉插在沙里，锈红色，杆子歪向一边。没有血，只有铁在烂。
+    for (const t of this.kit) {
+      if (t.type !== 'harpoon') continue;
+      const hx = this.screenX(t.lat);
+      if (hx < -w * 0.5 || hx > w * 1.5) continue;
+      const Hh = [0.155, 0.105, 0.185, 0.130, 0.165, 0.085];
+      ctx.save();
+      ctx.globalAlpha = 0.88 * a0;
+      for (let i = 0; i < Hh.length; i++) {
+        const off = (i - (Hh.length - 1) / 2) * w * 0.045 + ((i * 37) % 11 - 5) * w * 0.004;
+        const hh = h * Hh[i];
+        const lean = ((i * 53) % 9 - 4) * 0.016;
+        const x0 = hx + off;
+        ctx.strokeStyle = 'rgba(66,38,30,0.95)';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x0, bedY);
+        ctx.lineTo(x0 + lean * h, bedY - hh);
+        ctx.stroke();
+        // 尖端 + 倒钩：一根细线，两个小三角
+        const tx = x0 + lean * h;
+        const ty = bedY - hh;
+        ctx.fillStyle = 'rgba(120,74,58,0.92)';
+        ctx.beginPath();
+        ctx.moveTo(tx, ty - h * 0.020);
+        ctx.lineTo(tx - w * 0.006, ty + h * 0.002);
+        ctx.lineTo(tx + w * 0.006, ty + h * 0.002);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(tx - w * 0.002, ty + h * 0.002);
+        ctx.lineTo(tx - w * 0.012, ty + h * 0.009);
+        ctx.lineTo(tx - w * 0.003, ty + h * 0.008);
+        ctx.closePath();
+        ctx.fill();
+        // 锈斑：杆子上一两点橙
+        ctx.fillStyle = 'rgba(150,86,50,0.5)';
+        ctx.fillRect(x0 + lean * h * 0.35, bedY - hh * 0.42, 2, 3);
+      }
+      ctx.restore();
+    }
+
+    // ---- 宝藏的航线 ----
+    // 不是宝箱：是沙上一条被光照过的路。虚线 + 几个航海图上的十字。
+    for (const t of this.kit) {
+      if (t.type !== 'route') continue;
+      const x0 = this.screenX(t.lat);
+      const x1 = this.screenX(t.lat2);
+      if (Math.min(x0, x1) > w * 1.2 || Math.max(x0, x1) < -w * 0.2) continue;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      // 虚线：沿沙面微微起伏，点的亮度随呼吸变
+      const N = 24;
+      for (let i = 0; i < N; i++) {
+        const u = i / (N - 1);
+        const x = x0 + (x1 - x0) * u;
+        const y = bedY - h * 0.010 + Math.sin(u * 13 + this.waveT * 0.3) * h * 0.006;
+        const a = (0.08 + 0.12 * Math.sin(this.waveT * 0.9 + i * 0.7)) * a0;
+        ctx.globalAlpha = clamp(a, 0, 1);
+        ctx.fillStyle = 'rgba(226,206,150,1)';
+        ctx.beginPath();
+        ctx.arc(x, y, 1.2, 0, TAU);
+        ctx.fill();
+      }
+      // 航图上的十字标记：两个，一大一小
+      for (let k = 0; k < 2; k++) {
+        const u = k ? 0.78 : 0.34;
+        const x = x0 + (x1 - x0) * u;
+        const y = bedY - h * 0.012;
+        ctx.globalAlpha = 0.20 * a0;
+        ctx.strokeStyle = 'rgba(232,214,164,1)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x - w * 0.014, y);
+        ctx.lineTo(x + w * 0.014, y);
+        ctx.moveTo(x, y - h * 0.014);
+        ctx.lineTo(x, y + h * 0.010);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, w * 0.020, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // ---- 书里的图鉴 ----
+    // 「唱给书里的图鉴」：一本摊开的书，纸泡胀了，页边卷起。
+    // 左页一条鲸的线描，右页几行被水晕开的墨。
+    for (const t of this.kit) {
+      if (t.type !== 'book') continue;
+      const bx = this.screenX(t.lat);
+      if (bx < -w * 0.4 || bx > w * 1.4) continue;
+      const by = R.screenYof(t.depth, this.depth);
+      // 0.20 屏宽：书在海底只该是"一件小东西"。
+      // 上一版 0.30 屏，从下往上看就是一块白色的盘子，读不出书。
+      const bw = w * 0.20;
+      const bh = bw * 0.30;
+      ctx.save();
+      ctx.globalAlpha = 0.88 * a0;
+      // 整本书微微斜着沉在沙上：完全平放的时候，从上面看就是一块白纸片。
+      ctx.translate(bx, by);
+      ctx.rotate(-0.13);
+      ctx.translate(-bx, -by);
+      // 散落的两页：图鉴泡散了，比"一本完整的书"更像"只剩记录"
+      for (let i = 0; i < 2; i++) {
+        ctx.save();
+        ctx.translate(bx + bw * (0.46 + i * 0.13), by + bh * (0.16 + i * 0.12));
+        ctx.rotate(-0.5 + i * 0.35);
+        ctx.globalAlpha = 0.52 * a0;
+        ctx.fillStyle = 'rgba(198,190,166,1)';
+        ctx.fillRect(-bw * 0.10, -bh * 0.16, bw * 0.20, bh * 0.32);
+        ctx.fillStyle = 'rgba(120,112,94,0.6)';
+        for (let k = 0; k < 3; k++) {
+          ctx.fillRect(-bw * 0.075, -bh * 0.10 + k * bh * 0.075, bw * (0.14 - k * 0.02), 1);
+        }
+        ctx.restore();
+      }
+      ctx.globalAlpha = 0.88 * a0;
+      // 纸的厚度：先垫两层错开的暗边，最后才是页面
+      ctx.fillStyle = 'rgba(126,118,98,0.55)';
+      ctx.beginPath();
+      ctx.moveTo(bx - bw * 0.50, by - bh * 0.06);
+      ctx.quadraticCurveTo(bx - bw * 0.26, by - bh * 0.36, bx, by - bh * 0.28);
+      ctx.lineTo(bx, by + bh * 0.26);
+      ctx.quadraticCurveTo(bx - bw * 0.26, by + bh * 0.16, bx - bw * 0.50, by - bh * 0.06);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(bx + bw * 0.50, by - bh * 0.06);
+      ctx.quadraticCurveTo(bx + bw * 0.26, by - bh * 0.36, bx, by - bh * 0.28);
+      ctx.lineTo(bx, by + bh * 0.26);
+      ctx.quadraticCurveTo(bx + bw * 0.26, by + bh * 0.16, bx + bw * 0.50, by - bh * 0.06);
+      ctx.closePath();
+      ctx.fill();
+      // 书页：两个微微上翘的梯形
+      ctx.fillStyle = 'rgba(210,202,178,0.86)';
+      ctx.beginPath();
+      ctx.moveTo(bx - bw * 0.47, by - bh * 0.10);
+      ctx.quadraticCurveTo(bx - bw * 0.25, by - bh * 0.40, bx, by - bh * 0.32);
+      ctx.lineTo(bx, by + bh * 0.18);
+      ctx.quadraticCurveTo(bx - bw * 0.25, by + bh * 0.08, bx - bw * 0.47, by - bh * 0.10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(bx + bw * 0.47, by - bh * 0.10);
+      ctx.quadraticCurveTo(bx + bw * 0.25, by - bh * 0.40, bx, by - bh * 0.32);
+      ctx.lineTo(bx, by + bh * 0.18);
+      ctx.quadraticCurveTo(bx + bw * 0.25, by + bh * 0.08, bx + bw * 0.47, by - bh * 0.10);
+      ctx.closePath();
+      ctx.fill();
+      // 书脊：中间一道更暗的线
+      ctx.strokeStyle = 'rgba(88,80,64,0.75)';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(bx, by - bh * 0.32);
+      ctx.lineTo(bx, by + bh * 0.18);
+      ctx.stroke();
+      // 书页上的排线：几行"字"。不写字 —— 这个尺寸上写字只会变成噪点，
+      // 但排线的密度能读出"这是一页有内容的纸"。
+      ctx.fillStyle = 'rgba(96,92,76,0.30)';
+      for (let i = 0; i < 5; i++) {
+        const yy = by - bh * (0.20 - i * 0.075);
+        const lw = bw * (i < 2 ? 0.26 : 0.22);
+        ctx.fillRect(bx + bw * 0.06, yy, lw, Math.max(1, bh * 0.018));
+      }
+      // 左页：鲸的线描（一笔背 + 一笔尾巴 + 一颗眼）
+      ctx.strokeStyle = 'rgba(40,52,58,0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(bx - bw * 0.38, by - bh * 0.04);
+      ctx.quadraticCurveTo(bx - bw * 0.23, by - bh * 0.18, bx - bw * 0.09, by - bh * 0.07);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(bx - bw * 0.38, by - bh * 0.04);
+      ctx.lineTo(bx - bw * 0.43, by + bh * 0.03);
+      ctx.lineTo(bx - bw * 0.36, by + bh * 0.04);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(40,52,58,0.6)';
+      ctx.beginPath();
+      ctx.arc(bx - bw * 0.17, by - bh * 0.06, 1.0, 0, TAU);
+      ctx.fill();
+      // 墨在周围水里散开：三团极淡的暗雾
+      ctx.globalAlpha = 0.10 * a0;
+      ctx.fillStyle = 'rgba(26,32,40,1)';
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.ellipse(
+          bx + bw * (0.02 + i * 0.07), by + bh * (0.06 + i * 0.05),
+          bw * (0.10 + i * 0.03), bh * (0.16 + i * 0.04), 0, 0, TAU
+        );
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     ctx.globalAlpha = 1;
   }
 
@@ -2265,8 +2780,8 @@ export class SeaGame {
         const x = this.screenX(b.x);
         const y = sy(b.y);
         if (y < -40 || y > h + 40) continue;
-        const r = b.r * (w / 390) * (2.1 - b.life) * 1.9;
-        ctx.globalAlpha = clamp(b.life, 0, 1) * 0.62;
+        const r = b.r * (w / 390) * (2.1 - b.life) * 1.40;
+        ctx.globalAlpha = clamp(b.life, 0, 1) * 0.52;
         if (bt) ctx.drawImage(bt, x - r, y - r, r * 2, r * 2);
       }
       ctx.restore();
@@ -2286,11 +2801,15 @@ export class SeaGame {
     if (slick) {
       const y0 = sy(slick.top);
       const y1 = sy(slick.bottom);
-      if (y1 > -40 && y0 < h + 40) {
-        ctx.drawImage(this._slickTex(), 0, y0, w, Math.max(1, y1 - y0));
+      // 沥青只铺在右区那一截水面上 —— 它不是整个海面的盖子，
+      // 是"那一片"海面已经不能呼吸了。
+      const sx0 = this.screenX(slick.lat - slick.wLat * 0.5);
+      const sw0 = slick.wLat * SX * w;
+      if (y1 > -40 && y0 < h + 40 && sw0 > 1) {
+        ctx.drawImage(this._slickTex(), sx0, y0, sw0, Math.max(1, y1 - y0));
         ctx.globalCompositeOperation = 'lighter';
         ctx.globalAlpha = 0.05 + Math.sin(this.waveT * 0.8 + slick.ph) * 0.02;
-        ctx.drawImage(this._iridTex(), 0, y0, w, 26);
+        ctx.drawImage(this._iridTex(), sx0, y0, sw0, 26);
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = 'source-over';
       }
@@ -2330,19 +2849,26 @@ export class SeaGame {
       // 上一版是 16 个等宽矮方块，读起来像"围栏"。真正常见的夜景天际线是：
       // 几栋高的写字楼（成排的窗灯）、几栋矮的、以及会冒烟的工厂。
       // 楼群本身烘焙成一张图（每帧几百个窗格太贵），烟是活的、逐帧画。
+      //
+      // 城市现在 3.1 屏宽，钉在世界中央：镜头横移多少，它就横移多少。
+      // 烟囱/车灯也必须用同一个 tx —— 否则楼走了、烟留在原地。
+      const camPx = this.camLat * SX * w;
+      const cityW = w * 3.1;
       for (const t of this.kit) {
         if (t.type !== 'city') continue;
         const base = Math.max(seaY, -h * 0.05);
         const tex = this._cityTex();
+        const tx = w * 0.5 - cityW * 0.5 - camPx;
         if (tex) {
-          ctx.drawImage(tex, 0, base - tex.height, w, tex.height);
+          ctx.drawImage(tex, tx, base - tex.height, cityW, tex.height);
         }
 
         // 工厂的烟：两股，往左上飘。月亮在右上方，烟绝不能从月亮前面过。
-        const chim = [0.13, 0.47];
+        const chim = [0.18, 0.55];
         for (let ci = 0; ci < chim.length; ci++) {
-          const cx = w * chim[ci];
+          const cx = tx + cityW * chim[ci];
           const cy = base - h * (0.052 + ci * 0.006);
+          if (cx < -w * 0.4 || cx > w * 1.4) continue;
           ctx.save();
           for (let i = 0; i < 14; i++) {
             const k = i / 14;
@@ -2361,7 +2887,8 @@ export class SeaGame {
 
         // 烟囱本身（在楼群图上没画，得跟烟对齐）
         for (let ci = 0; ci < chim.length; ci++) {
-          const cx = w * chim[ci];
+          const cx = tx + cityW * chim[ci];
+          if (cx < -w * 0.4 || cx > w * 1.4) continue;
           const cy = base - h * (0.052 + ci * 0.006);
           ctx.fillStyle = 'rgba(4,9,13,0.96)';
           ctx.fillRect(cx - w * 0.005, cy, w * 0.010, h * 0.052);
@@ -2590,7 +3117,11 @@ export class SeaGame {
           // 车灯：一对（白前灯 + 红尾灯），沿海平线上方一条路往返
           const period = 9 + ci * 5;
           const ph = (this.waveT / period + ci * 0.37) % 1;
-          const cx = w * (ph < 0.5 ? ph * 1.6 : (1 - ph) * 1.6) + w * 0.06 * ci;
+          // 车灯跑在**城市那张图**上：图宽 3.1 屏、中心钉在世界中央，
+          // 所以位置 = 图起点 + 图内行程。不这样算的话，镜头一动车灯就飘到楼外。
+          const cityX0 = w * 0.5 - w * 1.55 - this.camLat * SX * w;
+          const run = ph < 0.5 ? ph * 1.6 : (1 - ph) * 1.6;
+          const cx = cityX0 + w * 3.1 * (0.18 + run * 0.30 + 0.02 * ci);
           const cy = base - h * 0.012;
           const dir = ph < 0.5 ? 1 : -1;
           ctx.globalAlpha = 0.6;
@@ -2621,8 +3152,17 @@ export class SeaGame {
       const hh = t.h * h * 2;
       const y0 = yc - hh * 0.5;
       if (y0 > h || y0 + hh < 0) continue;
+      // 洋流现在只在自己那一段横向水域里（wLat）：
+      // 三条都在左区，那是"渐暖"的地方。三屏全铺就成了三条横贯画面的亮线。
+      const x0 = this.screenX(t.lat - t.wLat * 0.5);
+      const bw = t.wLat * SX * w;
+      if (bw < 4 || x0 > w || x0 + bw < 0) continue;
       const dir = t.dir;
       ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, 0, bw, h);
+      ctx.clip();
+      ctx.translate(x0, 0);
       ctx.globalCompositeOperation = 'lighter';
 
       // a) 亮带：一条极淡的横向微光，中间亮两头淡。它会慢慢呼吸 ——
@@ -2641,7 +3181,7 @@ export class SeaGame {
       }
       ctx.translate(0, y0);
       ctx.fillStyle = this._curGrad.g;
-      ctx.fillRect(0, 0, w, hh);
+      ctx.fillRect(0, 0, bw, hh);
       ctx.translate(0, -y0);
 
       // b) 流痕：一层。
@@ -2650,7 +3190,7 @@ export class SeaGame {
       //    不来自这两张贴图。所以合成一层，速度取中间值。
       if (streakCv) {
         const th = hh * 0.92;
-        const tw = w * 1.04;
+        const tw = bw * 1.04;
         const spd = 22 * t.sp * 6;
         const off = (((this.waveT * spd * dir) % tw) + tw) % tw;
         ctx.globalAlpha = 0.38;
@@ -2664,7 +3204,7 @@ export class SeaGame {
       //    颗粒贴着流向跑，气泡反着往上浮 —— 一对矛盾的方向，才是流体。
       for (let i = 0; i < 7; i++) {
         const u = ((this.waveT * (0.10 + (i % 3) * 0.035) * dir + i * 0.137) % 1 + 1) % 1;
-        const px = u * w;
+        const px = u * bw;
         const py = y0 + hh * (0.16 + ((i * 53) % 71) / 71 * 0.68);
         const fade = Math.sin(u * Math.PI);
         ctx.globalAlpha = 0.36 * fade;
@@ -2678,7 +3218,7 @@ export class SeaGame {
       for (let i = 0; i < 4; i++) {
         const u = ((this.waveT * 0.055 + i * 0.27) % 1 + 1) % 1;
         const py = y0 + hh * 0.94 - u * hh * 0.86;   // 上浮
-        const px = ((i * 0.29 + u * 0.34 * dir) * w + w) % w;
+        const px = ((i * 0.29 + u * 0.34 * dir) * bw + bw) % bw;
         const r = 1.6 + (i % 2) * 1.1;
         const fade = Math.sin(u * Math.PI);
         ctx.globalAlpha = 0.24 * fade;
@@ -2754,7 +3294,16 @@ export class SeaGame {
       ctx.lineTo(x1, yBot);
       ctx.quadraticCurveTo(cx, yBot + sag * 2, x0, yBot);
       ctx.closePath();
-      ctx.clip();
+      // 「我在漏网之后 留下了伤口」——大网的下半截被撕开一个洞。
+      // 用 evenodd 把洞从 clip 里减掉：网线不会画进洞里，水会从洞里透出来。
+      const holeR = w * 0.075;
+      const holeX = x0 + ww * t.torn;
+      const holeY = yTop + (yBot - yTop) * 0.66;
+      if (t.torn && ww > holeR * 3) {
+        ctx.moveTo(holeX + holeR, holeY);
+        ctx.ellipse(holeX, holeY, holeR, holeR * 0.78, 0.2, 0, TAU);
+      }
+      ctx.clip('evenodd');
 
       // 网面只留一层极薄的暗：实心一铺就变成黑布帘
       ctx.fillStyle = 'rgba(8,20,26,0.13)';
@@ -2989,9 +3538,9 @@ export class SeaGame {
           ctx.save();
           for (let i = 0; i < this.gulls.length; i++) {
             const g = this.gulls[i];
-            // 横向铺开在画面左半边：右边留给月亮和城市
-            const bx = w * (0.08 + (i / Math.max(1, this.gulls.length - 1)) * 0.42);
-            const x = bx + Math.sin(g.ph * 0.7 + i) * w * 0.02;
+            // 海鸥钉在世界的某个横向位置：它们在天上盘旋，但不会跟着镜头走
+            const x = this.screenX(g.lat) + Math.sin(g.ph * 0.7 + i) * w * 0.02;
+            if (x < -w * 0.15 || x > w * 1.15) continue;
             const y = gY + Math.sin(g.ph * 0.9 + i * 1.7) * h * 0.014;
             const s = (0.062 + g.r * 0.115) * w;
             const flap = Math.sin(g.ph * 3.4 + i) * 0.5 + 0.5;
@@ -3015,6 +3564,72 @@ export class SeaGame {
           ctx.restore();
         }
       }
+    }
+
+    // ---- 疯狂的实验 ----
+    // 「看疯狂的实验 将万物消灭」。
+    // 不画实验室、不画仪器 —— 只画一排标本罐。
+    // 罐里的东西看不清：看清了就是怪物设计，看不清才是"以后的形状"。
+    for (const t of this.kit) {
+      if (t.type !== 'lab') continue;
+      const lx = this.screenX(t.lat);
+      const ly = sy(t.depth);
+      if (ly < -h * 0.5 || ly > h * 1.2) continue;
+      const N = 5;
+      ctx.save();
+      for (let i = 0; i < N; i++) {
+        const x = lx + (i - (N - 1) / 2) * w * 0.128 + ((i * 17) % 7 - 3) * w * 0.010;
+        if (x < -w * 0.2 || x > w * 1.2) continue;
+        const hh = h * (0.070 + ((i * 37) % 7) * 0.008);
+        const ww = w * (0.046 + (i % 2) * 0.006);
+        const top = ly - hh * 0.5 + ((i * 13) % 5 - 2) * h * 0.012;
+        const tilt = ((i * 29) % 5 - 2) * 0.045;
+        ctx.save();
+        ctx.translate(x, top + hh * 0.5);
+        ctx.rotate(tilt);
+        ctx.translate(-x, -(top + hh * 0.5));
+        // 罐体：深色玻璃，只有边上一圈冷光
+        ctx.globalAlpha = 0.72;
+        ctx.fillStyle = 'rgba(14,34,38,0.92)';
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x - ww * 0.5, top, ww, hh, ww * 0.22);
+        else ctx.rect(x - ww * 0.5, top, ww, hh);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(132,214,206,0.46)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        // 罐口：一圈金属盖
+        ctx.globalAlpha = 0.7;
+        ctx.fillStyle = 'rgba(46,62,64,0.95)';
+        ctx.fillRect(x - ww * 0.56, top - h * 0.004, ww * 1.12, h * 0.007);
+        // 标本：一团暗影 + 两根须。不是怪物，是"认不出来"。
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = 'rgba(4,14,16,0.96)';
+        ctx.beginPath();
+        ctx.ellipse(x, top + hh * 0.60, ww * 0.26, hh * 0.20, ((i % 3) - 1) * 0.3, 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(10,26,28,0.9)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(x - ww * 0.10, top + hh * 0.58);
+        ctx.quadraticCurveTo(x - ww * 0.24, top + hh * 0.44, x - ww * 0.30, top + hh * 0.30);
+        ctx.moveTo(x + ww * 0.10, top + hh * 0.58);
+        ctx.quadraticCurveTo(x + ww * 0.24, top + hh * 0.46, x + ww * 0.28, top + hh * 0.34);
+        ctx.stroke();
+        // 罐底的冷光：不是每一只都亮 —— 一排全亮就成了货架上的药瓶。
+        // 亮的那两只像还在通电，其余的是暗的，读起来才是"废弃的实验"。
+        if (i % 2 === 0) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = 0.13 + Math.sin(this.waveT * 0.8 + i * 1.3) * 0.035;
+          ctx.fillStyle = 'rgba(86,214,186,1)';
+          ctx.beginPath();
+          ctx.ellipse(x, top + hh * 0.62, ww * 0.62, hh * 0.34, 0, 0, TAU);
+          ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        ctx.restore();
+      }
+      ctx.restore();
     }
 
     // ---- 同类：另外那些鲸。不发声时只是一团轮廓 ----
@@ -3084,7 +3699,10 @@ export class SeaGame {
     // 方位：只给最近那一只，只给方向不给距离。
     // 它就在屏幕里的时候不画 —— 看得见的东西不需要箭头。
     const gm = this.mate;
-    if (gm && !gm.answered && (gm.depth - this.depth > 0.22 || Math.abs(gm.lat - this.lat) > 0.28)) {
+    // 世界有三屏宽，"在不在屏幕里"不能再按"离身体多近"判 —— 要按镜头判。
+    const gmOffX = gm ? Math.abs(gm.lat - this.camLat) * SX : 0;
+    const gmOffY = gm ? Math.abs(gm.depth - this.depth) * 2 : 0;
+    if (gm && !gm.answered && (gmOffY > 0.40 || gmOffX > 0.42)) {
       const y = sy(gm.depth);
       const cx = w * 0.5;
       const cy = h * 0.52;
@@ -3120,7 +3738,7 @@ export class SeaGame {
           ctx.strokeStyle = `rgba(214,240,250,${k * 0.5})`;
           ctx.lineWidth = 2.2 - i * 0.5;
           ctx.beginPath();
-          ctx.ellipse(w * 0.5, y, w * (0.10 + (1 - k) * 0.30) + i * 14, 5 + i * 6, 0, 0, TAU);
+          ctx.ellipse(this.screenX(this.lat), y, w * (0.10 + (1 - k) * 0.30) + i * 14, 5 + i * 6, 0, 0, TAU);
           ctx.stroke();
         }
         ctx.restore();
@@ -3139,7 +3757,7 @@ export class SeaGame {
           ctx.strokeStyle = `rgba(180,226,240,${k * 0.32})`;
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.ellipse(w * 0.5, y, w * (0.12 + i * 0.14), 5 + i * 4, 0, 0, TAU);
+          ctx.ellipse(this.screenX(this.lat), y, w * (0.12 + i * 0.14), 5 + i * 4, 0, 0, TAU);
           ctx.stroke();
         }
         ctx.restore();
@@ -3148,7 +3766,7 @@ export class SeaGame {
 
     // ---- 隐形边界：撞上去的那一下，水会皱起来 ----
     if (this.wallHit > 0.01) {
-      const x = this.wallX > 0 ? w * 0.94 : w * 0.06;
+      const x = this.screenX(this.wallX * WORLD_HALF);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       for (let i = 0; i < 3; i++) {
@@ -3162,11 +3780,113 @@ export class SeaGame {
       }
       ctx.restore();
     }
-  }
 
-  // ---------------------------------------------------------
-  //  HUD
-  // ---------------------------------------------------------
+    // ---- 鱼缸 ----
+    // 「总感觉 一切无际无边　又在鱼缸里面」。
+    //
+    // 这是整首歌最狠的一句，也是最容易被做成"空气墙"的一句。
+    // 所以世界的左右两端不是墙，是**玻璃**：
+    //   · 平时几乎看不见（只有一层极淡的弧光），玩家以为海是无限的；
+    //   · 游到边上才显出来：玻璃的厚度、水渍、外面按上来的指印，
+    //     以及玻璃外那个房间的灯 —— 一直有人在看着。
+    // 撞上去（wallHit）时玻璃会亮一下：那不是撞到边界，是撞到"被养着"这件事。
+    for (const t of this.kit) {
+      if (t.type !== 'tank') continue;
+      for (const side of [-1, 1]) {
+        const edge = WORLD_HALF + 0.08;
+        const x = this.screenX(side * edge);
+        if (x < -w * 0.9 || x > w * 1.9) continue;
+        // 可见度只跟"镜头离这边有多远"有关：远了是海，近了才是缸。
+        // 0.72 的过渡带：玩家贴着边界（gap≈0）才满强度，隔半屏就几乎看不见 ——
+        // 否则整片左区都会被"缸外"的黑压掉，静海就没了。
+        const gap = edge - Math.abs(this.camLat);
+        const near = clamp(1 - (gap - 0.12) / 0.72, 0, 1);
+        if (near <= 0.015) continue;
+        const outerX = side > 0 ? x : 0;
+        const outerW = side > 0 ? w - x : x;
+        if (outerW <= 0.5) continue;
+
+        ctx.save();
+        // 1) 玻璃外：不是一块硬黑，是越往外越黑的过渡。
+        //    四段 fillRect 代替渐变 —— 主循环里不新建渐变对象，这是这一关的规矩。
+        const steps = [0.84, 0.74, 0.62, 0.48];
+        for (let si = 0; si < steps.length; si++) {
+          const u0 = si / steps.length;
+          const u1 = (si + 1) / steps.length;
+          ctx.globalAlpha = near * steps[si];
+          ctx.fillStyle = 'rgba(11,9,7,1)';
+          if (side > 0) ctx.fillRect(x + outerW * u0, 0, outerW * (u1 - u0) + 1, h);
+          else ctx.fillRect(x - outerW * u1, 0, outerW * (u1 - u0) + 1, h);
+        }
+
+        // 2) 房间的灯：几团糊掉的暖光。看不清是什么，只知道有人在那儿开着灯。
+        //    不能做成"棕色月亮"—— 光斑小、层数多、边缘互相叠，才是失焦的散景。
+        ctx.globalCompositeOperation = 'lighter';
+        const lamps = [
+          [0.30, 0.20, 0.045], [0.335, 0.215, 0.085],
+          [0.64, 0.45, 0.038], [0.665, 0.468, 0.070],
+          [0.22, 0.68, 0.030], [0.245, 0.695, 0.058],
+        ];
+        for (let i = 0; i < lamps.length; i++) {
+          const L = lamps[i];
+          const u = side > 0 ? L[0] : 1 - L[0];
+          const lx = outerX + outerW * u;
+          const ly = h * L[1] + Math.sin(this.waveT * 0.20 + i * 2.1) * h * 0.004;
+          ctx.globalAlpha = near * (i % 2 ? 0.030 : 0.062);
+          ctx.fillStyle = 'rgba(255,198,132,1)';
+          ctx.beginPath();
+          ctx.ellipse(lx, ly, w * L[2], h * L[2] * 0.72, 0, 0, TAU);
+          ctx.fill();
+        }
+
+        // 3) 玻璃本身：一条厚度带 + 一道内侧反光。
+        //    反光只在中段最亮：从顶上一直亮到脚踝的竖线是 UI，不是玻璃。
+        ctx.globalCompositeOperation = 'source-over';
+        const gx = side > 0 ? x : x;
+        ctx.globalAlpha = near * 0.10;
+        ctx.fillStyle = 'rgba(150,196,206,1)';
+        ctx.fillRect(gx - (side > 0 ? 0 : 5), 0, 5, h);
+        const bands = [[0.00, 0.16, 0.06], [0.16, 0.58, 0.24], [0.58, 0.84, 0.15], [0.84, 1.0, 0.05]];
+        for (const B of bands) {
+          ctx.globalAlpha = near * B[2];
+          ctx.fillStyle = 'rgba(196,232,240,1)';
+          ctx.fillRect(gx - (side > 0 ? 1 : 0), h * B[0], 1.2, h * (B[1] - B[0]));
+        }
+        // 竖向的水渍：长度不一，从顶上淌下来
+        ctx.globalAlpha = near * 0.10;
+        ctx.fillStyle = 'rgba(210,238,244,1)';
+        for (let i = 0; i < 7; i++) {
+          const u = ((i * 0.37 + 0.11) % 1);
+          const yy = u * h * 0.7;
+          const len = h * (0.06 + ((i * 29) % 13) / 100);
+          ctx.fillRect(gx - (side > 0 ? 10 : 2), yy, 8, len);
+        }
+
+        // 4) 指印：玻璃外侧按上来的一个模糊椭圆。
+        //    不画手指，只画那块被擦干净的印子 —— 越具体越像贴图，越模糊越像人。
+        const fx = gx + side * w * 0.030;
+        const fy = h * 0.56 + Math.sin(this.waveT * 0.16) * h * 0.002;
+        ctx.globalAlpha = near * 0.13;
+        ctx.fillStyle = 'rgba(226,236,232,1)';
+        ctx.beginPath();
+        ctx.ellipse(fx, fy, w * 0.020, h * 0.034, 0, 0, TAU);
+        ctx.fill();
+        ctx.globalAlpha = near * 0.07;
+        ctx.beginPath();
+        ctx.ellipse(fx, fy - h * 0.032, w * 0.010, h * 0.012, 0, 0, TAU);
+        ctx.fill();
+
+        // 5) 撞上去：玻璃震一下（只在挨着的那一侧亮）
+        if (this.wallHit > 0.01 && this.wallX === side) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = this.wallHit * 0.34;
+          ctx.fillStyle = 'rgba(190,232,244,1)';
+          ctx.fillRect(gx - (side > 0 ? 2 : 0), 0, 2.4, h);
+        }
+        ctx.restore();
+      }
+    }
+  }
 
   hud() {
     const S = this.cur;
@@ -3207,6 +3927,11 @@ export class SeaGame {
       voices: this.voices,
       voicesAll: 7,
       mateFound: !!(this.mate && this.mate.found && !this.mate.answered),
+      // 地图有三屏宽：同伴可能在左边一整屏之外。HUD 只说"往下找"，
+      // 玩家会垂直下潜一辈子也碰不到它 —— 方向必须说出来。
+      mateSide: this.mate && !this.mate.answered
+        ? (this.mate.lat - this.lat < -0.30 ? -1 : (this.mate.lat - this.lat > 0.30 ? 1 : 0))
+        : 0,
       mateResp: this.mate ? clamp(this.mate.resp / 1.8, 0, 1) : 0,
       sacrifice: this.sacrificeT,
       canSacrifice: this.necklace && this.oxy < 0.22 && this.depth > 0.45,

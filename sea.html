@@ -253,7 +253,8 @@ window.addEventListener('error', (e) => {
   <div class="r"><b>1</b><span>往下潜，找到 <em>6</em> 只同类</span></div>
   <div class="r"><b>2</b><span>靠近后 <em>长按屏幕</em>，回应它的歌</span></div>
   <div class="r"><b>3</b><span>氧气只有 30 秒 · <em>上浮到水面</em>才能换气</span></div>
-  <div class="k">往下滑 · 下潜　　往上滑 · 出水</div>
+  <div class="r"><b>4</b><span>海很宽 · <em>左右拖动</em>能游到很远的地方</span></div>
+  <div class="k">往下滑 · 下潜　　往上滑 · 出水　　左右滑 · 游</div>
 </div>
 <div id="hint"></div>
 <div id="lyric"><div class="t"></div><div class="d"></div></div>
@@ -349,6 +350,10 @@ if (spriteMode === 'mock') {
 }
 
 const FROZEN = Q.get('frozen') === '1';
+// DOM 写入的缓存表必须在这里就存在：?frozen=1&selftest=1 会在 syncDom 里用到它，
+// 而 syncDom 在文件靠前的位置就被 drawOnce 调用了 —— 放在下面就是 TDZ 报错
+// （"Cannot access '_dc' before initialization"），整页只剩一条错误条。
+const _dc = new WeakMap();
 let t = 0;
 let running = false;
 let last = 0;
@@ -374,6 +379,14 @@ if (Q.get('gulls')) {
 if (Q.get('depth') != null) {
   game.depth = clamp(parseFloat(Q.get('depth')), -0.3, 1);
   game.aimDepth = game.depth;
+}
+// 调试：?lat=-2.2 把鲸直接放到世界的某个横向位置（三屏截图用）。
+// 镜头一起搬过去 —— 只挪鲸不挪镜头的话，截图里它会在画面外。
+if (Q.get('lat') != null) {
+  const L = clamp(parseFloat(Q.get('lat')), -3, 3);
+  game.lat = L;
+  game.aimLat = L;
+  game.camLat = clamp(L, -2.5, 2.5);
 }
 if (Q.get('oxy') != null) game.oxy = clamp(parseFloat(Q.get('oxy')), 0, 1);
 // 调试：?hp=0.4 按**比例**设血量（0~1），内部乘血条上限；?god=1 关掉一切伤害
@@ -417,6 +430,8 @@ function frameState() {
   const w = r.w, h = r.h;
   return {
     camDepth: game.depth,
+    // 镜头横向中心：世界三屏宽，渲染层靠这一条把所有远景/海床/城市一起推。
+    camLat: game.camLat,
     echo: game.echo,
     // 世界在慢慢死：海雪、浮游生物、光柱都按这一条曲线递减
     life: game.life,
@@ -428,7 +443,9 @@ function frameState() {
     // 第 3 波沉船是主角，抬亮它
     shipBoost: game.kit.some((k) => k.type === 'wreck') ? 1 : 0,
     whale: {
-      x: w * (0.5 + game.lat * 0.42),
+      // 鲸的横向位置现在要经过镜头：世界有三屏宽，屏幕只看见一段。
+      // 直接写 w*(0.5+lat*0.42) 的话，镜头一动鲸就飞出去了。
+      x: game.screenX(game.lat),
       // 跃出水面时整条鲸往上抬：相机跟着走，但身体要比水面先出去，
       // 否则看起来是"水面沉下去"，不是"我跃起来"。
       // 沉底那一段额外往下掉 0.30 屏（sinkDrop）—— 死后的身体是**沉**下去的，
@@ -620,7 +637,7 @@ const VEIL = {
 // 一半来自这里：主线程在算样式，合成器就得等。
 // 现在每个元素记一份上次写过的值，值没变就一个字都不写 ——
 // 氧气一秒才变一次，血条几秒才变一次，绝大多数帧是零写入。
-const _dc = new WeakMap();
+// （_dc 声明在文件前半段：selftest 会在定义之前调到这里。）
 function domSet(el, key, value, apply) {
   let m = _dc.get(el);
   if (!m) { m = {}; _dc.set(el, m); }
@@ -687,7 +704,12 @@ function syncDom() {
     else if (H.blood > 0) { objTxt = '你在流血 · 海鸥看见了'; objColor = '#d8988a'; }
     // 目标行永远带一个分母：这是"流程清不清晰"的答案。
     // 上一版只写"找到同伴"，玩家不知道要找几只、找了几个。
-    else { objTxt = `同伴 ${H.codex}/${H.codexAll} · 往下找`; objColor = '#86b3c6'; }
+    else {
+      // 世界变成三屏宽之后，"往下找"已经不够了：同伴可能在左边一整屏外。
+      const dir = H.mateSide < 0 ? '往左下找' : (H.mateSide > 0 ? '往右下找' : '往下找');
+      objTxt = `同伴 ${H.codex}/${H.codexAll} · ${dir}`;
+      objColor = '#86b3c6';
+    }
   }
   domSet(elObj, 't', objTxt, (v) => { elObj.textContent = v; });
   domSet(elObj, 'c', objColor, (v) => { elObj.style.color = v; });
