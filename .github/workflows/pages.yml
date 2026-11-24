@@ -23,18 +23,22 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # 版本别往下调：2026-11-24 那两次部署失败，注解原文是
+      #   "No artifacts named \"github-pages\" were found for this workflow run"
+      # 同时伴一条 Node.js 20 deprecation 警告（旧版 action 被硬拉到 Node 24 上跑）。
+      # 把四个 action 统一升到当前大版本后，上传/取件重新对得上。
+      - uses: actions/checkout@v7
 
       # enablement: true —— 仓库里还没打开 Pages 的话，这一步会顺手打开，
       # 省掉「去 Settings → Pages 点一下」的人工步骤
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         with:
           enablement: true
 
       # 整个仓库就是一个静态站，直接原样上传
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: .
 
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
