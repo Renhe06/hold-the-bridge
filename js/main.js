@@ -610,11 +610,12 @@ const HERO_ART = {
 /**
  * 开局入口。
  *
- * ★ 2026-11-24 定版：**点一下立刻进关，贴图在后台取，绝不挡住进门**。
- *   上一版为了实现"进关一定有贴图"，把它做成"图不齐就停在加载页等重试"——
- *   在部分手机上取像素 / decode 不可靠，每张图都被判失败，玩家直接进不去关。
- *   现在回到正确做法：先开门，图到了下一帧自然换上；没到就多画一帧手绘兜底。
- *   代价只是几十毫秒的兜底，换来的是"永远点得进去"。
+ * 原则（2026-11-24 用户："加载动画的本质是隐藏贴图的加载时间，给玩家平滑过渡"）：
+ *   1) 贴图在**菜单期**就取好（prefetchHeroArt）—— 这才是"隐藏加载时间"；
+ *   2) 进门本身不等图，一帧都不拖：点下去就是新关卡，绝不会被挡在门外；
+ *   3) 万一图还没到，就多画几帧手绘兜底，图到了下一帧自然换过来；
+ *   4) 渲染层保证"没就绪的图不烘焙"（art.js 的 READY_DELAY + _heroBake 连烘两次），
+ *      所以兜底之后**不会**出现"人物变成空白"那种永久损伤。
  */
 function startLevel(idx) {
   const lv = (CFG.levels && CFG.levels[idx]) || {};
@@ -624,13 +625,25 @@ function startLevel(idx) {
     ? game.heroId
     : (lv.skin === 'fantasy' ? 'knight' : '');
   if (picked && HERO_ART[picked]) urls.push(...HERO_ART[picked]);
-  // 后台取（artLoad 自带去重与重试），不等它 —— 进门永远发生在同一帧
+  // 后台取（artLoad 自带去重与重试）——已经取过的会立刻命中
   for (const u of new Set(urls)) artLoad(u);
   game.beginLevel(idx);
 }
 
 // 立刻开始等（外壳已经由 Service Worker 缓存优先返回了，这里主要是几张立绘）
 runBootLoader();
+
+// 调试/截图：?lv=N 自动点进第 N 关（0 基），走**真实**的 startLevel 路径。
+// 存在的理由：headless 里没法点按钮，而"进门那一瞬间画面是不是空的"只能这样复现。
+try {
+  if (typeof location !== 'undefined') {
+    const lvq = new URLSearchParams(location.search).get('lv');
+    if (lvq != null) {
+      const n = Math.max(0, Math.min(CFG.levels.length - 1, parseInt(lvq, 10) || 0));
+      setTimeout(() => startLevel(n), 900);
+    }
+  }
+} catch (_) { /* 桩环境 */ }
 
 function renderTalk() {
   const lines = talkSet.lines;
@@ -952,7 +965,21 @@ function pickHero(id) {
   if (!HEROES.some((h) => h.id === id)) return;
   game.heroId = id;
   try { localStorage.setItem(HERO_KEY, id); } catch (_) {}
+  prefetchHeroArt(); // 玩家在面板里挑人的这几秒，正好把立绘取回来
   openHeroes();
+}
+
+/**
+ * 【2026-11-24】把"进关卡要用的贴图"提前到**菜单期**取。
+ *
+ * 用户的话：加载动画的本质是隐藏贴图的加载时间。那就别让它出现在进关卡那一秒 ——
+ * 玩家在选关、看说明、挑角色的这几秒就是天然的加载窗口。
+ * 现在只预取当前选中角色的立绘（auto = 勇者），点了花仙子再取她那三张，
+ * 不白花流量。等到点进关卡时，缓存里早就有了，进门第一帧就是立绘。
+ */
+function prefetchHeroArt() {
+  const id = game.heroId === 'fairy' ? 'fairy' : 'knight';
+  for (const u of HERO_ART[id]) artLoad(u);
 }
 
 onTap(el.menuRole, (e) => {
@@ -1741,13 +1768,17 @@ try {
 
 // 使用说明：只有第一次打开才自动弹（之后点首页的「使用说明」按钮才显示）
 try {
-  if (localStorage.getItem(GUIDE_KEY) !== '1') showGuide();
+  // ?lv=N 是"自动进关"的调试参数，这条路径不弹首次引导（否则截图全被说明页盖住）
+  const autoLv = new URLSearchParams(location.search).get('lv');
+  if (autoLv == null && localStorage.getItem(GUIDE_KEY) !== '1') showGuide();
 } catch (_) {
   showGuide();
 }
 
 // 角色（用户 m04749）：把玩家上次选的角色读回来（不合法就回落成勇者）
 loadHero();
+// 菜单一出现就开始取主角立绘 —— 等玩家点进关卡时，图早就好了
+prefetchHeroArt();
 
 window.addEventListener('resize', scheduleFit);
 window.addEventListener('orientationchange', scheduleFit);

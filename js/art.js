@@ -19,6 +19,12 @@
 
 const cache = new Map(); // url -> { img, ok, promise }
 
+// 【2026-11-24 关键】刚 onload 的图，在部分 WebView 上 drawImage 仍是**空白**
+// （解码在后台线程，onload 只代表字节到齐）。旧代码直接把这种图交给烘焙层，
+// 空白被烘进缓存 → 角色永久消失。现在统一在 onload 后再等两帧才交给渲染层：
+// 这段空窗期渲染层走手绘兜底，玩家看到的是"先小人、后立绘"，不是"一片空白"。
+const READY_DELAY = 260;
+
 /** 取一张图：只要 onload 且尺寸正常就算成功 */
 function loadOnce(url, timeout) {
   return new Promise((resolve) => {
@@ -73,6 +79,7 @@ export function artLoad(url, opt = {}) {
     for (let i = 0; i < tries; i++) {
       const im = await loadOnce(url, timeout);
       if (im) {
+        await new Promise((r) => setTimeout(r, READY_DELAY));
         rec.img = im;
         rec.ok = true;
         rec.promise = null;

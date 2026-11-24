@@ -4505,11 +4505,25 @@ export class Renderer {
     if (!Number.isFinite(rec.base) || rec.base <= 0) return null;
     // 【2026-11-24】第一次烘完**先不写缓存**：部分 WebView 在图片刚 onload 的
     // 那几帧 drawImage 会画出一张空白，一旦把空白当成"烘成功"缓存下来，
-    // 角色就永久只剩脚下光环（用户 m08143）。下一帧再烘一次才认 ——
-    // 多花的只是几毫秒，换来"永远不会变透明"。
-    // 这条替代了上一版"取一个像素判断空不空"的做法：那个在手机上会把好图判死。
+    // 角色就永久只剩脚下光环（用户 m08143）。下一帧再烘一次才认。
+    // 另外对**身体**再抽 5 个点确认画布真有像素：空白就不写缓存（下一帧重烘），
+    // 取不到像素时不误判（别让一次异常把人物判死）。翅膀是半透明裁切，跳过抽查。
+    let blank = false;
+    if (!crop) {
+      try {
+        const gx = rec.cv.width;
+        const gy = rec.cv.height;
+        for (const [fx, fy] of [[0.5, 0.55], [0.5, 0.35], [0.42, 0.7], [0.58, 0.7], [0.5, 0.85]]) {
+          const d = gg.getImageData(Math.round(gx * fx), Math.round(gy * fy), 1, 1).data;
+          if (d[3] > 0) { blank = false; break; }
+          blank = true;
+        }
+      } catch (_) {
+        blank = false;
+      }
+    }
     rec.warm = (rec.warm || 0) + 1;
-    rec.ok = rec.warm >= 2;
+    rec.ok = !blank && rec.warm >= 2;
     return rec;
   }
 

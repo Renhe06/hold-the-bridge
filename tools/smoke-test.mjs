@@ -2531,8 +2531,13 @@ try {
     ok(/function startLevel\(/.test(main)
        && /for \(const u of new Set\(urls\)\) artLoad\(u\);/.test(main)
        && /game\.beginLevel\(idx\);/.test(main)
-       && !/r\.ok === r\.total/.test(main),
-      'startLevel 先开门：贴图只做后台预取，进门不等任何一张图');
+       && !/r\.ok === r\.total/.test(main)
+       && !/entryVeil/.test(main),
+      'startLevel：同一帧进门，贴图只做后台预取（不等图、不挡门、不加暗场）');
+    // 【2026-11-24】"加载动画的本质是隐藏贴图加载时间" —— 把加载挪到菜单期
+    ok(/function prefetchHeroArt\(/.test(main) && /prefetchHeroArt\(\);/.test(main)
+       && /prefetchHeroArt\(\); \/\/ 玩家在面板里挑人的这几秒/.test(main),
+      '主角立绘在菜单期就预取（选关 / 挑角色的时间就是加载窗口）');
     ok(/function openHeroes\(\)/.test(main) && !/openHeroes[\s\S]{0,240}showLoader/.test(main),
       '角色面板打开不盖加载页（卡图到了自然画上去）');
     ok(/function loadBootPack\(\)/.test(main) && /PORTRAIT_KEYS/.test(main) && /fontTask\(\)/.test(main),

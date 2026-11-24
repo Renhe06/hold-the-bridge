@@ -54,7 +54,10 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  fs.readFile(filePath, (err, data) => {
+  // 调试：SLOW_IMG_MS=3000 node tools/serve.mjs —— 把图片响应人为拖慢，
+  // 用来看"贴图还没到的那段时间玩家到底看到什么"（真实弱网没法复现）。
+  const SLOW_IMG_MS = Number(process.env.SLOW_IMG_MS || 0);
+  const send = () => fs.readFile(filePath, (err, data) => {
     if (err) {
       console.log(`  404  ${urlPath}`);
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('404');
@@ -74,6 +77,8 @@ const server = http.createServer((req, res) => {
     });
     res.end(data);
   });
+  if (SLOW_IMG_MS > 0 && /\.(?:webp|png|jpe?g)$/i.test(urlPath)) setTimeout(send, SLOW_IMG_MS);
+  else send();
 });
 
 // 不指定 host：Node 会绑到 ::（IPv6 双栈），同时接受 127.0.0.1 和 ::1。

@@ -931,26 +931,30 @@ function start() {
   // spinner 根本没机会上屏。现在先让这一帧画出来（双层 rAF），再做重活 ——
   // spinner 是 CSS transform 动画，走合成器线程，主线程卡住时它照样转。
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    starting = false;
-    running = true;
-    const okInit = sea.init();
-    if (!okInit) setTimeout(() => sea.init(), 120);
-    sea.motif({ vol: 0.04 });
-    // 真实录音异步加载：不挡开局，到位了再接上海面环境层。
-    sea.loadSamples().then((got) => {
-      if (got) sea.startSurfaceBed();
+    // 鲸的贴图从页面一打开就在取，玩家读完封面再点，通常已经好了。
+    // 这里最多再等 1.5s（spinner 已经在转，不是白屏），等不到就直接进 ——
+    // 宁可先看矢量占位，也不把玩家按在门口。
+    const cap = new Promise((r) => setTimeout(() => r(false), 1500));
+    Promise.race([artReady.catch(() => false), cap]).then(() => {
+      starting = false;
+      running = true;
+      const okInit = sea.init();
+      if (!okInit) setTimeout(() => sea.init(), 120);
+      sea.motif({ vol: 0.04 });
+      // 真实录音异步加载：不挡开局，到位了再接上海面环境层。
+      sea.loadSamples().then((got) => {
+        if (got) sea.startSurfaceBed();
+      });
+      requestAnimationFrame(loop);
+      // 收加载页：等两帧真的画完再收，避免"露出半张还没画完的海"
+      let wait = 2;
+      const hide = () => {
+        if (wait-- > 0) return requestAnimationFrame(hide);
+        boot.style.display = 'none';
+        boot.classList.remove('loading');
+      };
+      requestAnimationFrame(hide);
     });
-    requestAnimationFrame(loop);
-    // 收加载页：等两帧真的画完再收，避免"露出半张还没画完的海"。
-    // 贴图没到也照进 —— 鲸会先以矢量占位出现，图到了下一帧自然换过来
-    // （artLoad 在页面加载时就已经在取了，通常点「开始」时早就到位）。
-    let wait = 2;
-    const hide = () => {
-      if (wait-- > 0) return requestAnimationFrame(hide);
-      boot.style.display = 'none';
-      boot.classList.remove('loading');
-    };
-    requestAnimationFrame(hide);
   }));
 }
 
