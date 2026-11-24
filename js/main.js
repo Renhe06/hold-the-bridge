@@ -17,7 +17,7 @@ const CET4_LOOKUP = WORD_LOOKUP;
 import { QUALITY } from './quality.js';
 import { I18N } from './i18n.js';
 import { CHANGELOG } from './changelog.js';
-import { artLoad, artGet } from './art.js';
+import { artLoad } from './art.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -527,9 +527,6 @@ function loadBootPack() {
 
 function closeBoot() {
   if (bootClosed) return;
-  // 【用户 2026-11-24】加载页在等贴图时不许被"点一下"跳过 ——
-  // 那正是"加载动画一闪而过、进去还是没贴图"的来源。要跳只能等它失败后重试。
-  if (loaderOpen) return;
   bootClosed = true;
   // 给自动化留个数：页面自己的时钟才准
   try {
@@ -552,20 +549,18 @@ function runBootLoader() {
     return;
   }
   const slowTimer = setTimeout(() => {
-    // 只有还停在首页、且没有别的加载页在用节点时才盖；
-    // 玩家已经开打 / 进了关卡就别突然挡一层
-    if (!loaderOpen && game.state === STATE.START) el.style.display = 'flex';
+    // 只有还停在首页才盖；玩家已经开打就别突然挡一层
+    if (game.state === STATE.START) el.style.display = 'flex';
   }, BOOT_SLOW_MS);
-  el.addEventListener('pointerdown', onBootTap);
-  const hardTimer = setTimeout(() => { if (!loaderOpen) closeBoot(); }, BOOT_HARD_MS);
+  el.addEventListener('pointerdown', closeBoot);
+  const hardTimer = setTimeout(closeBoot, BOOT_HARD_MS);
   // 先让首帧画出来再抢带宽；同时避开 heroPanelCardsReady 里那些变量的 TDZ
   //（定义在文件后面，同步调用会在模块还没执行完时踩 ReferenceError）
   requestAnimationFrame(() => {
     loadBootPack().then(() => {
       clearTimeout(slowTimer);
       clearTimeout(hardTimer);
-      // 已经进了关卡 / 角色面板时，加载页归 showLoader 管，别抢着关
-      if (!loaderOpen) closeBoot();
+      closeBoot();
     });
   });
 }
@@ -612,70 +607,14 @@ const HERO_ART = {
   fairy: ['./img/hero-fairy.webp', './img/hero-fairy-body.webp', './img/hero-fairy-wings.webp'],
 };
 
-/** 进关卡前把这一局真正会用到的图备好；返回值能看出有没有漏网的 */
-function preloadAll(urls, onProgress) {
-  if (typeof Image === 'undefined') return Promise.resolve({ ok: urls.length, total: urls.length });
-  let done = 0;
-  const bump = () => { done += 1; if (onProgress) onProgress(done / urls.length); };
-  return Promise.all(urls.map((u) => preloadImage(u).then((im) => { bump(); return !!im; })))
-    .then((list) => ({ ok: list.filter(Boolean).length, total: urls.length }));
-}
-
-let loaderOpen = false;
-let loaderRaf = 0;
-let loaderReal = 0; // 进关卡时的真实进度（0..1），由 setLoaderProgress 推
-let loaderFail = false; // 上一次进关卡有图没下下来：此时点屏幕 = 重试，不是跳过
-let loaderLevel = -1;   // 卡在加载页的那一关，重试要用
-
-/** 【用户 m08644】进关卡的加载页也读真实进度，而不是一条时间斜坡 */
-function setLoaderProgress(f) {
-  loaderReal = Math.max(loaderReal, Math.min(1, f || 0));
-}
-
-function bootTip(text) {
-  const tip = document.getElementById('bootTip');
-  if (tip && text) tip.textContent = text;
-}
-
-function showLoader() {
-  const el = document.getElementById('bootOverlay');
-  if (!el || loaderOpen) return;
-  loaderOpen = true;
-  loaderFail = false;
-  bootClosed = false;
-  el.style.display = 'flex'; // 启动态默认 display:none，慢速兜底要显式打开
-  el.classList.remove('done');
-  bootTip('正在载入贴图，马上就好…');
-  const bar = document.getElementById('bootBar');
-  loaderReal = 0;
-  if (bar) bar.style.width = '4%';
-  if (typeof requestAnimationFrame !== 'function') return;
-  const tick = () => {
-    if (!loaderOpen) return;
-    // 只跟真实完成量走，不再叠时间斜坡做「假进度」
-    if (bar) bar.style.width = (4 + 92 * loaderReal).toFixed(1) + '%';
-    loaderRaf = requestAnimationFrame(tick);
-  };
-  loaderRaf = requestAnimationFrame(tick);
-}
-
-function hideLoader() {
-  if (!loaderOpen) return;
-  loaderOpen = false;
-  loaderFail = false;
-  loaderLevel = -1;
-  if (loaderRaf) cancelAnimationFrame(loaderRaf);
-  const bar = document.getElementById('bootBar');
-  if (bar) bar.style.width = '100%';
-  closeBoot();
-}
-
 /**
- * 开局入口：有素材就先过加载页，**加载不齐不开局**。
+ * 开局入口。
  *
- * 【用户 2026-11-24】"加载动画有，等了很久进去还是没加载出来"。
- * 现在的规则：要么图齐了进门，要么停在加载页说清楚并让玩家点一下重试 ——
- * 绝不再"等 6 秒就放人进去看一头没贴图的角色"。
+ * ★ 2026-11-24 定版：**点一下立刻进关，贴图在后台取，绝不挡住进门**。
+ *   上一版为了实现"进关一定有贴图"，把它做成"图不齐就停在加载页等重试"——
+ *   在部分手机上取像素 / decode 不可靠，每张图都被判失败，玩家直接进不去关。
+ *   现在回到正确做法：先开门，图到了下一帧自然换上；没到就多画一帧手绘兜底。
+ *   代价只是几十毫秒的兜底，换来的是"永远点得进去"。
  */
 function startLevel(idx) {
   const lv = (CFG.levels && CFG.levels[idx]) || {};
@@ -685,36 +624,9 @@ function startLevel(idx) {
     ? game.heroId
     : (lv.skin === 'fantasy' ? 'knight' : '');
   if (picked && HERO_ART[picked]) urls.push(...HERO_ART[picked]);
-  const uniq = [...new Set(urls)];
-  // 桩环境（tools/smoke-test.mjs 的 document 桩）没有 Image：直接开局，
-  // 不然 beginLevel 会被推到一个微任务之后，测试里的同步断言就全错位了
-  if (!uniq.length || typeof Image === 'undefined') { game.beginLevel(idx); return; }
-  // 全都已经解码好（打过一次 / 启动包预热过）：直接开局，别让加载页闪一帧
-  if (uniq.every((u) => artGet(u))) { game.beginLevel(idx); return; }
-  // 资源包已经在开局下过一轮：这里基本是"命中内存缓存 → 立刻满格"，
-  // 真正没下过的关卡（后来新增皮肤的素材）才会在这里真的等一次。
-  showLoader();
-  loaderLevel = idx;
-  preloadAll(uniq, setLoaderProgress).then((r) => {
-    if (r.ok === r.total) { hideLoader(); game.beginLevel(idx); return; }
-    // 有图没下下来：把加载页留在原地，点一下重试（不静默放行）
-    loaderFail = true;
-    bootTip('贴图没下下来 · 点一下重试');
-    // 进度条停在真实完成的位置（不刷到 100% 骗人），失败原因写在小字里
-  });
-}
-
-/** 加载页上的那一下：失败时重试，成功后忽略（加载中不许跳过） */
-function onBootTap() {
-  if (loaderOpen) {
-    if (loaderFail && loaderLevel >= 0) {
-      const idx = loaderLevel;
-      loaderOpen = false; // 让 showLoader 重新进入
-      startLevel(idx);
-    }
-    return;
-  }
-  closeBoot();
+  // 后台取（artLoad 自带去重与重试），不等它 —— 进门永远发生在同一帧
+  for (const u of new Set(urls)) artLoad(u);
+  game.beginLevel(idx);
 }
 
 // 立刻开始等（外壳已经由 Service Worker 缓存优先返回了，这里主要是几张立绘）
@@ -969,13 +881,10 @@ let heroPanelPromise = null;
 /**
  * 【用户 m08143】角色面板的体感问题：点开先看到加载页，加载页收掉后又是主页，
  * 过几秒面板才冒出来，而且两张立绘还是"从上往下刷"。
- * 原因有两个：
- *   ① 面板是 hideLoader 之后才 show 的，而 hideLoader 里有 260ms 最小时长 + 420ms 淡出，
- *      中间这段时间露出来的就是主页；
- *   ② 面板里的 <img> 是把自己的 src 指向同一张图，浏览器要**重新解码**，
- *      解码没完之前就会一段一段往下刷。
- * 现在改成：面板先摆好（藏在加载页后面）→ 等面板里这几张 <img> 自己 decode 完 →
- * 再收加载页。这样"露出来的第一眼"就是画完的面板。
+ *
+ * ★ 2026-11-24 起这个面板**不再盖任何加载页**（用户："加载页不要滥用"）：
+ *   面板先摆好，卡图在后台取，到了直接画上去；没到就是卡片底色。
+ *   这里保留的只是一个"卡图就绪"的信号，给启动资源包统计用。
  */
 function panelImgReady(img) {
   if (!img) return Promise.resolve();
@@ -1015,12 +924,9 @@ function heroPanelCardsReady() {
 }
 
 function openHeroes() {
-  // 面板先摆好（图若已解码，露出来的第一眼就是画完的面板 —— 用户 m08143）
+  // 面板先摆好（图到了就画上去，没到就是卡片底色 —— 不为两张卡图盖一层加载页）
   heroPanelShow();
-  if (heroPanelReady) return; // 常见情况：零等待，一层加载页都不盖
-  // 只有两张卡图真的还没解完才盖加载页，而且只等这两张，不等字体 / 对话头像
-  showLoader();
-  heroPanelCardsReady().then(() => hideLoader());
+  heroPanelCardsReady();
 }
 
 function heroPanelShow() {
@@ -1937,9 +1843,7 @@ window.__HBT = {
   // 画布文字是运行时翻译的（见 js/i18n.js 的 installCanvas），
   // 版面对齐体检要拿到"真正画出去的那串"来量宽度，所以把翻译器也挂出来
   i18n: I18N,
-  // 进关卡的入口（用户 m07770 的加载页）：探针要能直接触发"选关 → 加载 → 开局"
+  // 进关卡的入口：探针可以直接触发「选关 → 开局」（2026-11-24 起进门不再等贴图）
   startLevel,
   LEVEL_ART,
-  showLoader,
-  hideLoader,
 };

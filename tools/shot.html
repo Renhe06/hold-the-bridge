@@ -190,6 +190,14 @@ const SCENES = {
     step(+(Q.get('frames') || 300));
   },
 
+  // 真入口：模拟点关卡按钮（startLevel），验证"点一下就在同一帧进门、不被加载页挡住"
+  enter: () => {
+    const hero = Q.get('hero');
+    if (hero) game.heroId = hero;
+    H.startLevel(+(Q.get('lv') || 0));
+    step(+(Q.get('frames') || 240));
+  },
+
   // 选关界面：?scene=levels —— 遮罩在文件末尾单独挂回来（见 clean 之后那段）
   levels: () => { step(4); },
 

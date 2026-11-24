@@ -2517,30 +2517,28 @@ try {
     // 加载页必须是"内联样式"：样式表还没到就得能画，否则先闪一下黑底白字
     ok(/\n<div class="boot" id="bootOverlay"[^>]*style="/.test(html), '加载页的关键样式是内联的（样式表之前就要能画）');
     ok(/function runBootLoader\(\)/.test(main) && /function closeBoot\(\)/.test(main), 'main.js 里有加载页的开关');
-    // 【本次】实测首屏 3s 内能加载完，所以节点默认隐藏：超过阈值且仍在首页才露出兜底；
-    // 点一下可提前收，玩家已经开打也不会突然盖一层。
-    // 【用户 2026-11-24】但"进关卡的加载页"不能点一下就跳过 —— 那正是
-    // "动画一闪而过、进去还是没贴图"的来源。所以监听换成了 onBootTap，
-    // 由它区分「首页兜底（可收）」与「进关卡加载（只能等，失败才重试）」。
+    // 【2026-11-24 定版·用户："加载页不要滥用，必须彻底解决"】
+    //   全游戏只保留**首屏**这一处加载页：超过 3s 才露出来，点一下就能收。
+    //   进关卡、进角色面板都不再盖加载页 —— 上一版"图不齐不许进门"直接把人卡在门口。
     ok(/const BOOT_SLOW_MS = 3000/.test(main) && /BOOT_HARD_MS/.test(main)
        && /id="bootOverlay"[^>]*display:none/.test(html)
-       && /addEventListener\('pointerdown', onBootTap\)/.test(main)
-       && /if \(loaderOpen\) return;/.test(main)
+       && /addEventListener\('pointerdown', closeBoot\)/.test(main)
        && /game\.state === STATE\.START/.test(main),
-      '加载页默认隐藏，超过 3s 才在首页兜底露出；进关卡加载中不可跳过（失败才可点重试）');
-    // 【用户 2026-11-24】"图不齐不许进门"：startLevel 要核对成功数，
-    // 失败就停在加载页给重试，不能像以前那样等一会儿直接 beginLevel。
-    ok(/r\.ok === r\.total/.test(main) && /loaderFail/.test(main) && /function onBootTap\(/.test(main),
-      '进关卡必须贴图齐全才开局（缺图停在加载页，点一下重试）');
-    // 【本次】启动进度条的假时间斜坡与最小停留都删了；
-    // 进关卡的慢速兜底只按真实完成量走
-    ok(/function setLoaderProgress\(/.test(main) && /4 \+ 92 \* loaderReal/.test(main)
-       && !/function bootProgress\(/.test(main) && !/BOOT_MIN_MS/.test(main),
-      '加载页进度条只读真实完成量（假时间斜坡与最小停留已移除）');
+      '首屏加载页默认隐藏，超过 3s 才在首页兜底露出；点一下可提前收');
+    ok(!/function showLoader\(\)/.test(main) && !/function hideLoader\(\)/.test(main)
+       && !/loaderFail/.test(main),
+      '进关卡 / 角色面板不再复用加载页（全游戏只剩首屏这一处）');
+    ok(/function startLevel\(/.test(main)
+       && /for \(const u of new Set\(urls\)\) artLoad\(u\);/.test(main)
+       && /game\.beginLevel\(idx\);/.test(main)
+       && !/r\.ok === r\.total/.test(main),
+      'startLevel 先开门：贴图只做后台预取，进门不等任何一张图');
+    ok(/function openHeroes\(\)/.test(main) && !/openHeroes[\s\S]{0,240}showLoader/.test(main),
+      '角色面板打开不盖加载页（卡图到了自然画上去）');
     ok(/function loadBootPack\(\)/.test(main) && /PORTRAIT_KEYS/.test(main) && /fontTask\(\)/.test(main),
       '开局资源包包含全部头肩立绘与字体（点「角色」不再二次加载）');
     // 【本次】角色面板只等自己那两张卡图，不跟字体 / 对话头像的整包绑在一起
-    ok(/function heroPanelCardsReady\(/.test(main) && /if \(heroPanelReady\) return;/.test(main)
+    ok(/function heroPanelCardsReady\(/.test(main) && /if \(heroPanelPromise\) return heroPanelPromise;/.test(main)
        && !/startHeroPanelWarmup/.test(main) && !/heroPanelArtReady/.test(main)
        && /Promise\.race\(\[/.test(main),
       '角色面板只等两张卡图解码（旧版等整个首屏包，字体一慢就卡住面板）');
@@ -2549,31 +2547,33 @@ try {
     ok(/function warmHeroArt\(/.test(main) && /CFG\.level\.skin === 'fantasy'\) warmHeroArt/.test(main),
       '第四关全身立绘在对话时再兜一次预热（进关卡更稳）');
     ok(!/hero-(knight|fairy)\.(png|webp)/.test(sw), 'sw.js 的预缓存外壳里没有全身立绘');
-    // 【用户 m07770】"进关卡前先进入加载页面后台加载资源"
+    // 【用户 m07770】"进关卡前先进入加载页面后台加载资源" —— 现在改成后台预取
     ok(/const LEVEL_ART = \{/.test(main) && /fantasy: \[/.test(main) && /hero-knight\.webp/.test(main),
       'main.js 有关卡素材表（fantasy 列出了两张全身立绘）');
-    ok(/function preloadAll\(/.test(main) && /function startLevel\(/.test(main),
-      '开局的入口走 startLevel（先 preloadAll 再 beginLevel）');
+    ok(/function startLevel\(/.test(main),
+      '开局的入口走 startLevel（预取 + beginLevel，同一帧进门）');
     // 【用户 2026-11-24】"跃 / 花仙子 / 勇者 的贴图，加载动画转完进去还是没有"。
-    // 三条：① 就绪按"画得出来"判（软件光栅下 decode() 会永远挂着，等它就是永远等不到）；
-    //       ② 加载页与渲染层共用同一份缓存（不再各解码一遍）；
-    //       ③ 花仙子/勇者四关都能出场，所以不能只在 fantasy 皮肤那一关预载。
+    //   ① 就绪只看 onload + 尺寸：decode 在软件光栅下永远挂着，取像素在部分 WebView 上会误判；
+    //   ② 加载页与渲染层共用同一份缓存（不再各取一遍）；
+    //   ③ 花仙子/勇者四关都能出场，所以不能只在 fantasy 皮肤那一关预载。
     const artSrc = fs.readFileSync(path.join(ROOT, 'js', 'art.js'), 'utf8');
     const seaSrc = fs.readFileSync(path.join(ROOT, 'sea.html'), 'utf8');
-    ok(/function hasPixels\(/.test(artSrc) && /!hasPixels\(im\)/.test(artSrc)
-       && !/im\.decode\(\)\.then\(\(\) => fin\(im\)/.test(artSrc),
-      '贴图就绪按「画得出来」判定（decode 挂了也能拿到图，不再永远等）');
-    ok(/artLoad\(/.test(main) && /artGet\(u\)/.test(main) && /from '\.\/art\.js'/.test(main),
-      '加载页与渲染层共用同一份贴图缓存（加载页解过的图，渲染层直接取）');
+    const rendSrc = fs.readFileSync(path.join(ROOT, 'js', 'render.js'), 'utf8');
+    ok(!/hasPixels/.test(artSrc) && !/\.decode\(\)\.then\(\(\) => fin\(im\)/.test(artSrc)
+       && /naturalWidth > 0/.test(artSrc),
+      '贴图就绪只看 onload + 尺寸（不等 decode、不取像素：两者在手机上都会误判）');
+    ok(/from '\.\/art\.js'/.test(main) && /from '\.\/art\.js'/.test(rendSrc)
+       && /artGet\(url\)/.test(rendSrc),
+      '加载页与渲染层共用同一份贴图缓存（加载过的那张图，渲染层直接取）');
     ok(/const HERO_ART = \{/.test(main) && /HERO_ART\[picked\]/.test(main),
-      '花仙子 / 勇者的立绘在任意一关进关前都会预载（不只在第四关）');
-    ok(!/Promise\.race\(\[artReady/.test(seaSrc) && /const gate = \(attempt\)/.test(seaSrc)
-       && /classList\.add\('failed'\)/.test(seaSrc),
-      '跃：贴图不齐不开局（去掉 6 秒赛跑，失败停在标题页等重试）');
+      '花仙子 / 勇者的立绘在任意一关进关前都会预取（不只在第四关）');
+    // 跃：点击「开始」必须先让加载动画上屏，再做第一帧的重活（用户："卡顿几秒才出现加载"）
+    ok(!/const gate = \(attempt\)/.test(seaSrc) && !/classList\.add\('failed'\)/.test(seaSrc)
+       && /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) =>/.test(seaSrc)
+       && /boot\.style\.display = 'none'/.test(seaSrc),
+      '跃：点击开始先出加载动画再做重活（双层 rAF），进门不等贴图');
     ok(/startLevel\(levelIndexOf\(/.test(main) && !/^\s*game\.beginLevel\(levelIndexOf/gm.test(main.replace(/startLevel\(levelIndexOf\(.*\);/g, '')),
       '选关 / 下一关两个入口都改走 startLevel（没有再直接 beginLevel）');
-    ok(/function showLoader\(\)/.test(main) && /function hideLoader\(\)/.test(main),
-      '加载页可以在进关卡时复用（showLoader / hideLoader）');
 
     // (i) 第四关 HUD 换皮（用户 m06012「UI 等视觉效果必须全面提升」）
     //   换皮全靠一个 body.skin-fantasy 类 + 若干 CSS 覆盖 + 画布里两处皮肤分支。

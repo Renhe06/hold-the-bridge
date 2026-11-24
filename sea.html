@@ -195,12 +195,6 @@ window.addEventListener('error', (e) => {
     border-top-color: #9fd8ec;
     animation: ldspin .9s linear infinite;
   }
-  /* 贴图没下下来：不再"等 6 秒就放人进去看一条纯色的鱼"，
-     停在这里说明白，点一下重试。 */
-  #boot .fail { display: none; margin-top: 8px; font-size: 11px; letter-spacing: .2em; color: #d08f8f; }
-  #boot.failed .fail { display: block; }
-  #boot.failed .ld { display: none; }
-  #boot.failed .go { display: block; }
   @keyframes ldspin { to { transform: rotate(360deg); } }
   #boot .go { margin-top: 10px; font-size: 12px; letter-spacing: .3em; color: #86b9cd;
     border: 1px solid rgba(134,185,205,.3); padding: 9px 22px; border-radius: 30px; }
@@ -317,7 +311,6 @@ window.addEventListener('error', (e) => {
   </div>
   <div class="go">开始</div>
   <div class="ld"><i></i><span>正在下潜</span></div>
-  <div class="fail">贴图没能加载出来</div>
 </div>
 
 <script type="module">
@@ -420,6 +413,15 @@ let lastStrata = '';
 let lastHp = 1000;   // 上一次画出来的血量（千分位），用来判断"这一帧要不要闪"
 
 const game = new SeaGame(r, sea, whaleArt);
+
+// 标题页是不透明的封面：趁玩家在读它，先把第一帧要烘的图层烘掉。
+// 点击「开始」时的重活因此提前发生，不会再出现"卡几秒才见到加载"。
+// 失败无所谓 —— 真跑第一帧时该烘的还会再烘一次。
+if (!Q.get('auto') && !Q.get('frozen')) {
+  requestAnimationFrame(() => {
+    try { r.frame(0, frameState()); } catch (_) {}
+  });
+}
 // 截图用：?gulls=N 直接把 N 只海鸥放进天上（真实游玩由暴露度决定数量）
 if (Q.get('gulls')) {
   const n = Math.max(0, Math.min(9, parseInt(Q.get('gulls'), 10) || 0));
@@ -919,52 +921,43 @@ let starting = false;
 function start() {
   if (running || starting) return;
   starting = true;
-  boot.classList.remove('failed');
+  // 音频解锁必须贴着这次点击（iOS 只认手势当场），不能等 rAF 之后
+  S.unlock();
   boot.classList.add('loading');
   bootProgress(0);
 
-  // 【用户 2026-11-24】"加载动画有，等了很久进去还是没加载出来"。
-  // 上一版在这里跟 6 秒赛跑：到点就放人进去，贴图没到就永远停在矢量占位
-  // （load 只发一次，失败没有第二次机会）。现在改成**不齐不进门**：
-  // 整轮 load 内部每张图有超时，外面再来一轮重试（慢网最多等 ~18s）；
-  // 真失败就停在标题页，把「贴图没能加载出来」显示出来，点一下重试 ——
-  // 不再让人进关看一条纯色的鱼。
-  const gate = (attempt) => artReady.catch(() => false).then((ok) => {
-    if (ok) return true;
-    if (attempt >= 1) return false;
-    bootProgress(0);
-    artReady = whaleArt.load('img/sea/', bootProgress);
-    return gate(attempt + 1);
-  });
-
-  gate(0).then((ok) => {
-    if (!ok) {
-      starting = false;
-      boot.classList.remove('loading');
-      boot.classList.add('failed');
-      const go = boot.querySelector('.go');
-      if (go) go.textContent = '重 试';
-      return;
-    }
+  // 【用户 2026-11-24】"点击开始会卡顿几秒才出现加载"。
+  // 原因是点击后立刻做第一帧的重活（贴图烘焙 / 世界铺底），主线程被占满，
+  // spinner 根本没机会上屏。现在先让这一帧画出来（双层 rAF），再做重活 ——
+  // spinner 是 CSS transform 动画，走合成器线程，主线程卡住时它照样转。
+  requestAnimationFrame(() => requestAnimationFrame(() => {
     starting = false;
-    boot.style.display = 'none';
-    boot.classList.remove('loading');
     running = true;
-    S.unlock();
     const okInit = sea.init();
     if (!okInit) setTimeout(() => sea.init(), 120);
     sea.motif({ vol: 0.04 });
     // 真实录音异步加载：不挡开局，到位了再接上海面环境层。
-    // 音频晚到只是"前几秒没有海浪声"，贴图晚到是"主角变成一条纯色的鱼" ——
-    // 这两件事的代价差一个数量级，所以只有前者允许不等。
     sea.loadSamples().then((got) => {
       if (got) sea.startSurfaceBed();
     });
     requestAnimationFrame(loop);
-  });
+    // 收加载页：等两帧真的画完再收，避免"露出半张还没画完的海"。
+    // 贴图没到也照进 —— 鲸会先以矢量占位出现，图到了下一帧自然换过来
+    // （artLoad 在页面加载时就已经在取了，通常点「开始」时早就到位）。
+    let wait = 2;
+    const hide = () => {
+      if (wait-- > 0) return requestAnimationFrame(hide);
+      boot.style.display = 'none';
+      boot.classList.remove('loading');
+    };
+    requestAnimationFrame(hide);
+  }));
 }
 
 boot.addEventListener('pointerdown', start);
+// 调试/自测：?tap=1 自动点一次「开始」，用来验证"点击→加载动画→进门"这条真路径
+// （?auto=… 是直接开跑，绕过了 start，测不到卡顿与加载页）
+if (Q.get('tap') === '1') setTimeout(start, 60);
 
 cv.addEventListener('pointerdown', (e) => {
   if (!running) return;

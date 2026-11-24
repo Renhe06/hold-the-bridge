@@ -4503,7 +4503,13 @@ export class Renderer {
     rec.pad = pad / dp;
     rec.base = hh / dp;
     if (!Number.isFinite(rec.base) || rec.base <= 0) return null;
-    rec.ok = true;
+    // 【2026-11-24】第一次烘完**先不写缓存**：部分 WebView 在图片刚 onload 的
+    // 那几帧 drawImage 会画出一张空白，一旦把空白当成"烘成功"缓存下来，
+    // 角色就永久只剩脚下光环（用户 m08143）。下一帧再烘一次才认 ——
+    // 多花的只是几毫秒，换来"永远不会变透明"。
+    // 这条替代了上一版"取一个像素判断空不空"的做法：那个在手机上会把好图判死。
+    rec.warm = (rec.warm || 0) + 1;
+    rec.ok = rec.warm >= 2;
     return rec;
   }
 
