@@ -85,12 +85,17 @@ const AIR = 0.55;
 const BUOY_DRIFT = 0.02;
 
 /**
- * 跃出水面的一次冲量（深度/秒）。手指只指得到水面（aimDepth=0），
- * 但"指到水面"这件事本身应该读作"我要出去"。
- * 只靠弹簧做不到：目标是 0 时它只会渐近 0，vD 一起趋于 0，身体永远破不了水。
- * 配上升段 2.0 的重力，滞空约 0.5 秒，够看清天上的月亮和城市。
+ * 跃出水面的一次冲量（深度/秒）。
+ *
+ * 【用户 2026-11-24】"跃出海面太灵敏了……而且跃这个动作太生硬，玩得很鬼畜"。
+ * 上一版 1.25 配上升 2.0 的重力，理论最高点 0.39 —— 可 MIN_DEPTH 只到 0.22，
+ * 于是它每次都会**撞上无形的天花板**：弹到最高处被硬停，然后直直掉下来。
+ * 这就是"鬼畜"的来源：不是画得不好，是物理上撞墙。
+ *
+ * 0.93 让最高点正好落在 0.216（0.93² / (2×2.0)），刚好在海面线之上、不进天花板。
+ * 上升 0.46 秒 + 顶点悬停（见 move 里的 hang）+ 下落 0.32 秒 ≈ 0.9 秒滞空。
  */
-const JUMP_VMAX = 1.25;
+const JUMP_VMAX = 0.93;
 
 const SURFACE_D = 0.14;
 const ABYSS_D = 0.62;
@@ -128,6 +133,18 @@ const SURFACE_SKIN = 0.018;
  * 这个数字是全关的节拍器，改它等于改整局的长度。
  */
 const OXY_SEC = 30;
+
+/**
+ * 同伴回应要多久。
+ *
+ * 【用户 2026-11-24】"同伴互动不限先后……靠近自动回应，6s 完成"。
+ * 上一版 0.7 秒就接上了 —— 那读作"碰到就自动捡起"，不是"有谁回应了我"。
+ * 6 秒是一次**合唱**的长度：它先开口，你接上去，两个声音叠在一起，
+ * 然后才多出一个音。玩家要做的事只有一件：别走开。
+ *
+ * 走开不清零，只按 0.6/s 回落 —— 折返能接上，但来回蹭不会更快。
+ */
+const MATE_RESP = 6.0;
 
 /**
  * 血条。环境本身在杀它 —— 这是这一版新加的第二条命。
@@ -237,7 +254,8 @@ export class SeaGame {
     this.singing = false;
     this.singT = 0;
     this.echo = 0;
-    this.mate = null;        // 最近的那一只：HUD 与方向提示用
+    this.mate = null;        // 最近的那一只：方向提示用
+    this._mateNear = null;   // 贴着的那一只：只有它能让 HUD 显示"一起唱"
     this.mates = [];
     // 六只从第一帧起就在海里（用户定版："同伴固定位置，一直显示"）。
     // 这个字段留作"还有几只没被回应"的闸门，现在恒等于总数 —— 谁都不挡。
@@ -251,6 +269,10 @@ export class SeaGame {
     this.wallX = 0;
     this.bump = 0;
     this.splash = 0;
+    // 跃出水面：breach 是"刚破水"的那一下（0→1，1.2 秒退完），
+    // drops 是随身体腾空的水珠。用户 2026-11-24："跃这个动作要加动画"。
+    this.breach = 0;
+    this.drops = [];
     // 起手 0.8 秒不接跳跃：这一条是给"一进入游戏它自己一直跳"擦屁股的。
     // 真正的病根在 pullOut（见 move），但开局留一拍也顺手挡掉所有残留状态。
     this._landCd = 0.8;
@@ -432,14 +454,15 @@ export class SeaGame {
     //      这是这首歌里最该有的一件垃圾：渔网是海里最多的塑料，
     //      而且它不会烂，会一直飘着，一直抓。
     // =====================================================================
-    out.push({ type: 'net', lat: -1.95, w: 0.62, bottom: 0.058, ph: 2.4, hit: 0, torn: 0.40 });
-    out.push({ type: 'net', lat: -0.62, w: 0.94, bottom: 0.108, ph: 1.9, hit: 0, torn: 0.62 });
+    // 【用户 2026-11-24】"渔网不要有漏洞" —— torn 字段已删，网不再挖洞。
+    out.push({ type: 'net', lat: -1.95, w: 0.62, bottom: 0.058, ph: 2.4, hit: 0 });
+    out.push({ type: 'net', lat: -0.62, w: 0.94, bottom: 0.108, ph: 1.9, hit: 0 });
     out.push({ type: 'net', lat: 0.56, w: 0.50, bottom: 0.150, ph: 4.4, hit: 0 });
-    out.push({ type: 'net', lat: 1.52, w: 0.76, bottom: 0.074, ph: 5.6, hit: 0, torn: 0.48 });
+    out.push({ type: 'net', lat: 1.52, w: 0.76, bottom: 0.074, ph: 5.6, hit: 0 });
     // 沉网：三张，都在中水层，横着挡住整条游路
-    out.push({ type: 'net', lat: -2.55, w: 0.72, top: 0.240, bottom: 0.440, ph: 0.7, hit: 0, torn: 0.30 });
+    out.push({ type: 'net', lat: -2.55, w: 0.72, top: 0.240, bottom: 0.440, ph: 0.7, hit: 0 });
     out.push({ type: 'net', lat: 0.06, w: 0.82, top: 0.285, bottom: 0.500, ph: 3.1, hit: 0 });
-    out.push({ type: 'net', lat: 2.15, w: 0.66, top: 0.500, bottom: 0.700, ph: 5.0, hit: 0, torn: 0.66 });
+    out.push({ type: 'net', lat: 2.15, w: 0.66, top: 0.500, bottom: 0.700, ph: 5.0, hit: 0 });
 
     // 「看沥青在蔓延」—— 右区的水面那一层已经不能换气了。
     out.push({ type: 'slick', top: -0.04, bottom: 0.05, ph: rnd() * TAU, lat: 2.05, wLat: 1.75 });
@@ -599,7 +622,17 @@ export class SeaGame {
     // 手指把目标推过水面（raw < 0 被钳到 0）的那一下才算数。
     // 上一版用 aimDepth <= 0.04 当条件，而它开局就是 0.02 —— 鲸会在海面自己跳，
     // 而且因为落水冷却只有 0.6 秒，它会一直跳。这一行是那件事的唯一正解。
-    if (dy < 0 && raw <= 0.004) this.pullOut = true;
+    // 【用户 2026-11-24】"很多时候只是想在海平面附近逛一下，直接就跳出去了"。
+    // 上一版 raw <= 0.004 就等于"我要出去"—— 手指刚碰到水面就判跃，
+    // 于是"贴着海面游"变成了"一直在跳"。
+    // 现在必须把目标**明确推到水面之上 0.05**（约 17 CSS px 的一段上划）才算意图；
+    // 只是指到水面（raw≈0）不再触发。
+    // 还有一条同样重要：**只在身体已经贴着水面时才上膛**。
+    // 从 0.5 深一路拖上来，手指一定会划过水面之上（raw < -0.05）——
+    // 但那是"我要换气"，不是"我要飞出去"。所以上膛要求
+    //  ① 身体在 0.18 以内　② 不再处于高速上升（vD > -0.35）。
+    // 于是它变成两个动作：先浮上来停住，再往上一推 —— 这才是"跃"。
+    if (dy < 0 && raw <= -0.05 && this.depth < 0.18 && this.vD > -0.35) this.pullOut = true;
     if (dy > 0) this.pullOut = false;
     this.aimDepth = clamp(raw, 0, MAX_DEPTH);
     const nl = this.aimLat + (dx / w) * 2.1;
@@ -641,11 +674,14 @@ export class SeaGame {
     if (this.mode === 'sinking') {
       this.sinkT += dt;
       // 先停一拍再往下：刚死的那半秒它还在抽动，不该立刻匀速下坠
-      const k = clamp((this.sinkT - 0.45) / 1.1, 0, 1);
+      const k = clamp((this.sinkT - 0.35) / 0.9, 0, 1);
       // 指数靠近海床，不用匀速 —— 水越深越慢，这是水阻的样子
       // 停在地面线之上一点：沉到底不是“埋进去”，是“落在礁盘上”
       const target = 0.985;
-      this.depth += (target - this.depth) * Math.min(0.9, dt * 0.62 * k);
+      // 0.62 → 0.90 → 1.35：从最浅处死掉也能在 3 秒内落到礁盘上。
+      // 上一版最坏要 6 秒多才见底，加上后面的花园，玩家要干等十几秒。
+      // 沉底之后还有 3 秒的海底停留（见下面的 vision），所以这一段必须短。
+      this.depth += (target - this.depth) * Math.min(0.9, dt * 1.35 * k);
       this.aimDepth = this.depth;
       this.vD = lerp(this.vD, 0.12, Math.min(1, dt * 2.2));
       // 身体沉下去：屏幕上往下掉 0.30 屏，人看着它落到礁盘上
@@ -654,9 +690,10 @@ export class SeaGame {
       // 身体中段正好被珊瑚枝穿过（鲸画在珊瑚之后，见 whaleBehind）。
       // 0.16 的时候它跑到礁盘下面去了，只能看见"鲸在珊瑚下方"，不是"埋在珊瑚里"。
       this.sinkDrop = Math.min(0.09, this.sinkDrop + dt * 0.020 * k);
-      // 翻肚皮：沉了半拍之后开始翻，2.2 秒转完 180°。
-      // 翻得太快像被打了一拳，太慢又像在漂浮 —— 2.2 秒是"放弃"的速度。
-      this.deadRoll = clamp((this.sinkT - 0.9) / 2.2, 0, 1);
+      // 翻肚皮：沉了半拍之后开始翻，1.4 秒翻完一圈（0.55 → 1.95 秒）。
+      // 上一版 0.9 起、2.2 秒，而落底大约在 3.0 秒 —— 还没翻完就到海底了，
+      // 玩家看到的是"侧着砸在珊瑚上"。现在它在触底之前就翻好，肚皮朝上漂着落下去。
+      this.deadRoll = clamp((this.sinkT - 0.55) / 1.4, 0, 1);
       // 花园渐入：跟下沉同步，不是沉到底才开灯
       this.visionK = Math.max(this.visionK, clamp((this.sinkT - 0.6) / 3.0, 0, 1) * 0.98);
       // 幻象里的鱼群提前回来（真实鱼群在深处几乎没有，这里正好用"回来"表达）
@@ -679,10 +716,12 @@ export class SeaGame {
         b.life -= dt * 0.12;
       }
       this.blood = this.blood.filter((b) => b.life > 0);
-      // 沉到底（或演够了）→ 交给幻象那 8 秒
-      if (this.depth > 0.955 || this.sinkT > 7.5) {
+      // 沉到底（或演够了）→ **在海底停 3 秒**，然后才出文字。
+      // 用户定版："沉底后三秒出来"。上一版是 8.4 秒的幻象，加上下沉，
+      // 玩家要等十几秒才看见那句话 —— 那不是余韵，是卡住了。
+      if (this.depth > 0.955 || this.sinkT > 5.5) {
         this.mode = 'vision';
-        this.visionT = 1.4;   // 从"已经亮着"接上去，避免亮度跳回去
+        this.visionT = 0;
         this.visionK = 1;
         this.sea.motif({ vol: 0.07 });
       }
@@ -691,10 +730,12 @@ export class SeaGame {
 
     // ---- 幻象花园：氧气归零不是黑屏，是死前看见的那一版海 ----
     // 「珊瑚在海底蜿蜒　我看见 最美丽的花园」：它只出现在结束的路上。
-    // 渐入 1.5 秒 → 停 4.5 秒 → 渐出 2 秒。之后世界才真的暗下去。
+    // 下沉段就已经点亮，这里**只停 3 秒**，然后交给出字（endB）。
+    // 用户 2026-11-24："沉底后三秒出来"。
     if (this.mode === 'vision') {
       this.visionT += dt;
-      this.visionK = Math.min(1, this.visionT / 1.5) * clamp((8 - this.visionT) / 2, 0, 1);
+      // 花园已经亮着（下沉段就点亮了），这里只保持，不再二次渐入。
+      this.visionK = Math.max(this.visionK, 0.98);
       // 幻象里鱼群回来了，绕着你转 —— 和第一层一模一样
       if (this.visionT < 1.6 && this.fish.length < 28) {
         this.fish.push({
@@ -705,7 +746,8 @@ export class SeaGame {
         });
       }
       this._fish(dt);
-      if (this.visionT > 8.4) {
+      // 3 秒：够看清珊瑚和鱼群，不够到"怎么还没结束"。
+      if (this.visionT > 3.0) {
         this.mode = 'endB';
         // 不把花园关灯。用户定版："文字出现的时候，背景正好是在海底，
         // 然后珊瑚发光，水母游动"。上一版这里 visionK 归零 ——
@@ -770,6 +812,14 @@ export class SeaGame {
     this.wallHit = Math.max(0, this.wallHit - dt * 1.8);
     this.bump = Math.max(0, this.bump - dt * 1.5);
     this.splash = Math.max(0, this.splash - dt * 1.9);
+    this.breach = Math.max(0, this.breach - dt * 0.85);
+    for (const d of this.drops) {
+      d.vd += 2.4 * dt;
+      d.lat += d.vlat * dt;
+      d.depth += d.vd * dt;
+      d.life -= dt * 0.62;
+    }
+    this.drops = this.drops.filter((d) => d.life > 0 && d.depth < 0.16);
     this.strataFlash = Math.max(0, (this.strataFlash || 0) - dt * 0.8);
     if (this.held) this.heldT += dt;
     this.singing = this.held && this.heldT > 0.3;
@@ -859,6 +909,12 @@ export class SeaGame {
     // 换算一下：血条掉 1/3（1.0 点）→ 污染 0.9；掉 1/10 → 污染 0.11，刚够裂第一道口子。
     // 用户要的是"慢但不看不见"：一条 0~1 的曲线，任何一个动作都推它一点。
     this.soil = clamp(this.soil + (opt.soil ?? amount * 1.1), 0, 1);
+    // 【用户 2026-11-24】"鲸鱼现在的血痕也没有了"。
+    // 上一版把血痕**只**挂在 soil 上：第一道口子要污染涨到 0.13，
+    // 而一次钩子只推 0.033 —— 玩家被划了三四下，身上还是干净的。
+    // 伤是**这一下**留下的，不是"污染攒够了才裂"。所以这里直接记一道，
+    // 同时 soil 那条曲线继续抬底线（见 _derivedMarks，只增不减）。
+    if (opt.scar !== false) this.scars = Math.min(9, this.scars + 1);
     this.dmgFlash = 1;
     if (opt.blood !== false) this._bleed();
     this.sea.hull();
@@ -875,8 +931,11 @@ export class SeaGame {
    */
   _derivedMarks() {
     const s = this.soil;
-    // 9 道撕裂口：前 0.03 是干净的（刚下水不该有伤）
-    this.scars = Math.min(9, Math.max(0, Math.floor((s - 0.03) * 10)));
+    // 9 道撕裂口：前 0.03 是干净的（刚下水不该有伤）。
+    // **只增不减**：_hit 里已经直接记了一道，这里只负责把"污染攒出来的"
+    // 那部分补上去。上一版每帧重算并覆盖，等于把直接记的那道擦掉了。
+    const fromSoil = Math.min(9, Math.max(0, Math.floor((s - 0.03) * 10)));
+    this.scars = Math.max(this.scars, fromSoil);
     // 3 级病灶：第一级来得早，第三级基本要到"已经不像鲸"的时候
     this.mut = s > 0.74 ? 3 : s > 0.46 ? 2 : s > 0.22 ? 1 : 0;
   }
@@ -902,6 +961,27 @@ export class SeaGame {
       vx: 0, vy: 0.003, life: 1.6,
       r: 6 + this.rnd() * 3,
     });
+  }
+
+  /**
+   * 跃出 / 落水时甩出去的水珠。
+   *
+   * 只存世界坐标（lat / depth），画的时候投影 —— 镜头横移时它们跟着海走，
+   * 不会像"贴在屏幕上的一层白点"。生命的最后一段自然变淡、被水面吞掉。
+   */
+  _drops(n) {
+    for (let i = 0; i < n; i++) {
+      this.drops.push({
+        lat: this.lat + (this.rnd() - 0.5) * 0.12,
+        depth: (this.rnd() - 0.5) * 0.02,
+        vlat: (this.rnd() - 0.5) * 0.85 + this.vL * 0.5,
+        vd: -0.45 - this.rnd() * 0.95,
+        life: 1,
+        r: 1.1 + this.rnd() * 2.8,
+      });
+    }
+    // 上限：连跳十次不该攒出 200 颗水珠
+    if (this.drops.length > 90) this.drops.splice(0, this.drops.length - 90);
   }
 
   /**
@@ -968,8 +1048,13 @@ export class SeaGame {
       // 重力分两档：**上去慢、下来快**。这是"跃"和"被扔出去"的区别 ——
       // 上升 2.0 让它有滞空（能看到天空、月亮、城市），下落 4.2 让它砸回水里，
       // 而不是像气球一样飘下来。一个 GRAV 常数做不出这两种感觉。
+      // 顶点悬停：速度接近 0 的那一小段把重力打折。
+      // 这不是"反物理"，是**读得清**：真正的抛物线顶点一帧就过去了，
+      // 玩家只看到"上去、下来"两段直线，读作被弹了一下。
+      // 0.55 的折扣让最高点停留约 0.15 秒 —— 够看清月亮，又不至于飘。
       const g = this.vD < 0 ? 2.0 : 4.2;
-      this.vD += g * dt;
+      const hang = Math.abs(this.vD) < 0.30 ? 0.55 : 1;
+      this.vD += g * hang * dt;
       this.vD -= this.vD * AIR * dt;
       this.depth += this.vD * dt;
       if (this.depth <= MIN_DEPTH) {
@@ -994,13 +1079,19 @@ export class SeaGame {
       // 跃：**玩家把手指推过水面**才给这一下冲量。
       // 为什么不能持续推：水里的阻尼是 2w×0.94 ≈ 8.3/s，3.2 的推力稳定下来
       // 只有 0.39 的速度 —— 连水面都顶不穿（实测最高只到 -0.09）。
-      // 冲量绕过了这个死结：一次给到 1.25，抛物线交给重力。
+      // 冲量绕过了这个死结：一次给到 JUMP_VMAX（0.93），抛物线交给重力。
       // pullOut 用完即清：一次拖动 = 一次跃。按住不放不会变成连跳。
+      // 起跳条件收紧三处：手指明确推到水面之上（pullOut）、
+      // 身体**就在水面**（0.16 以内，不是从半水下直接弹射）、
+      // 而且不是正在下落。上一版 depth<0.60 意味着在 0.6 深的半水里
+      // 一划就能窜出水面 —— 那才是"太灵敏"的真正原因。
       if (this.pullOut && this.held && this._landCd <= 0
-          && this.aimDepth <= 0.04 && this.depth < 0.60 && this.vD > -0.40) {
+          && this.aimDepth <= 0.01 && this.depth < 0.16 && this.vD > -0.30) {
         this.vD = -JUMP_VMAX;
-        this._landCd = 0.22;
+        this._landCd = 0.45;
         this.pullOut = false;
+        this.breach = 1;
+        this._drops(14);
       }
       const before = this.depth;
       this.depth += this.vD * dt;
@@ -1009,20 +1100,21 @@ export class SeaGame {
         // **跃是一次助跑**：从 0.22 以下冲上来的才给这一下加速，
         // 在浅处点头换气就只是把头顶出去 —— 不然每次呼吸都像被弹射。
         const from = this._upFrom == null ? 0 : this._upFrom;
-        if (before >= 0 && from > 0.22 && this.vD < -0.9) this.vD *= 1.12;
-        // 出水速度上限：不封顶的话，从 0.45 冲上来会带着 -3.0 直接撞上
-        // 天花板（MIN_DEPTH），一帧就贴顶 —— 玩家看到的是"跳了一下"，不是"跃"。
-        // 1.25 配上升段 2.0 的重力，滞空约 0.5 秒，刚好够看清天上的月亮。
-        if (this.vD < -1.25) this.vD = -1.25;
+        if (before >= 0 && from > 0.22 && this.vD < -0.9) this.vD *= 1.06;
+        // 出水速度上限：和起跳同一个值 —— 否则"助跑"会把身体重新送上天花板。
+        if (this.vD < -JUMP_VMAX) this.vD = -JUMP_VMAX;
         this._upFrom = null;
         this.bump = 1;
+        this.breach = 1;
+        this._drops(20);
         this.sea.surface();
       }
       if (before < 0 && this.depth >= 0) {
         // 落回水里：阻力把速度吃掉一半，水花和一声闷响
         this.vD *= 0.55;
         this.splash = 1;
-        this._landCd = 0.6;
+        this._landCd = 0.9;
+        this._drops(10);
         this.sea.hull();
       }
     }
@@ -1162,11 +1254,10 @@ export class SeaGame {
       this.sea.echo({ pan: this.lat * 0.5 });
       for (const m of this.mates) if (m.found && !m.answered) m.glow = 1;
     }
-    // 回应不再需要"唱够"：靠近就会自动接上（用户定版）。
-    // 但主动唱一句仍然有用 —— 它让旁边那只**立刻**回应，而不是等 0.7 秒。
-    // 「为寻一次相拥」总要有点代价，这一点就是玩家自己愿意多按那一下。
-    const m = this.mate;
-    if (m && m.found && !m.answered) m.resp += dt * 3.0;
+    // 回应是**自动**的：停够 6 秒就接上（见 _mate / MATE_RESP）。
+    // 唱歌不再加速它 —— 用户要的是"靠近自动回应，6s 完成"，
+    // 按得再狠也不该把这个时钟拨快。长按在这游戏里只做两件事：
+    // 唱给海听（回声、海鸥）、以及献祭项链。
   }
 
   /**
@@ -1249,11 +1340,15 @@ export class SeaGame {
   _mate(dt) {
     let best = null;
     let bestD = 9;
+    // 正在回应（可以回应）的那一只 —— HUD 和目标行只认它。
+    // 和 best 分开：best 是“离你最近的同类”（用来指方向），
+    // near 是“你正贴着、正在合唱的那一只”。两件事不是一回事。
+    let near = null;
+    let nearD = 9;
     this._nearMate = 0;
     for (const m of this.mates) {
       m.glow = Math.max(0, m.glow - dt * 0.8);
       // 位置**钉死**：出现之后它就不动了。
-      // 上一版每帧按 sin 摆 0.045，玩家记住了方向，游过去它已经偏了半个身位。
       m.lat = m.lat0;
       if (m.answered) continue;
 
@@ -1262,22 +1357,28 @@ export class SeaGame {
       const dist = Math.hypot(dd * 1.6, dl);
       if (dist < bestD) { bestD = dist; best = m; }
 
-      // 第一只的判定框大一点：新手要先体验一次"找到"是什么感觉
-      const touch = m.order === 0 ? 0.075 : 0.055;
-      const touchL = m.order === 0 ? 0.20 : 0.16;
+      // 判定框**统一**：用户要“不限先后”，上一版给第一只开了 1.4 倍的特权，
+      // 那只在一屏外就能被触发，别的要贴脸 —— 六只里只有一只是“好找的”。
+      const touch = 0.062;
+      const touchL = 0.175;
       if (!m.found && dd < touch && dl < touchL) {
         m.found = true;
         m.resp = 0;
-        this.hint = '它听见你了。';
+        this.hint = '它听见你了 · 停一下';
         this.sea.call({ pan: clamp((m.lat - this.lat) * 0.9, -1, 1), base: 132, dur: 1.4, vol: 0.14, reach: 1 });
       }
       if (m.found) {
-        // 停在它旁边 0.7 秒它就接上来。不用按住 —— 按住在这个游戏里
-        // 是"唱歌"，那是玩家想不想唱的事，不该是找到同伴的前置条件。
-        if (dd < touch * 1.9 && dl < touchL * 1.9) {
+        // 停在它旁边就自己开始合唱，不需要按住 ——
+        // 按住在这游戏里是“唱歌”，那是玩家想不想唱的事，不该是条件。
+        if (dd < touch * 1.8 && dl < touchL * 1.8) {
           this._nearMate = 1;
+          // 松手时的"停靠"：不按住的话身体会自己往上漂（BUOY_DRIFT），
+          // 6 秒里能漂出判定框 —— 于是"我在它旁边站着"变成"我一直在追它"。
+          // 贴着同类时不漂，只轻轻地把它当成浮标。玩家按住时仍然自己控制。
+          if (!this.held) this.aimDepth += (m.depth - this.aimDepth) * Math.min(1, dt * 1.2);
           m.resp += dt;
-          if (m.resp > 0.7) this._answer(m);
+          if (dist < nearD) { nearD = dist; near = m; }
+          if (m.resp >= MATE_RESP) this._answer(m);
         } else {
           // 走开了：进度回落，但不清零 —— 折返一次还能接上
           m.resp = Math.max(0, m.resp - dt * 0.6);
@@ -1288,8 +1389,7 @@ export class SeaGame {
       if (m.nextCall <= 0) {
         m.nextCall = 3.6 + this.rnd() * 2.4;
         // 六只同时在海里 = 六个声源。太远的听不见，也没必要听 ——
-        // 全都叫的话，一秒钟能响两声，玩家分不出"哪一声在指路"。
-        // 只让镜头附近（dist < 1.0，约一屏）的那几只开口。
+        // 全都叫的话，一秒钟能响两声，玩家分不出“哪一声在指路”。
         if (dist > 1.0) { m.nextCall = 1.2; continue; }
         const vol = clamp(0.085 - dist * 0.05, 0.014, 0.085);
         this.sea.call({
@@ -1302,7 +1402,9 @@ export class SeaGame {
         m.glow = 0.5;
       }
     }
-    this.mate = best;
+    // 刚唱完的那一只不算"正在回应"：near 可能在循环里被 _answer 掉了。
+    this._mateNear = (near && !near.answered) ? near : null;
+    this.mate = this._mateNear || best;
   }
 
   _kit(dt) {
@@ -3687,16 +3789,12 @@ export class SeaGame {
       ctx.lineTo(x1, yBot);
       ctx.quadraticCurveTo(cx, yBot + sag * 2, x0, yBot);
       ctx.closePath();
-      // 「我在漏网之后 留下了伤口」——大网的下半截被撕开一个洞。
-      // 用 evenodd 把洞从 clip 里减掉：网线不会画进洞里，水会从洞里透出来。
-      const holeR = w * 0.075;
-      const holeX = x0 + ww * t.torn;
-      const holeY = yTop + (yBot - yTop) * 0.66;
-      if (t.torn && ww > holeR * 3) {
-        ctx.moveTo(holeX + holeR, holeY);
-        ctx.ellipse(holeX, holeY, holeR, holeR * 0.78, 0.2, 0, TAU);
-      }
-      ctx.clip('evenodd');
+      // 【用户 2026-11-24】"渔网不要有漏洞"。
+      // 上一版给每张网用 evenodd 挖了一个椭圆洞（"我在漏网之后"那个意象）。
+      // 但在游戏里它读作**贴图破了**：玩家看见的是一张漏的网，不是一条逃出来的鲸；
+      // 而且网是碰撞墙，墙上有个洞却不让人过，手感和画面直接打架。
+      // 现在网是一整张：没有洞，挡就是挡。
+      ctx.clip();
 
       // 网面只留一层极薄的暗：实心一铺就变成黑布帘。
       // 沉网更淡：它是被丢下的，早该烂得差不多了。
@@ -4088,15 +4186,14 @@ export class SeaGame {
       }
       ctx.restore();
 
-      // 靠近了：三圈白环从它身上扩出去 —— 现在这不是"长按"的手势提示，
-      // 是"它注意到你了"。停了 0.7 秒它会自己接上来（见 _mate）。
+      // 靠近了：三圈白环从它身上扩出去 —— 这不是"长按"的手势提示，
+      // 是"它注意到你了"。停够 6 秒它会自己接上来（见 _mate / MATE_RESP）。
       // 不写字，因为那一刻玩家的眼睛在它身上，不在 HUD 上。
       // 用椭圆不用正圆：水里的环是"躺"在空间里的，正圆会读成 UI。
-      if (!m.answered && dist < 0.26) {
+      if (!m.answered && dist < 0.30) {
         const tt = R.time;
-        const near = clamp(1 - (dist - 0.10) / 0.16, 0.25, 1);
-        // 回应进度：环收拢的速度就是它开口的速度
-        const prog = clamp(m.resp / 0.7, 0, 1);
+        const near = clamp(1 - (dist - 0.10) / 0.20, 0.25, 1);
+        const prog = clamp(m.resp / MATE_RESP, 0, 1);
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
         for (let k = 0; k < 3; k++) {
@@ -4107,6 +4204,25 @@ export class SeaGame {
           ctx.lineWidth = Math.max(1.2, R.w * 0.006) * (1 - u * 0.5);
           ctx.beginPath();
           ctx.ellipse(x, y, rr, rr * 0.6, 0, 0, TAU);
+          ctx.stroke();
+        }
+        // 6 秒的**合唱进度**：一条固定轨 + 一条正在填满的暖弧。
+        // 它是这一版唯一新增的"读数"，因为 6 秒太久 —— 没有进度，
+        // 玩家会以为"我贴着它怎么什么都没发生"，然后游走。
+        const rx = R.w * 0.135;
+        const ry = rx * 0.62;
+        ctx.globalAlpha = 0.16 * near;
+        ctx.strokeStyle = 'rgba(206,236,248,1)';
+        ctx.lineWidth = Math.max(1.4, R.w * 0.006);
+        ctx.beginPath();
+        ctx.ellipse(x, y, rx, ry, 0, 0, TAU);
+        ctx.stroke();
+        if (prog > 0.002) {
+          ctx.globalAlpha = 0.90 * near;
+          ctx.strokeStyle = 'rgba(255,222,150,1)';
+          ctx.lineWidth = Math.max(2.4, R.w * 0.011);
+          ctx.beginPath();
+          ctx.ellipse(x, y, rx, ry, 0, -Math.PI / 2, -Math.PI / 2 + TAU * prog);
           ctx.stroke();
         }
         ctx.restore();
@@ -4142,6 +4258,66 @@ export class SeaGame {
       ctx.restore();
     }
 
+    // ---- 跃起来的那一瞬：身体下方拖着一条被带出水面的水幕 ----
+    // 三层很淡的梯形叠在一起（不用渐变：主循环里不新建渐变对象）。
+    // 它是"跃"和"漂"的分界线 —— 有水幕，身体才像是从水里被拔出来的。
+    if (this.mode === 'play' && this.depth < -0.012) {
+      const wy = h * (0.53 + Math.min(0, this.depth) * 0.60);
+      const wxs = this.screenX(this.lat);
+      const y0 = sy(0);
+      const up = clamp(-this.depth / 0.22, 0, 1);
+      if (y0 > wy + 8) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = 'rgba(178,220,236,1)';
+        for (let i = 0; i < 3; i++) {
+          const k = 1 - i * 0.26;
+          ctx.globalAlpha = 0.095 * up * k;
+          const halfW = w * (0.12 + i * 0.05) * (0.70 + up * 0.60);
+          ctx.beginPath();
+          ctx.moveTo(wxs - halfW, wy + h * 0.02);
+          ctx.quadraticCurveTo(wxs - halfW * 0.55, (wy + y0) * 0.5, wxs - halfW * 0.20, y0);
+          ctx.lineTo(wxs + halfW * 0.20, y0);
+          ctx.quadraticCurveTo(wxs + halfW * 0.55, (wy + y0) * 0.5, wxs + halfW, wy + h * 0.02);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+
+        // 出水口那一圈白：身体离开水面时，水先被"拔"起来，再落回去。
+        // 只画在水线上，不跟着鲸走 —— 它标记的是"它从哪儿出来的"。
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.22 * up;
+        ctx.strokeStyle = 'rgba(206,240,252,1)';
+        ctx.lineWidth = Math.max(1.6, w * 0.004);
+        ctx.beginPath();
+        ctx.ellipse(wxs, y0, w * 0.20 * (0.6 + up * 0.7), h * 0.012, 0, 0, TAU);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // ---- 跃出海面甩出去的水珠 ----
+    // 它是"跃"这个动作的第二次呼吸：身体先出去，水才跟着离开水面。
+    // 没有它，鲸只是坐标变了 —— 有它，玩家看见的是"从水里拔出来"。
+    if (this.drops.length) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const sc = w / 390;
+      for (const d of this.drops) {
+        const x = this.screenX(d.lat);
+        const y = sy(d.depth);
+        if (x < -30 || x > w + 30 || y < -80 || y > h + 20) continue;
+        ctx.globalAlpha = clamp(d.life, 0, 1) * 0.78;
+        ctx.fillStyle = 'rgba(216,244,255,1)';
+        ctx.beginPath();
+        ctx.arc(x, y, d.r * sc, 0, TAU);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     // ---- 落水的水花：从水面炸开的一圈白 ----
     // 和上面那圈不同：这个是身体砸进水里，横向铺得更宽、消退更快。
     if (this.splash > 0.02) {
@@ -4171,10 +4347,10 @@ export class SeaGame {
         for (let i = 0; i < 3; i++) {
           const k = this.bump - i * 0.22;
           if (k <= 0) continue;
-          ctx.strokeStyle = `rgba(180,226,240,${k * 0.32})`;
-          ctx.lineWidth = 2;
+          ctx.strokeStyle = `rgba(196,236,250,${k * 0.48})`;
+          ctx.lineWidth = 2.4;
           ctx.beginPath();
-          ctx.ellipse(this.screenX(this.lat), y, w * (0.12 + i * 0.14), 5 + i * 4, 0, 0, TAU);
+          ctx.ellipse(this.screenX(this.lat), y, w * (0.13 + i * 0.17) * (1 + this.breach * 0.5), 5 + i * 5, 0, 0, TAU);
           ctx.stroke();
         }
         ctx.restore();
@@ -4343,13 +4519,16 @@ export class SeaGame {
       singing: this.singing,
       voices: this.voices,
       voicesAll: 7,
-      mateFound: !!(this.mate && this.mate.found && !this.mate.answered),
+      // 只有"贴着的那一只"才算 found —— 远处的同类即使之前被标记过 found，
+      // 也不该让 HUD 显示"和它一起唱"。上一版用 this.mate（最近的一只，
+      // 可能在两屏外）判断，结果玩家站在空水里也能看见 6 秒进度条。
+      mateFound: !!(this._mateNear && this._mateNear.found && !this._mateNear.answered),
       // 地图有三屏宽：同伴可能在左边一整屏之外。HUD 只说"往下找"，
       // 玩家会垂直下潜一辈子也碰不到它 —— 方向必须说出来。
       mateSide: this.mate && !this.mate.answered
         ? (this.mate.lat - this.lat < -0.30 ? -1 : (this.mate.lat - this.lat > 0.30 ? 1 : 0))
         : 0,
-      mateResp: this.mate ? clamp(this.mate.resp / 0.7, 0, 1) : 0,
+      mateResp: this._mateNear ? clamp(this._mateNear.resp / MATE_RESP, 0, 1) : 0,
       sacrifice: this.sacrificeT,
       canSacrifice: this.necklace && this.oxy < 0.22 && this.depth > 0.45,
       necklace: this.necklace,

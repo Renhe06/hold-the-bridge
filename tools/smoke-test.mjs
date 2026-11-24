@@ -2413,23 +2413,31 @@ try {
     ok(wandFairy === 1 && wandKnight === 0,
       `法杖光只给花仙子画（fairy ${wandFairy} 次 / knight ${wandKnight} 次）`);
 
-    // 行为②：蝴蝶是"时不时"的 —— 出场时段会画，隐藏时段一只都不画
-    let n = 0;
+    // 行为②：蝴蝶**一直都在**，而且是成群的一片。
+    // 【用户 2026-11-24】"花仙子的蝴蝶效果现在不明显"→"要遍地"。
+    // 上一版是 3 只、各有 11~16 秒周期，断言写的是"t=2.5 有、t=6.6 没有"——
+    // 那条测试保护的其实是"蝴蝶很少"，正好和用户要的相反。
+    // 现在换成两条：两个时刻都必须是一整片（>=16 只），并且位置会变（它们在飞）。
     const origB = renderer._butterfly;
-    renderer._butterfly = (...a) => { n++; return origB.apply(renderer, a); };
+    let hits = [];
+    renderer._butterfly = (ctx, x, y, ...rest) => { hits.push(x); return origB.call(renderer, ctx, x, y, ...rest); };
     renderer.time = 2.5;
     renderer._drawButterflies(renderer.ctx, game);
-    const seen = n;
-    n = 0;
+    const seen = hits.length;
+    const seenX = hits[3] || 0;
+    hits = [];
     renderer.time = 6.6;
     renderer._drawButterflies(renderer.ctx, game);
-    const hidden = n;
+    const later = hits.length;
+    const laterX = hits[3] || 0;
     renderer._butterfly = origB;
-    ok(seen >= 1 && hidden === 0,
-      `蝴蝶时不时才飞出来（t=2.5 时 ${seen} 只 / t=6.6 时 ${hidden} 只）`);
+    ok(seen >= 16 && later >= 16,
+      `蝴蝶常驻且成群（t=2.5 时 ${seen} 只 / t=6.6 时 ${later} 只）`);
+    ok(Math.abs(seenX - laterX) > 0.5,
+      `蝴蝶真的在飞（同一只在两个时刻的 x 不同：${seenX.toFixed(1)} → ${laterX.toFixed(1)}）`);
 
     // 行为②b：蝴蝶和花仙子绑定（用户 m10372）—— 勇者上场时一只都不该有
-    n = 0;
+    let n = 0;
     renderer._butterfly = (...a) => { n++; return origB.apply(renderer, a); };
     renderer.time = 2.5;
     game.heroId = 'knight';

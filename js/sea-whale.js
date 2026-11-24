@@ -472,7 +472,10 @@ export class SeaWhale {
         g.lineTo(q.x + sa * q.w * 0.5 * jitter, q.y - ca * q.w * 0.5 * jitter);
       }
       g.closePath();
-      g.fillStyle = 'rgba(98,20,24,0.82)';
+      // 【用户 2026-11-24】"血痕也没有了" —— 除了逻辑，颜色也太暗：
+      // 98,20,24 在深蓝身体 + 0.83 的深度衰减下几乎读成一道阴影。
+      // 提亮到 132,22,26，仍然是暗红（不是鲜红的记号笔），但看得见。
+      g.fillStyle = 'rgba(132,22,26,0.92)';
       g.fill();
       // 伤口深处：一道更亮的窄线，只走中段。整道线都亮就回到"小棒"了。
       g.beginPath();
@@ -483,12 +486,12 @@ export class SeaWhale {
         if (k === 2) g.moveTo(q.x - sa * off, q.y + ca * off);
         else g.lineTo(q.x - sa * off, q.y + ca * off);
       }
-      g.strokeStyle = 'rgba(216,126,116,0.56)';
-      g.lineWidth = Math.max(0.7, wid * 0.22);
+      g.strokeStyle = 'rgba(244,148,136,0.70)';
+      g.lineWidth = Math.max(0.8, wid * 0.30);
       g.lineCap = 'round';
       g.stroke();
       // 边缘的豁口：两三个小三角，让轮廓"被撕开过"
-      g.fillStyle = 'rgba(96,12,18,0.78)';
+      g.fillStyle = 'rgba(120,14,20,0.86)';
       for (let k = 0; k < 3; k++) {
         const q = pts[3 + ((k * 3 + seed) % (N - 5))];
         const side = (k + seed) % 2 ? 1 : -1;
@@ -498,7 +501,7 @@ export class SeaWhale {
       }
       // 血：伤口一头会渗出来一小团，不是两端各一颗对称的点
       const tail = pts[N - 1];
-      g.fillStyle = 'rgba(138,22,26,0.66)';
+      g.fillStyle = 'rgba(170,26,30,0.78)';
       g.beginPath();
       g.ellipse(tail.x + ca * wid * 0.5, tail.y + sa * wid * 0.5, wid * 0.62, wid * 0.42, ang, 0, TAU);
       g.fill();
@@ -710,6 +713,9 @@ export class SeaWhale {
     ctx.translate(x, y - buoy);
     if (o.flip) ctx.scale(-1, 1);
     if (o.tilt) ctx.rotate(o.tilt);
+    // squash：绕长轴的"翻肚皮"。1 → 0 → −1，负值就是肚皮朝上。
+    // 它替代了上一版的"tilt 转 π + 中途切换 flip"——那套在 90° 处会跳一下方向。
+    if (o.squash != null && o.squash !== 1) ctx.scale(1, o.squash);
     ctx.scale(breath, breath);
 
     // 剪切：以颈线为不动点，越往尾端位移越大 —— 头不晃，身子才像在游

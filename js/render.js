@@ -4318,7 +4318,17 @@ export class Renderer {
   /**
    * 【用户 m09695】"周围时不时飞出几只蝴蝶"。
    * 纯程序化：零素材、零加载、零状态 —— 全部由 this.time 推出来，停帧/回放都稳。
-   * 三只各有 11~16 秒的出场周期，每次横穿桥面 6 秒左右，其余时间不画。
+   *
+   * 【用户 2026-11-24】"花仙子原本每关的场地都有遍地生花的效果的，现在怎么没有了？"
+   * → 他指的是**蝴蝶**（"说错了，是蝴蝶"）。
+   *
+   * 上一版是 3 只、各有 11~16 秒周期、每周期只飞 55%，而且 z 写死在 10~19 ——
+   * 贴近镜头的那只会被投影放大成一只巨大的蝴蝶贴在画面角落，其余两只大半时间
+   * 在周期外或者飞出屏幕。于是"满场蝴蝶"读成了"偶尔有一个白点在边上飘"。
+   *
+   * 现在改成**一整片**：18 只，z 覆盖 9~34（近到远整整一条桥），
+   * 每只自己有自己的相位和高度，尺寸按投影**封顶**（贴脸也不会变成怪物），
+   * 远处按雾化淡出。它们不参与任何判定，只是"她在场上，所以这里活过来了"。
    */
   _drawButterflies(ctx, game) {
     // 【用户 m10372】"蝴蝶是和花仙子绑定的，换英雄了就没有"
@@ -4327,25 +4337,46 @@ export class Renderer {
     if (!game || game.heroId !== 'fairy') return;
     const cam = this.cam;
     const t = this.time;
-    for (let i = 0; i < 3; i++) {
-      const period = 11 + i * 2.6;
-      const u = (t + i * 3.9) % period;
-      const flight = period * 0.55; // 每次出场飞这么久，剩下时间不出场
-      if (u > flight) continue;
-      const k = u / flight; // 0→1 横穿进度
-      // 桥面中心在 x=0 附近，路面半宽约 0.5 世界单位；蝴蝶只在这条带子里飞
-      const z = 10 + i * 4.5 + Math.sin(t * 0.7 + i) * 1.4;
-      const x = -0.46 + k * 0.92 + Math.sin(t * 1.3 + i * 2.1) * 0.07;
+    const N = 24;
+    for (let i = 0; i < N; i++) {
+      // 稳定伪随机：同一只每一帧都在同一片区域，不抖、不乱跳
+      const h1 = Math.abs(Math.sin(i * 12.9898) * 43758.5453) % 1;
+      const h2 = Math.abs(Math.sin(i * 78.233) * 12543.123) % 1;
+      const h3 = Math.abs(Math.sin(i * 39.425) * 9821.77) % 1;
+
+      // z：9 → 34，近密远疏（pow 把多数放在中近景，远景只留几只做深度）
+      const zBase = 9 + Math.pow(h1, 0.78) * 25;
+      const z = zBase + Math.sin(t * 0.33 + i * 1.7) * 0.9;
+      // x：桥面半宽约 0.5；每只在自己的小范围里来回，幅度 0.18~0.30
+      const xAmp = 0.14 + h2 * 0.20;
+      const xPhase = h3 * TAU;
+      const x = Math.sin(t * (0.45 + h2 * 0.35) + xPhase) * xAmp + (h2 - 0.5) * 0.5;
+
       const p = cam.project(x, z);
-      if (!(p.s > 0) || p.y > this.h || p.y < -40) continue;
-      const hgt = 0.12 + 0.07 * Math.sin(t * 0.9 + i * 1.7); // 离桥面高度（世界单位）
+      if (!(p.s > 0) || p.y > this.h + 20 || p.y < -60) continue;
+
+      // 高度：0.10~0.42 世界单位（有的贴地掠，有的在半空），再加一点上下起伏 ——
+      // 蝴蝶是"飘"的，轨迹纯正弦会像挂在绳子上。
+      const hgt = 0.10 + h3 * 0.32 + Math.sin(t * 0.9 + i * 1.3) * 0.03
+        + Math.sin(t * 2.15 + i * 2.7) * 0.018;
       const y = p.y - hgt * p.s;
-      const r = Math.max(2.4, 0.024 * p.s);
-      const flap = 0.16 + 0.84 * Math.abs(Math.sin(t * 9.5 + i * 2.3));
-      const fade = Math.min(1, Math.min(k, 1 - k) * 5); // 出场淡入、走远淡出
+
+      // 尺寸：投影缩放 + **封顶**。不封顶的话 z≈9 那只会有 40px 宽，
+      // 在手机上读作"一只贴纸蝴蝶飞过整个屏幕"，而不是"远处有蝴蝶"。
+      // 【用户 2026-11-24】"不明显"：上一版 0.019/p.s、下限 1.6px，
+      // 中远景只剩 2~3px。现在放大到 0.030，下限 3.4 —— 蝴蝶必须"是蝴蝶"。
+      const r = Math.min(13, Math.max(3.4, 0.030 * p.s));
+
+      // 距离雾：越远越淡（15 以后基本融进雾里）。下限从 0.16 提到 0.42：
+      // 远处那只可以虚，但不能消失。
+      const fog = clamp(1 - (z - 12) / 24, 0.42, 1);
+      // 桥头/桥尾淡出：别在画面边缘"啪"地出现
+      const edge = clamp(Math.min(p.x + 40, this.w + 40 - p.x) / 70, 0, 1);
+
+      const flap = 0.14 + 0.86 * Math.abs(Math.sin(t * (7.5 + h1 * 4) + i * 2.3));
       // 只有花仙子会招蝴蝶，所以配色固定粉/暖金（不再跟着关卡皮肤走，用户 m13500）
-      const col = i % 2 ? '#ffc2e2' : '#ffe9a8';
-      this._butterfly(ctx, p.x, y, r, flap, col, 0.82 * fade);
+      const col = i % 3 === 0 ? '#ffe9a8' : (i % 3 === 1 ? '#ffc2e2' : '#ffd6ee');
+      this._butterfly(ctx, p.x, y, r, flap, col, (0.52 + 0.44 * fog) * edge);
     }
   }
 
@@ -4353,12 +4384,17 @@ export class Renderer {
   _butterfly(ctx, x, y, r, flap, col, alpha) {
     if (!(alpha > 0.01)) return;
     const a = clamp(alpha, 0, 1);
-    // 身后一层极淡的加法雾：远处自然消失，近处才看得见"它自己在发光"
-    this._drawGlow(x, y, r * 2.4, col, 0.13 * a);
+    // 身后一层加法雾：远处自然消失，近处才看得见"它自己在发光"。
+    // 【用户 2026-11-24】"蝴蝶效果现在不明显"：0.13 的雾在夜色草甸上等于没有，
+    // 蝴蝶最后只剩一对 3px 的粉点。提到 0.24 就够 —— 再高整只会糊成一团光斑，
+    // 玩家读到的是"萤火虫"而不是"蝴蝶"。
+    this._drawGlow(x, y, r * 2.7, col, 0.24 * a);
     ctx.save();
     ctx.globalAlpha = a;
     const squash = 0.26 + 0.74 * flap;
-    const rim = 'rgba(74,44,64,0.55)';
+    // 描边从"深紫细线"换成"暖白细线"。上一版在暗背景上，深色描边把整只蝶
+    // 压成了一个紫黑小点 —— 远看是污渍，不是蝴蝶。亮边才读得出翅膀的轮廓。
+    const rim = 'rgba(255,246,232,0.62)';
     for (const s of [-1, 1]) {
       ctx.save();
       ctx.translate(x, y);
@@ -4368,7 +4404,7 @@ export class Renderer {
       ctx.beginPath();
       ctx.ellipse(r * 0.66, -r * 0.42, r * 0.72, r * 0.54, -0.46, 0, TAU);
       ctx.fill();
-      ctx.lineWidth = Math.max(0.5, r * 0.075);
+      ctx.lineWidth = Math.max(0.5, r * 0.055);
       ctx.strokeStyle = rim;
       ctx.stroke();
       // 下翅（比上翅小一圈、更靠中间）
@@ -4391,8 +4427,10 @@ export class Renderer {
     ctx.beginPath();
     ctx.ellipse(x, y, Math.max(0.7, r * 0.115), r * 0.46, 0, 0, TAU);
     ctx.fill();
-    // 触角（太小就不画，免得糊成一团黑点）
-    if (r > 4) {
+    // 触角：整只蝶"是不是虫"全靠这两根。
+    // 上一版只在 r>4 时画，而中远景的蝶大多 3~5px —— 于是它们看起来
+    // 就是两片粉色的云。3px 也画，线宽压到 0.6 就够读。
+    if (r > 2.4) {
       ctx.strokeStyle = `rgba(56,38,52,${(a * 0.85).toFixed(3)})`;
       ctx.lineWidth = Math.max(0.6, r * 0.055);
       ctx.beginPath();

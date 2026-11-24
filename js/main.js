@@ -893,6 +893,12 @@ for (const [node, name] of MENU_ENTRIES) {
 function loadHero() {
   let id = '';
   try { id = localStorage.getItem(HERO_KEY) || ''; } catch (_) {}
+  // 调试/截图：?hero=fairy 直接指定上场角色（只影响本次，不写存档）。
+  // 没有这条时，headless 里永远拿不到"花仙子在场"，蝴蝶和花环就只能靠人眼看。
+  try {
+    const q = new URLSearchParams(location.search).get('hero');
+    if (q && HEROES.some((h) => h.id === q)) id = q;
+  } catch (_) {}
   // 【用户 m12944】不合法（含"从来没选过"）就落到「默认」：每关原本的主角
   if (!HEROES.some((h) => h.id === id)) id = 'auto';
   game.heroId = id;
