@@ -20,7 +20,7 @@ jobs:
   deploy:
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment2.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       # 版本别往下调：2026-11-24 那两次部署失败，注解原文是
@@ -42,3 +42,20 @@ jobs:
 
       - id: deployment
         uses: actions/deploy-pages@v5
+        continue-on-error: true
+
+      # 偶发（2026-11-24 两次）：产物其实已经上传成功（artifacts 里能看到 6.5MB 的
+      # "github-pages"），但 deploy 步骤取元数据时拿到 "No artifacts ... found" ——
+      # 注解里自己都写着 "re-run the deployment at a later time"。
+      # 这里等 10 秒自动再试一次，两次都失败才让 job 红。
+      - name: Wait before retry
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 10
+
+      - id: deployment2
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v5
+
+      - name: Fail if both attempts failed
+        if: steps.deployment.outcome == 'failure' && steps.deployment2.outcome == 'failure'
+        run: exit 1
