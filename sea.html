@@ -195,6 +195,12 @@ window.addEventListener('error', (e) => {
     border-top-color: #9fd8ec;
     animation: ldspin .9s linear infinite;
   }
+  /* 贴图没下下来：不再"等 6 秒就放人进去看一条纯色的鱼"，
+     停在这里说明白，点一下重试。 */
+  #boot .fail { display: none; margin-top: 8px; font-size: 11px; letter-spacing: .2em; color: #d08f8f; }
+  #boot.failed .fail { display: block; }
+  #boot.failed .ld { display: none; }
+  #boot.failed .go { display: block; }
   @keyframes ldspin { to { transform: rotate(360deg); } }
   #boot .go { margin-top: 10px; font-size: 12px; letter-spacing: .3em; color: #86b9cd;
     border: 1px solid rgba(134,185,205,.3); padding: 9px 22px; border-radius: 30px; }
@@ -311,6 +317,7 @@ window.addEventListener('error', (e) => {
   </div>
   <div class="go">开始</div>
   <div class="ld"><i></i><span>正在下潜</span></div>
+  <div class="fail">贴图没能加载出来</div>
 </div>
 
 <script type="module">
@@ -375,13 +382,18 @@ function makeMockSprite() {
 // 玩家看到的是一头纯黑的鱼 —— 「鱼的贴图没生效」就是这么来的。
 // ?sprite=mock 仍然是假图（单测用），?sprite=vec 才强制走矢量。
 const spriteMode = Q.get('sprite') || 'img';
+// 加载页那一行字就是真实进度：贴图没齐，玩家看到的是百分比，不是一头纯色的鱼。
+const bootLd = boot.querySelector('.ld span');
+function bootProgress(f) {
+  if (bootLd) bootLd.textContent = '正在下潜 ' + Math.round(Math.max(0, Math.min(1, f || 0)) * 100) + '%';
+}
 // 加载结果要能被 start() 等待 —— 上一版只在这里挂了个 .then 处理失败，
 // 开局根本不等它，于是"点开始后的头几秒是一头纯色的鱼"。
 let artReady = Promise.resolve(true);
 if (spriteMode === 'mock') {
   whaleArt.adopt(makeMockSprite());
 } else if (spriteMode === 'img') {
-  artReady = whaleArt.load('img/sea/').then((ok) => {
+  artReady = whaleArt.load('img/sea/', bootProgress).then((ok) => {
     if (!ok && report) {
       report.classList.add('on');
       report.textContent = 'img/sea/ 下没有找到 whale，已退回矢量占位';
@@ -907,15 +919,40 @@ let starting = false;
 function start() {
   if (running || starting) return;
   starting = true;
+  boot.classList.remove('failed');
   boot.classList.add('loading');
+  bootProgress(0);
 
-  const go = () => {
+  // 【用户 2026-11-24】"加载动画有，等了很久进去还是没加载出来"。
+  // 上一版在这里跟 6 秒赛跑：到点就放人进去，贴图没到就永远停在矢量占位
+  // （load 只发一次，失败没有第二次机会）。现在改成**不齐不进门**：
+  // 整轮 load 内部每张图有超时，外面再来一轮重试（慢网最多等 ~18s）；
+  // 真失败就停在标题页，把「贴图没能加载出来」显示出来，点一下重试 ——
+  // 不再让人进关看一条纯色的鱼。
+  const gate = (attempt) => artReady.catch(() => false).then((ok) => {
+    if (ok) return true;
+    if (attempt >= 1) return false;
+    bootProgress(0);
+    artReady = whaleArt.load('img/sea/', bootProgress);
+    return gate(attempt + 1);
+  });
+
+  gate(0).then((ok) => {
+    if (!ok) {
+      starting = false;
+      boot.classList.remove('loading');
+      boot.classList.add('failed');
+      const go = boot.querySelector('.go');
+      if (go) go.textContent = '重 试';
+      return;
+    }
     starting = false;
     boot.style.display = 'none';
+    boot.classList.remove('loading');
     running = true;
     S.unlock();
-    const ok = sea.init();
-    if (!ok) setTimeout(() => sea.init(), 120);
+    const okInit = sea.init();
+    if (!okInit) setTimeout(() => sea.init(), 120);
     sea.motif({ vol: 0.04 });
     // 真实录音异步加载：不挡开局，到位了再接上海面环境层。
     // 音频晚到只是"前几秒没有海浪声"，贴图晚到是"主角变成一条纯色的鱼" ——
@@ -924,11 +961,7 @@ function start() {
       if (got) sea.startSurfaceBed();
     });
     requestAnimationFrame(loop);
-  };
-
-  // 贴图优先，最多等 6 秒：网络再差也不能把人卡在门口。
-  const guard = new Promise((res) => setTimeout(res, 6000));
-  Promise.race([artReady.catch(() => false), guard]).then(go);
+  });
 }
 
 boot.addEventListener('pointerdown', start);

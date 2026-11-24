@@ -2413,26 +2413,32 @@ try {
     ok(wandFairy === 1 && wandKnight === 0,
       `法杖光只给花仙子画（fairy ${wandFairy} 次 / knight ${wandKnight} 次）`);
 
-    // 行为②：蝴蝶**一直都在**，而且是成群的一片。
-    // 【用户 2026-11-24】"花仙子的蝴蝶效果现在不明显"→"要遍地"。
-    // 上一版是 3 只、各有 11~16 秒周期，断言写的是"t=2.5 有、t=6.6 没有"——
-    // 那条测试保护的其实是"蝴蝶很少"，正好和用户要的相反。
-    // 现在换成两条：两个时刻都必须是一整片（>=16 只），并且位置会变（它们在飞）。
+    // 行为②：蝴蝶**一直都在**，但必须是"几片被光打亮的薄片"，不是满屏彩纸。
+    // 【用户 2026-11-24】先说"不明显→要遍地"（24 只），又说"太大太多了，和花仙子不搭"。
+    // 终版是 10 只、半径封顶 6.2px：两个时刻都在 6~12 只之间，并且最大那只不超过 6.5px。
     const origB = renderer._butterfly;
     let hits = [];
-    renderer._butterfly = (ctx, x, y, ...rest) => { hits.push(x); return origB.call(renderer, ctx, x, y, ...rest); };
+    renderer._butterfly = (ctx, x, y, r, ...rest) => {
+      hits.push(x);
+      hits.rs = hits.rs || [];
+      hits.rs.push(r);
+      return origB.call(renderer, ctx, x, y, r, ...rest);
+    };
     renderer.time = 2.5;
     renderer._drawButterflies(renderer.ctx, game);
     const seen = hits.length;
     const seenX = hits[3] || 0;
+    const seenR = Math.max(0, ...(hits.rs || []));
     hits = [];
     renderer.time = 6.6;
     renderer._drawButterflies(renderer.ctx, game);
     const later = hits.length;
     const laterX = hits[3] || 0;
     renderer._butterfly = origB;
-    ok(seen >= 16 && later >= 16,
-      `蝴蝶常驻且成群（t=2.5 时 ${seen} 只 / t=6.6 时 ${later} 只）`);
+    ok(seen >= 6 && seen <= 12 && later >= 6 && later <= 12,
+      `蝴蝶常驻但不过量（t=2.5 时 ${seen} 只 / t=6.6 时 ${later} 只）`);
+    ok(seenR <= 6.5,
+      `蝴蝶尺寸有上限（最大一只 ${seenR.toFixed(1)}px ≤ 6.5px）`);
     ok(Math.abs(seenX - laterX) > 0.5,
       `蝴蝶真的在飞（同一只在两个时刻的 x 不同：${seenX.toFixed(1)} → ${laterX.toFixed(1)}）`);
 
@@ -2512,12 +2518,20 @@ try {
     ok(/\n<div class="boot" id="bootOverlay"[^>]*style="/.test(html), '加载页的关键样式是内联的（样式表之前就要能画）');
     ok(/function runBootLoader\(\)/.test(main) && /function closeBoot\(\)/.test(main), 'main.js 里有加载页的开关');
     // 【本次】实测首屏 3s 内能加载完，所以节点默认隐藏：超过阈值且仍在首页才露出兜底；
-    // 点一下可提前收，玩家已经开打也不会突然盖一层
+    // 点一下可提前收，玩家已经开打也不会突然盖一层。
+    // 【用户 2026-11-24】但"进关卡的加载页"不能点一下就跳过 —— 那正是
+    // "动画一闪而过、进去还是没贴图"的来源。所以监听换成了 onBootTap，
+    // 由它区分「首页兜底（可收）」与「进关卡加载（只能等，失败才重试）」。
     ok(/const BOOT_SLOW_MS = 3000/.test(main) && /BOOT_HARD_MS/.test(main)
        && /id="bootOverlay"[^>]*display:none/.test(html)
-       && /addEventListener\('pointerdown', closeBoot\)/.test(main)
+       && /addEventListener\('pointerdown', onBootTap\)/.test(main)
+       && /if \(loaderOpen\) return;/.test(main)
        && /game\.state === STATE\.START/.test(main),
-      '加载页默认隐藏，超过 3s 才在首页兜底露出；点一下可提前收（不卡玩家、不打扰开局）');
+      '加载页默认隐藏，超过 3s 才在首页兜底露出；进关卡加载中不可跳过（失败才可点重试）');
+    // 【用户 2026-11-24】"图不齐不许进门"：startLevel 要核对成功数，
+    // 失败就停在加载页给重试，不能像以前那样等一会儿直接 beginLevel。
+    ok(/r\.ok === r\.total/.test(main) && /loaderFail/.test(main) && /function onBootTap\(/.test(main),
+      '进关卡必须贴图齐全才开局（缺图停在加载页，点一下重试）');
     // 【本次】启动进度条的假时间斜坡与最小停留都删了；
     // 进关卡的慢速兜底只按真实完成量走
     ok(/function setLoaderProgress\(/.test(main) && /4 \+ 92 \* loaderReal/.test(main)
@@ -2540,6 +2554,22 @@ try {
       'main.js 有关卡素材表（fantasy 列出了两张全身立绘）');
     ok(/function preloadAll\(/.test(main) && /function startLevel\(/.test(main),
       '开局的入口走 startLevel（先 preloadAll 再 beginLevel）');
+    // 【用户 2026-11-24】"跃 / 花仙子 / 勇者 的贴图，加载动画转完进去还是没有"。
+    // 三条：① 就绪按"画得出来"判（软件光栅下 decode() 会永远挂着，等它就是永远等不到）；
+    //       ② 加载页与渲染层共用同一份缓存（不再各解码一遍）；
+    //       ③ 花仙子/勇者四关都能出场，所以不能只在 fantasy 皮肤那一关预载。
+    const artSrc = fs.readFileSync(path.join(ROOT, 'js', 'art.js'), 'utf8');
+    const seaSrc = fs.readFileSync(path.join(ROOT, 'sea.html'), 'utf8');
+    ok(/function hasPixels\(/.test(artSrc) && /!hasPixels\(im\)/.test(artSrc)
+       && !/im\.decode\(\)\.then\(\(\) => fin\(im\)/.test(artSrc),
+      '贴图就绪按「画得出来」判定（decode 挂了也能拿到图，不再永远等）');
+    ok(/artLoad\(/.test(main) && /artGet\(u\)/.test(main) && /from '\.\/art\.js'/.test(main),
+      '加载页与渲染层共用同一份贴图缓存（加载页解过的图，渲染层直接取）');
+    ok(/const HERO_ART = \{/.test(main) && /HERO_ART\[picked\]/.test(main),
+      '花仙子 / 勇者的立绘在任意一关进关前都会预载（不只在第四关）');
+    ok(!/Promise\.race\(\[artReady/.test(seaSrc) && /const gate = \(attempt\)/.test(seaSrc)
+       && /classList\.add\('failed'\)/.test(seaSrc),
+      '跃：贴图不齐不开局（去掉 6 秒赛跑，失败停在标题页等重试）');
     ok(/startLevel\(levelIndexOf\(/.test(main) && !/^\s*game\.beginLevel\(levelIndexOf/gm.test(main.replace(/startLevel\(levelIndexOf\(.*\);/g, '')),
       '选关 / 下一关两个入口都改走 startLevel（没有再直接 beginLevel）');
     ok(/function showLoader\(\)/.test(main) && /function hideLoader\(\)/.test(main),

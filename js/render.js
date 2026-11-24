@@ -13,6 +13,7 @@ import { STATE } from './game.js';
 import { clamp, mulberry32, mix, rgba } from './util.js';
 import { QUALITY } from './quality.js';
 import { I18N } from './i18n.js';
+import { artGet, artLoad } from './art.js';
 
 const TAU = Math.PI * 2;
 // 画布里的字全用得意黑（子集化的 woff2 在 styles.css 里 @font-face 声明）。
@@ -4022,40 +4023,23 @@ export class Renderer {
    */
   /**
    * 第四关主角的立绘贴图（用户 m06010：角色模型要精致精美，用给的全身图）。
-   * 懒加载 + 记忆化：第一帧就开始加载，加载好之前先用手绘版顶着。
+   *
+   * 【用户 2026-11-24】"贴图都进关了还没出来" —— 这一版改成**共享缓存**：
+   * 加载页在 js/art.js 里验过"画得出来"的那张 Image，这里同步取走直接用（artGet）。
+   * 取不到就只有一种情况：图还没到/还画不出像素，此时返回 null 让调用方走手绘兜底，
+   * 同时把补载请求丢给缓存（artLoad 自己会去重、重试）。
+   *
+   * 注意**不再**等 `decode()`：实测软件光栅环境下 decode 会永远挂着，
+   * 而 drawImage 照样有像素 —— 旧代码就是卡在这一步，人物永远换不上贴图。
    */
   _heroArt(id, file) {
     if (typeof Image === 'undefined') return null; // 冒烟测试的 document 桩里没有 Image
-    this._arts = this._arts || {};
-    let rec = this._arts[id];
-    if (!rec) {
-      rec = this._arts[id] = { img: null, ok: false, decoding: false };
-      const im = new Image();
-      im.decoding = 'async';
-      im.onload = () => {
-        // 【用户 m08143：勇者偶尔没贴图只剩脚下光环】只在 onload 时置 ok 还不够：
-        // 图已经 load 完但还没 decode 完的那几帧，drawImage 会画不出东西，
-        // 而烘焙缓存一旦把这"空的一帧"烘进去就会一直空着。所以必须等 decode()。
-        if (!(im.naturalWidth > 0) || !(im.naturalHeight > 0)) return;
-        if (typeof im.decode === 'function') {
-          if (rec.decoding) return;
-          rec.decoding = true;
-          im.decode().then(
-            () => { rec.ok = true; },
-            () => { rec.ok = true; }, // decode 失败也放行，交给下面的尺寸兜底
-          );
-        } else {
-          rec.ok = true;
-        }
-      };
-      // file 可以让同一套解码/守卫逻辑复用到「立绘分层」那两张图上
-      im.src = `./img/${file || `hero-${id}`}.webp`;
-      rec.img = im;
-    }
-    if (!rec.ok) return null;
-    const im = rec.img;
-    if (!im || !(im.width > 0) || !(im.height > 0)) return null;
-    return im;
+    const url = `./img/${file || `hero-${id}`}.webp`;
+    const im = artGet(url);
+    if (im) return im;
+    // 没就绪：这一帧先画手绘版，图到了下一帧自然换过来
+    artLoad(url, { tries: 2, timeout: 9000 });
+    return null;
   }
 
   /**
@@ -4319,16 +4303,14 @@ export class Renderer {
    * 【用户 m09695】"周围时不时飞出几只蝴蝶"。
    * 纯程序化：零素材、零加载、零状态 —— 全部由 this.time 推出来，停帧/回放都稳。
    *
-   * 【用户 2026-11-24】"花仙子原本每关的场地都有遍地生花的效果的，现在怎么没有了？"
-   * → 他指的是**蝴蝶**（"说错了，是蝴蝶"）。
+   * 这一版的数字是**三次反馈收敛出来的**，别再单独调其中一个：
+   *   ① m09695 3 只、周期 11~16s、z 写死 10~19 —— 大半时间在周期外，读成"边上一个白点"；
+   *   ② 2026-11-24 早先"不明显" → 加到 24 只、0.030/p.s、封顶 13px、暖金混色；
+   *   ③ 【用户 2026-11-24】"太大太多了，而且这个蝴蝶效果和花仙子不搭"。
    *
-   * 上一版是 3 只、各有 11~16 秒周期、每周期只飞 55%，而且 z 写死在 10~19 ——
-   * 贴近镜头的那只会被投影放大成一只巨大的蝴蝶贴在画面角落，其余两只大半时间
-   * 在周期外或者飞出屏幕。于是"满场蝴蝶"读成了"偶尔有一个白点在边上飘"。
-   *
-   * 现在改成**一整片**：18 只，z 覆盖 9~34（近到远整整一条桥），
-   * 每只自己有自己的相位和高度，尺寸按投影**封顶**（贴脸也不会变成怪物），
-   * 远处按雾化淡出。它们不参与任何判定，只是"她在场上，所以这里活过来了"。
+   * 所以现在：**10 只**、尺寸不超过 6.2px、整体压暗到 0.3~0.6 透明度、只留粉白两色、
+   * 光晕砍半。蝴蝶是花仙子身边的"活气"，不是撒在屏幕上的彩纸 ——
+   * 远看应该像几片被光打亮的粉色薄片，凑近才认得出翅膀。
    */
   _drawButterflies(ctx, game) {
     // 【用户 m10372】"蝴蝶是和花仙子绑定的，换英雄了就没有"
@@ -4337,18 +4319,19 @@ export class Renderer {
     if (!game || game.heroId !== 'fairy') return;
     const cam = this.cam;
     const t = this.time;
-    const N = 24;
+    // 24 → 10：密度减半以上，画面才回到"她在哪，蝴蝶就在哪"的从属关系
+    const N = 10;
     for (let i = 0; i < N; i++) {
       // 稳定伪随机：同一只每一帧都在同一片区域，不抖、不乱跳
       const h1 = Math.abs(Math.sin(i * 12.9898) * 43758.5453) % 1;
       const h2 = Math.abs(Math.sin(i * 78.233) * 12543.123) % 1;
       const h3 = Math.abs(Math.sin(i * 39.425) * 9821.77) % 1;
 
-      // z：9 → 34，近密远疏（pow 把多数放在中近景，远景只留几只做深度）
-      const zBase = 9 + Math.pow(h1, 0.78) * 25;
-      const z = zBase + Math.sin(t * 0.33 + i * 1.7) * 0.9;
-      // x：桥面半宽约 0.5；每只在自己的小范围里来回，幅度 0.18~0.30
-      const xAmp = 0.14 + h2 * 0.20;
+      // z：10.5 → 30.5，近密远疏（pow 把多数放在中近景，远景只留几只做深度）
+      const zBase = 10.5 + Math.pow(h1, 0.86) * 20;
+      const z = zBase + Math.sin(t * 0.33 + i * 1.7) * 0.8;
+      // x：桥面半宽约 0.5；每只在自己的小范围里来回，幅度 0.14~0.30
+      const xAmp = 0.14 + h2 * 0.16;
       const xPhase = h3 * TAU;
       const x = Math.sin(t * (0.45 + h2 * 0.35) + xPhase) * xAmp + (h2 - 0.5) * 0.5;
 
@@ -4361,22 +4344,20 @@ export class Renderer {
         + Math.sin(t * 2.15 + i * 2.7) * 0.018;
       const y = p.y - hgt * p.s;
 
-      // 尺寸：投影缩放 + **封顶**。不封顶的话 z≈9 那只会有 40px 宽，
-      // 在手机上读作"一只贴纸蝴蝶飞过整个屏幕"，而不是"远处有蝴蝶"。
-      // 【用户 2026-11-24】"不明显"：上一版 0.019/p.s、下限 1.6px，
-      // 中远景只剩 2~3px。现在放大到 0.030，下限 3.4 —— 蝴蝶必须"是蝴蝶"。
-      const r = Math.min(13, Math.max(3.4, 0.030 * p.s));
+      // 尺寸：投影缩放 + 封顶。0.0175 / 下限 2.4px / 上限 6.2px ——
+      // 上一版 0.030 与 13px 的上限，最近那只读作"贴在镜头上的贴纸"。
+      const r = Math.min(6.2, Math.max(2.4, 0.0175 * p.s));
 
-      // 距离雾：越远越淡（15 以后基本融进雾里）。下限从 0.16 提到 0.42：
-      // 远处那只可以虚，但不能消失。
-      const fog = clamp(1 - (z - 12) / 24, 0.42, 1);
+      // 距离雾：越远越淡；下限 0.34，远处那只可以虚，但不能消失。
+      const fog = clamp(1 - (z - 12) / 24, 0.34, 1);
       // 桥头/桥尾淡出：别在画面边缘"啪"地出现
       const edge = clamp(Math.min(p.x + 40, this.w + 40 - p.x) / 70, 0, 1);
 
-      const flap = 0.14 + 0.86 * Math.abs(Math.sin(t * (7.5 + h1 * 4) + i * 2.3));
-      // 只有花仙子会招蝴蝶，所以配色固定粉/暖金（不再跟着关卡皮肤走，用户 m13500）
-      const col = i % 3 === 0 ? '#ffe9a8' : (i % 3 === 1 ? '#ffc2e2' : '#ffd6ee');
-      this._butterfly(ctx, p.x, y, r, flap, col, (0.52 + 0.44 * fog) * edge);
+      const flap = 0.14 + 0.86 * Math.abs(Math.sin(t * (6.2 + h1 * 2.6) + i * 2.3));
+      // 花仙子的配色只有粉与白（暖金是勇者的颜色，混进来会像彩灯）：
+      //   #ffd6ea 粉 · #ffe6f2 浅粉 · #ffc4dd 深一档的粉
+      const col = i % 3 === 0 ? '#ffd6ea' : (i % 3 === 1 ? '#ffe6f2' : '#ffc4dd');
+      this._butterfly(ctx, p.x, y, r, flap, col, (0.30 + 0.30 * fog) * edge);
     }
   }
 
@@ -4385,16 +4366,17 @@ export class Renderer {
     if (!(alpha > 0.01)) return;
     const a = clamp(alpha, 0, 1);
     // 身后一层加法雾：远处自然消失，近处才看得见"它自己在发光"。
-    // 【用户 2026-11-24】"蝴蝶效果现在不明显"：0.13 的雾在夜色草甸上等于没有，
-    // 蝴蝶最后只剩一对 3px 的粉点。提到 0.24 就够 —— 再高整只会糊成一团光斑，
-    // 玩家读到的是"萤火虫"而不是"蝴蝶"。
-    this._drawGlow(x, y, r * 2.7, col, 0.24 * a);
+    // 【用户 2026-11-24】"太大太多 / 和花仙子不搭"：上一版 0.24 的雾配 13px 翅膀，
+    // 整只读作一团粉白光斑。现在半径与强度一起砍半（2.7→2.1、0.24→0.11），
+    // 光只是把蝶从暗背景里托出来，不负责当主角。
+    this._drawGlow(x, y, r * 2.1, col, 0.11 * a);
     ctx.save();
     ctx.globalAlpha = a;
     const squash = 0.26 + 0.74 * flap;
     // 描边从"深紫细线"换成"暖白细线"。上一版在暗背景上，深色描边把整只蝶
     // 压成了一个紫黑小点 —— 远看是污渍，不是蝴蝶。亮边才读得出翅膀的轮廓。
-    const rim = 'rgba(255,246,232,0.62)';
+    // 这一版再把亮度收一档（0.62→0.46）：小尺寸下亮边太抢，会像反光贴纸。
+    const rim = 'rgba(255,240,248,0.46)';
     for (const s of [-1, 1]) {
       ctx.save();
       ctx.translate(x, y);

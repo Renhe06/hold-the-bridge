@@ -19,6 +19,7 @@
 // ---------------------------------------------------------------------------
 
 import { clamp, mulberry32 } from './util.js';
+import { artLoad } from './art.js';
 
 /** 本文件里画伤痕要用到整圈；sea-game 里那份常量不跨模块，这里自带一个。 */
 const TAU = Math.PI * 2;
@@ -44,40 +45,36 @@ export class SeaWhale {
     this._baked = null;
   }
 
-  /** 单张图加载；失败返回 null，不抛 —— 缺件必须能降级，不能把角色整个弄丢 */
+  /**
+   * 单张图加载；失败返回 null，不抛 —— 缺件必须能降级，不能把角色整个弄丢。
+   * 走 js/art.js 的共享缓存：加载页解码过的图，渲染层直接复用，不重复解码。
+   * tries=1：这里在做"png / webp 后缀探测"，404 不值得重试，整轮失败由 load() 重来。
+   */
   _img(url) {
-    return new Promise((res) => {
-      if (typeof Image === 'undefined') return res(null);
-      const im = new Image();
-      im.decoding = 'async';
-      im.onload = () => res(im);
-      im.onerror = () => res(null);
-      im.src = url;
-    });
+    return artLoad(url, { tries: 1, timeout: 9000 });
   }
 
   /**
    * 加载分层图。整图缺失但有本体也能用；本体也缺就返回 false，调用方退回矢量占位。
    * @param dir 目录，默认 './img/sea/'
+   * @param onProgress 0~1 的完成回调 —— 加载页用它显示真实进度，不画假进度条
    */
-  async load(dir = './img/sea/') {
+  async load(dir = './img/sea/', onProgress) {
     // 允许 png / webp 两种后缀：AI 出图和白底抠图产出的都是 png，
-    // 而项目里其它资源是 webp —— 谁先找到用谁，找不到的静默跳过（缺件要能降级）。
+    // 而项目里其它资源是 webp —— 两种**并行**探一次，谁先到用谁。
+    // （串行探两次会让慢网多等一个来回；这里 6 个部件共发 12 个请求，404 很便宜。）
+    const bases = ['whale', 'whale-body', 'whale-fluke', 'whale-fin', 'whale-fin-far', 'whale-mouth'];
+    let settled = 0;
     const pick = async (base) => {
-      for (const ext of ['png', 'webp']) {
-        const im = await this._img(dir + base + '.' + ext);
-        if (im) return im;
-      }
-      return null;
+      const [png, webp] = await Promise.all([
+        this._img(dir + base + '.png'),
+        this._img(dir + base + '.webp'),
+      ]);
+      settled += 1;
+      if (onProgress) onProgress(settled / bases.length);
+      return png || webp;
     };
-    const [full, body, fluke, fin, finFar, mouth] = await Promise.all([
-      pick('whale'),
-      pick('whale-body'),
-      pick('whale-fluke'),
-      pick('whale-fin'),
-      pick('whale-fin-far'),
-      pick('whale-mouth'),
-    ]);
+    const [full, body, fluke, fin, finFar, mouth] = await Promise.all(bases.map(pick));
     if (!full && !body) return false;
     this.parts = {
       full: full || body,

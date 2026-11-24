@@ -482,6 +482,9 @@ const EN = {
 
   // 加载页小字（用户 m13363）
   '首次加载需要较长时间，请耐心等待~': 'First load can take a while — thanks for waiting~',
+  // 【用户 2026-11-24】进关卡前的加载页：贴图没齐就不放人进门
+  '正在载入贴图，马上就好…': 'Loading art — almost there…',
+  '贴图没下下来 · 点一下重试': 'Art failed to load · tap to retry',
 
   // v1.0.56 更新说明（用户 m13363 给的条目）
   '修复微信打开偶发技能错位bug': 'Fixed the occasional skill-button misalignment when opening in WeChat',

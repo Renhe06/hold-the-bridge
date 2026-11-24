@@ -17,6 +17,7 @@ const CET4_LOOKUP = WORD_LOOKUP;
 import { QUALITY } from './quality.js';
 import { I18N } from './i18n.js';
 import { CHANGELOG } from './changelog.js';
+import { artLoad, artGet } from './art.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -472,21 +473,14 @@ const BOOT_HARD_MS = 12000; // 资源包万一卡住，也不能把玩家按在�
 let bootClosed = false;
 let bootPackPromise = null;
 
-/** 一张图：取文件 + 解码都做完才算完；9s 兜底，单张卡住不拖累整包 */
+/**
+ * 一张图：取文件 + 解码都做完才算完。
+ * 统一走 js/art.js 的共享缓存 —— 加载页解码过的那张 Image 会被渲染层直接拿去用，
+ * 不再"缓存命中也要重新解码一次"。9s 兜底，单张卡住不拖累整包。
+ * @returns {Promise<Image|null>} 成功给 Image，失败给 null（调用方可以据此重试）
+ */
 function preloadImage(url) {
-  return new Promise((res) => {
-    const im = new Image();
-    im.decoding = 'async';
-    let done = false;
-    const fin = () => { if (!done) { done = true; res(); } };
-    im.onload = () => {
-      if (typeof im.decode === 'function') im.decode().then(fin).catch(fin);
-      else fin();
-    };
-    im.onerror = fin;
-    setTimeout(fin, 9000);
-    im.src = url;
-  });
+  return artLoad(url, { tries: 2, timeout: 9000 });
 }
 
 /** 字体：document.fonts.load 会真的去取 woff2；3s 拿不到就用回退字体（swap），
@@ -533,6 +527,9 @@ function loadBootPack() {
 
 function closeBoot() {
   if (bootClosed) return;
+  // 【用户 2026-11-24】加载页在等贴图时不许被"点一下"跳过 ——
+  // 那正是"加载动画一闪而过、进去还是没贴图"的来源。要跳只能等它失败后重试。
+  if (loaderOpen) return;
   bootClosed = true;
   // 给自动化留个数：页面自己的时钟才准
   try {
@@ -559,7 +556,7 @@ function runBootLoader() {
     // 玩家已经开打 / 进了关卡就别突然挡一层
     if (!loaderOpen && game.state === STATE.START) el.style.display = 'flex';
   }, BOOT_SLOW_MS);
-  el.addEventListener('pointerdown', closeBoot);
+  el.addEventListener('pointerdown', onBootTap);
   const hardTimer = setTimeout(() => { if (!loaderOpen) closeBoot(); }, BOOT_HARD_MS);
   // 先让首帧画出来再抢带宽；同时避开 heroPanelCardsReady 里那些变量的 TDZ
   //（定义在文件后面，同步调用会在模块还没执行完时踩 ReferenceError）
@@ -582,13 +579,9 @@ function warmHeroArt(id) {
   if (warmHeroArtKey === key) return;
   warmHeroArtKey = key;
   if (typeof Image === 'undefined') return; // 冒烟测试的桩环境没有 Image
-  const im = new Image();
-  im.decoding = 'async';
-  im.src = `./img/hero-${key}.webp`;
-  if (typeof im.decode === 'function') {
-    const pr = im.decode();
-    if (pr && typeof pr.catch === 'function') pr.catch(() => {});
-  }
+  // 走共享缓存：预热解出来的图，渲染层的 _heroArt 能同步拿走 ——
+  // 以前这里自己 new 一张，等于白解码，进关卡还得再解一遍。
+  for (const u of HERO_ART[key] || [`./img/hero-${key}.webp`]) artLoad(u);
 }
 
 // ---------------------------------------------------------
@@ -610,30 +603,49 @@ const LEVEL_ART = {
   ],
 };
 
-/** 进关卡前把那一关要用的立绘备好：复用同一套「取文件 + 解码」逻辑 */
+// 勇者 / 花仙子从 m12944 起四关都能用 —— 所以**不能只在第四关预载**。
+// 以前只有 fantasy 皮肤才等贴图，选了花仙子去打第 1~3 关就是"人先到、图后到"，
+// 慢机上要等两三秒才换过来。这张表按角色列出，startLevel 里按当前选择合并。
+const HERO_ART = {
+  knight: ['./img/hero-knight.webp'],
+  // 花仙子是三层：整图（兜底）+ 身体 + 翅膀（分层扇动）
+  fairy: ['./img/hero-fairy.webp', './img/hero-fairy-body.webp', './img/hero-fairy-wings.webp'],
+};
+
+/** 进关卡前把这一局真正会用到的图备好；返回值能看出有没有漏网的 */
 function preloadAll(urls, onProgress) {
-  if (typeof Image === 'undefined') return Promise.resolve();
+  if (typeof Image === 'undefined') return Promise.resolve({ ok: urls.length, total: urls.length });
   let done = 0;
   const bump = () => { done += 1; if (onProgress) onProgress(done / urls.length); };
-  return Promise.all(urls.map((u) => preloadImage(u).then(bump)));
+  return Promise.all(urls.map((u) => preloadImage(u).then((im) => { bump(); return !!im; })))
+    .then((list) => ({ ok: list.filter(Boolean).length, total: urls.length }));
 }
 
 let loaderOpen = false;
 let loaderRaf = 0;
 let loaderReal = 0; // 进关卡时的真实进度（0..1），由 setLoaderProgress 推
+let loaderFail = false; // 上一次进关卡有图没下下来：此时点屏幕 = 重试，不是跳过
+let loaderLevel = -1;   // 卡在加载页的那一关，重试要用
 
 /** 【用户 m08644】进关卡的加载页也读真实进度，而不是一条时间斜坡 */
 function setLoaderProgress(f) {
   loaderReal = Math.max(loaderReal, Math.min(1, f || 0));
 }
 
+function bootTip(text) {
+  const tip = document.getElementById('bootTip');
+  if (tip && text) tip.textContent = text;
+}
+
 function showLoader() {
   const el = document.getElementById('bootOverlay');
   if (!el || loaderOpen) return;
   loaderOpen = true;
+  loaderFail = false;
   bootClosed = false;
   el.style.display = 'flex'; // 启动态默认 display:none，慢速兜底要显式打开
   el.classList.remove('done');
+  bootTip('正在载入贴图，马上就好…');
   const bar = document.getElementById('bootBar');
   loaderReal = 0;
   if (bar) bar.style.width = '4%';
@@ -650,23 +662,59 @@ function showLoader() {
 function hideLoader() {
   if (!loaderOpen) return;
   loaderOpen = false;
+  loaderFail = false;
+  loaderLevel = -1;
   if (loaderRaf) cancelAnimationFrame(loaderRaf);
   const bar = document.getElementById('bootBar');
   if (bar) bar.style.width = '100%';
   closeBoot();
 }
 
-/** 开局入口：有素材就先过加载页，没有就直接开 */
+/**
+ * 开局入口：有素材就先过加载页，**加载不齐不开局**。
+ *
+ * 【用户 2026-11-24】"加载动画有，等了很久进去还是没加载出来"。
+ * 现在的规则：要么图齐了进门，要么停在加载页说清楚并让玩家点一下重试 ——
+ * 绝不再"等 6 秒就放人进去看一头没贴图的角色"。
+ */
 function startLevel(idx) {
   const lv = (CFG.levels && CFG.levels[idx]) || {};
-  const urls = (lv.skin && LEVEL_ART[lv.skin]) || [];
+  const urls = [...((lv.skin && LEVEL_ART[lv.skin]) || [])];
+  // 花仙子 / 勇者可能在任意一关出场；「默认」只有第四关画勇者
+  const picked = (game.heroId === 'fairy' || game.heroId === 'knight')
+    ? game.heroId
+    : (lv.skin === 'fantasy' ? 'knight' : '');
+  if (picked && HERO_ART[picked]) urls.push(...HERO_ART[picked]);
+  const uniq = [...new Set(urls)];
   // 桩环境（tools/smoke-test.mjs 的 document 桩）没有 Image：直接开局，
   // 不然 beginLevel 会被推到一个微任务之后，测试里的同步断言就全错位了
-  if (!urls.length || typeof Image === 'undefined') { game.beginLevel(idx); return; }
+  if (!uniq.length || typeof Image === 'undefined') { game.beginLevel(idx); return; }
+  // 全都已经解码好（打过一次 / 启动包预热过）：直接开局，别让加载页闪一帧
+  if (uniq.every((u) => artGet(u))) { game.beginLevel(idx); return; }
   // 资源包已经在开局下过一轮：这里基本是"命中内存缓存 → 立刻满格"，
   // 真正没下过的关卡（后来新增皮肤的素材）才会在这里真的等一次。
   showLoader();
-  preloadAll(urls, setLoaderProgress).then(() => { hideLoader(); game.beginLevel(idx); });
+  loaderLevel = idx;
+  preloadAll(uniq, setLoaderProgress).then((r) => {
+    if (r.ok === r.total) { hideLoader(); game.beginLevel(idx); return; }
+    // 有图没下下来：把加载页留在原地，点一下重试（不静默放行）
+    loaderFail = true;
+    bootTip('贴图没下下来 · 点一下重试');
+    // 进度条停在真实完成的位置（不刷到 100% 骗人），失败原因写在小字里
+  });
+}
+
+/** 加载页上的那一下：失败时重试，成功后忽略（加载中不许跳过） */
+function onBootTap() {
+  if (loaderOpen) {
+    if (loaderFail && loaderLevel >= 0) {
+      const idx = loaderLevel;
+      loaderOpen = false; // 让 showLoader 重新进入
+      startLevel(idx);
+    }
+    return;
+  }
+  closeBoot();
 }
 
 // 立刻开始等（外壳已经由 Service Worker 缓存优先返回了，这里主要是几张立绘）

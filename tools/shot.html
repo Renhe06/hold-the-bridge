@@ -52,6 +52,15 @@ await import('/js/main.js');
 const H = window.__HBT;
 const { game, cam, renderer, frame, STATE } = H;
 const { CFG, setLevel } = await import('/js/config.js');
+// 贴图必须在摆场景之前就"画得出来"：夹具是同步跑帧的，图片 onload 没轮到的话
+// 截图只会拍到手绘兜底 —— 那不是线上表现（线上有真实的等待与解码时间）。
+const { artLoad } = await import('/js/art.js');
+await Promise.all([
+  './img/hero-knight.webp',
+  './img/hero-fairy.webp',
+  './img/hero-fairy-body.webp',
+  './img/hero-fairy-wings.webp',
+].map((u) => artLoad(u, { tries: 2 })));
 // 按皮肤名选关（?skin=fantasy），比写死下标稳 —— 关卡数组往后还会加
 // 注意：main.js 的启动进度条自己也吃 rAF，主循环要等它走完才挂进来。
 // 所以摆场景之前必须先空跑一段（默认 320 帧），否则截图就是一张没画过的黑画布。
@@ -61,6 +70,9 @@ function runSkin() {
   if (!skin) return;
   const i = CFG.levels.findIndex((l) => l.skin === skin);
   if (i >= 0) game.newRun(i);
+  // ?hero=fairy —— 角色卡选择（默认 auto）。蝴蝶只跟花仙子，截图要能直接摆她上场。
+  const hero = Q.get('hero');
+  if (hero) game.heroId = hero;
   game.state = STATE.FIGHT;
 }
 
