@@ -241,7 +241,20 @@ function scheduleFit() {
   requestAnimationFrame(() => {
     fitPending = false;
     fit();
+    // 【2026-11-24】resize 会把 canvas 的 width 重新赋值 = **清空整张画布**。
+    // 如果这一帧刚好没有别的绘制（比如页面切换 / 玩家停手），
+    // 屏幕上就是一片黑 —— 用户报的"进去到处都是空白"有一半是这个窗口。
+    // 所以 fit 完立刻补一帧，保证任何一次重排都不会留下一张空画布。
+    repaintNow();
   });
+}
+
+/** 同步补一帧（不推进世界，dt=0）；失败也不能把主循环带崩 */
+function repaintNow() {
+  try {
+    if (game.state === STATE.START) return; // 首页归主循环画，别抢
+    renderer.draw(game, 0);
+  } catch (_) {}
 }
 
 // ---------------------------------------------------------
@@ -1702,6 +1715,11 @@ let last = 0;
 let audioKickAt = 0; // 上一次"音频自愈"的时间戳（RAF 的 now，和 performance.now 同源）
 
 function frame(now) {
+  // 【2026-11-24】先把下一帧排上，再做这一帧的活。
+  // 旧写法把 requestAnimationFrame 放在函数末尾：任何一次异常（贴图、DOM、音频）
+  // 都会让主循环**永久停掉**，屏幕上就只剩一张黑画布 —— 用户看到的"到处都是空白"。
+  // 现在最坏情况是掉一帧，下一帧照常。
+  requestAnimationFrame(frame);
   if (!last) last = now;
   let dt = (now - last) / 1000;
   last = now;
@@ -1722,17 +1740,17 @@ function frame(now) {
 
   if (paused) {
     // 暂停：世界完全静止（dt=0），但画布照画 —— 暂停面板底下还能看见战场
-    renderer.draw(game, 0);
+    try { renderer.draw(game, 0); } catch (_) {}
     syncState();
     syncHud();
     syncAudioState();
     syncGain(0);
-    requestAnimationFrame(frame);
     return;
   }
 
   game.update(dt);
-  renderer.draw(game, dt);
+  // 同理：一帧画不出来只丢这一帧，不能让循环停掉
+  try { renderer.draw(game, dt); } catch (_) {}
   syncState();
   syncHud();
   syncGain(dt);
@@ -1746,8 +1764,6 @@ function frame(now) {
     sfx.wake();
   }
   audioHintCheck();
-
-  requestAnimationFrame(frame);
 }
 
 // ---------------------------------------------------------

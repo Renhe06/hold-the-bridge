@@ -2549,6 +2549,16 @@ try {
       '角色面板只等两张卡图解码（旧版等整个首屏包，字体一慢就卡住面板）');
     ok(/loadBootPack\(\)\.then\(finish\)/.test(main) || /loadBootPack\(\)\.then\(/.test(main),
       '加载页确实等资源包做完才收（不是等两帧就收）');
+    // 【2026-11-24】黑屏防线：主循环必须先排下一帧；resize 清空画布后要立刻补一帧
+    {
+      const i0 = main.indexOf('function frame(now)');
+      const seg = main.slice(i0, i0 + 1600);
+      ok(/requestAnimationFrame\(frame\);/.test(seg)
+         && seg.indexOf('requestAnimationFrame(frame)') < seg.indexOf('game.update(dt)'),
+        '主循环先排下一帧再干活（任何一帧异常都不会永久黑屏）');
+      ok(/function repaintNow\(/.test(main) && /repaintNow\(\);/.test(main.slice(main.indexOf('function scheduleFit'), main.indexOf('function scheduleFit') + 400)),
+        'resize 清空画布后立刻补画一帧（重排不会留下空画布）');
+    }
     ok(/function warmHeroArt\(/.test(main) && /CFG\.level\.skin === 'fantasy'\) warmHeroArt/.test(main),
       '第四关全身立绘在对话时再兜一次预热（进关卡更稳）');
     ok(!/hero-(knight|fairy)\.(png|webp)/.test(sw), 'sw.js 的预缓存外壳里没有全身立绘');

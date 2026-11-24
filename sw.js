@@ -13,7 +13,7 @@
 //       离线时外壳还在、能打开游戏；图片没缓存上顶多暂时缺图（渲染器有手绘兜底）。
 // ============================================================
 
-const CACHE = 'hold-the-bridge-v1.0.87';
+const CACHE = 'hold-the-bridge-v1.0.88';
 
 // 只预缓存"外壳"：打开游戏必需的那几样，体积小、改动频繁
 const SHELL = [
@@ -25,6 +25,10 @@ const SHELL = [
   // 英文清单：切到 English 时装到主屏幕的名字也走英文（i18n.js 的 applyMeta 换 href）
   './manifest.en.webmanifest',
   './js/main.js',
+  // 【2026-11-24】art.js 是 main/render/sea-whale 的**静态依赖**：
+  // 漏掉它的话，Shell 缓存命中 main.js 而 art.js 取不到时，整个模块图直接加载失败 ——
+  // 页面只剩静态 DOM、画布一片黑（用户报的"进去到处都是空白"）。
+  './js/art.js',
   './js/config.js',
   './js/util.js',
   './js/quality.js',
