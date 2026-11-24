@@ -434,11 +434,10 @@ if (Q.get('oxy') != null) game.oxy = clamp(parseFloat(Q.get('oxy')), 0, 1);
 if (Q.get('hp') != null) game.hp = clamp(parseFloat(Q.get('hp')), 0, 1) * game.hpMax;
 if (Q.get('god') === '1') game.god = true;
 // 调试：直接摆出伤痕状态（截图核对血痕 / 变异 / 塑料袋的位置）
-// 现在伤痕与病灶是**从污染量换算**出来的（见 _derivedMarks），
-// 所以调 ?soil=0.5 比调 ?scars=5 更接近真实状态 —— 两个都支持：
-// 给了 scars/mut 就写一遍 soil，让后续的换算得到同样的结果。
+// 【用户 2026-11-24】血痕只来自鱼钩，不再由污染量换算 ——
+// 所以 ?scars=N 直接写计数，?soil=?mut=N 走 _derivedMarks 那一条。
 if (Q.get('soil') != null) game.soil = clamp(parseFloat(Q.get('soil')), 0, 1);
-if (Q.get('scars') != null) game.soil = Math.max(game.soil, Math.min(9, parseInt(Q.get('scars'), 10) || 0) / 10 + 0.03);
+if (Q.get('scars') != null) game.scars = Math.max(0, Math.min(9, parseInt(Q.get('scars'), 10) || 0));
 if (Q.get('mut') != null) game.soil = Math.max(game.soil, [0, 0.30, 0.52, 0.80][Math.min(3, parseInt(Q.get('mut'), 10) || 0)]);
 game._derivedMarks();
 if (Q.get('rings') != null) game.plasticRings = Math.min(5, parseInt(Q.get('rings'), 10) || 0);
@@ -466,6 +465,8 @@ if (Q.get('sink') === '1') {
   game.sinkDrop = 0;
   game.deadRoll = 0;
 }
+// 调试：?roll=0~1 直接摆出翻肚皮的进度（配合 ?frozen=1 核对旋转方向）
+if (Q.get('roll') != null) game.deadRoll = clamp(parseFloat(Q.get('roll')), 0, 1);
 // 调试：?vd=-0.8 直接给一个垂直速度（空中姿态截图用，配合 ?frozen=1&depth=-0.16）
 if (Q.get('vd') != null) game.vD = clamp(parseFloat(Q.get('vd')), -2, 2);
 
@@ -522,13 +523,11 @@ function frameState() {
       // 这一关要读的是"水和同类"，不是角色立绘。
       L: w * 0.80,
       // 下潜时头朝下：倾角直接读垂直速度，比按目标位置算更有"受力"的感觉。
-      // 沉底那一段是**翻肚皮**：绕身体长轴翻过去，而不是原地转 180°。
-      // 上一版用 tilt 转到 π、并在 roll>0.5 的那一刻突然打开 flip ——
-      // 两个变换的合成在 90° 处是"竖向镜像"，画面读起来正是
-      // "先往右倒一点，再突然往左倒"（用户实拍）。
-      // 现在改成 squash：scaleY = cos(π·roll)，1 → 0 → −1。
-      // 身体先压成一条线（侧看它正好翻到 90° 的那一瞬），再展开成肚皮朝上；
-      // 全程单调、没有镜像切换，所以方向只有一次，不会来回摆。
+      // 沉底那一段是**向左翻过去**，最后肚皮朝上（用户 2026-11-24 定版）。
+      // 历史：最早是 tilt 转到 π、并在 roll>0.5 那一刻突然打开 flip ——
+      // 两者合成在 90° 处是竖向镜像，读作"先右倒再左倒"；
+      // 中间试过 squash（压扁再展开），读作折纸。
+      // 现在就是一次**整体逆时针 180°**：没有镜像、没有压扁，方向只有一个。
       tilt: (() => {
         // 跃出去之后倾角跟着"垂直速度"整条读出来：上升抬头、下落低头。
         // 水下 0.14 的增益是"游"的幅度，空中 0.40 是"跃"的幅度 ——
@@ -538,9 +537,16 @@ function frameState() {
         const lim = air ? 0.58 : 0.42;
         const live = clamp(game.vD * gain, -lim, lim) + Math.sin(t * 0.31) * 0.012;
         const roll = game.deadRoll || 0;
-        return live * (1 - roll) + roll * 0.07;
+        if (roll <= 0) return live;
+        // 【用户 2026-11-24】"死亡不是折叠翻转啊，是向左翻转，最后到翻肚皮"。
+        // 上一版用 squash（scaleY 走 1→0→−1）是"压扁再展开"—— 读作折纸。
+        // 现在改成**整体逆时针转到 −π**：头往左上、身体翻过去，最后肚皮朝上。
+        // 中间用 smoothstep 缓动：起翻慢、中段快、贴底前收住 —— 一条死鲸不会匀速转。
+        const e = roll * roll * (3 - 2 * roll);
+        // 活着时的倾角在起翻的 30% 里先卸掉，免得"低头 0.3 rad"和"左翻"叠在一起
+        const k = clamp(roll / 0.3, 0, 1);
+        return live * (1 - k) - Math.PI * e;
       })(),
-      squash: (game.deadRoll || 0) > 0 ? Math.cos(Math.PI * (game.deadRoll || 0)) : 1,
       flip: false,
       phase: t * 2.62,
       // 这一条之前漏了：海水把它泡到多深，它就该多暗。

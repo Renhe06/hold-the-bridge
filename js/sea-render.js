@@ -1068,11 +1068,6 @@ export class SeaRenderer {
           echo: st.echo || 0,
           tilt: wh.tilt ?? 0,
           flip: !!wh.flip,
-          // 翻肚皮：绕长轴的 squash（1 → 0 → −1）。
-          // **必须显式转发** —— 这一层是白名单，不在这里列出来的字段
-          // 上一层传了也到不了贴图层。（上一版在这里漏了 grime，
-          // 结果"污染层"写了却从来没出现在屏幕上。）
-          squash: wh.squash,
           depth,
           screenH: h,
           // 伤：血痕 / 变异 / 塑料袋。漏传这三个字段的后果是"加了伤痕系统，

@@ -713,9 +713,6 @@ export class SeaWhale {
     ctx.translate(x, y - buoy);
     if (o.flip) ctx.scale(-1, 1);
     if (o.tilt) ctx.rotate(o.tilt);
-    // squash：绕长轴的"翻肚皮"。1 → 0 → −1，负值就是肚皮朝上。
-    // 它替代了上一版的"tilt 转 π + 中途切换 flip"——那套在 90° 处会跳一下方向。
-    if (o.squash != null && o.squash !== 1) ctx.scale(1, o.squash);
     ctx.scale(breath, breath);
 
     // 剪切：以颈线为不动点，越往尾端位移越大 —— 头不晃，身子才像在游
