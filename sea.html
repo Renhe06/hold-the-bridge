@@ -181,21 +181,46 @@ window.addEventListener('error', (e) => {
   #boot b { font-weight: 400; font-size: 44px; letter-spacing: 0.3em; text-indent: .3em; }
   #boot .sub { color: #6f93a6; font-size: 12.5px; letter-spacing: 0.14em; }
   #boot .rule { width: 34px; height: 1px; background: rgba(140,190,210,.3); margin: 3px 0; }
-  /* 加载指示：贴图没到位之前，"开始"是禁用态 —— 玩家点开看到的是
-     "正在下潜"，不是一头纯色的鱼。 */
+  /* 加载态：贴图不齐就不许进门（用户 2026-11-25）。
+     这一块要有"真的在加载"的信息量 —— 进度条 + 百分比 + 一行说明，
+     而不是一个转圈的空屏。条是 CSS transition，主线程在烘图时也不会顿。 */
   #boot .ld {
-    display: none; align-items: center; gap: 9px;
-    margin-top: 12px; font-size: 11px; letter-spacing: .26em; color: #7fb0c4;
+    display: none; flex-direction: column; align-items: center;
+    gap: 10px; margin-top: 16px;
   }
   #boot.loading .go { display: none; }
   #boot.loading .ld { display: flex; }
-  #boot .ld i {
-    width: 13px; height: 13px; border-radius: 50%;
-    border: 1.5px solid rgba(150,206,226,.22);
-    border-top-color: #9fd8ec;
-    animation: ldspin .9s linear infinite;
+  #boot .ld .bar {
+    width: 220px; height: 4px; border-radius: 999px;
+    background: rgba(140, 190, 210, .16); overflow: hidden;
   }
-  @keyframes ldspin { to { transform: rotate(360deg); } }
+  #boot .ld .bar i {
+    display: block; width: 0; height: 100%; border-radius: 999px;
+    background: linear-gradient(90deg, #5fc6e0, #bff0ff);
+    box-shadow: 0 0 10px rgba(140, 230, 255, .45);
+    transition: width .3s ease;
+    animation: barbreath 2.2s ease-in-out infinite;
+  }
+  /* 加载慢的时候，条本身轻轻呼吸一下 —— 让"还在动"这件事看得见 */
+  @keyframes barbreath {
+    0%, 100% { opacity: .82; }
+    50% { opacity: 1; }
+  }
+  #boot .ld .pct { font-size: 13px; letter-spacing: .1em; color: #a9d6e6; }
+  #boot .fail .pct { font-size: 13px; letter-spacing: .1em; color: #d8e9f2; }
+  #boot .hint { font-size: 10px; letter-spacing: .1em; color: #6f93a6; opacity: .72; }
+  /* 失败态：所有重试都失败才出现，给一个能点的出口 */
+  #boot .fail {
+    display: none; flex-direction: column; align-items: center;
+    gap: 12px; margin-top: 16px;
+  }
+  #boot.failed .go, #boot.failed .ld { display: none; }
+  #boot.failed .fail { display: flex; }
+  #boot .retry {
+    font-size: 12px; letter-spacing: .3em; color: #9fd8ec;
+    border: 1px solid rgba(134, 185, 205, .45);
+    padding: 9px 24px; border-radius: 30px;
+  }
   #boot .go { margin-top: 10px; font-size: 12px; letter-spacing: .3em; color: #86b9cd;
     border: 1px solid rgba(134,185,205,.3); padding: 9px 22px; border-radius: 30px; }
 
@@ -310,7 +335,22 @@ window.addEventListener('error', (e) => {
     找到同伴 → 歌多一个音<br>气只在海面回满
   </div>
   <div class="go">开始</div>
-  <div class="ld"><i></i><span>正在下潜</span></div>
+
+  <!-- 加载态（用户 2026-11-25："必须加载好贴图才能进入，加载界面进行充分"）：
+       进度条 + 百分比 + 一行说明。贴图没齐就一直停在这里，不放人进关。 -->
+  <div class="ld">
+    <div class="bar"><i id="bootBar"></i></div>
+    <div class="pct" id="bootPct">正在加载鲸的贴图 · 0%</div>
+    <div class="hint" id="bootHint">首次进入约 1MB 贴图，之后从缓存秒开</div>
+    <div class="hint" style="opacity:.5">加载完才能下潜，不会先给你一头纯色的鱼</div>
+  </div>
+
+  <!-- 失败态：所有重试都失败才出现，点「重试」再来一轮（不是死路） -->
+  <div class="fail">
+    <div class="pct" id="bootFailMsg">鲸的贴图没能加载出来</div>
+    <div class="hint">检查一下网络，再点一次「重试」</div>
+    <div class="retry" id="bootRetry">重 试</div>
+  </div>
 </div>
 
 <script type="module">
@@ -375,46 +415,48 @@ function makeMockSprite() {
 // 玩家看到的是一头纯黑的鱼 —— 「鱼的贴图没生效」就是这么来的。
 // ?sprite=mock 仍然是假图（单测用），?sprite=vec 才强制走矢量。
 const spriteMode = Q.get('sprite') || 'img';
-// 加载页那一行字就是真实进度：贴图没齐，玩家看到的是百分比，不是一头纯色的鱼。
-const bootLd = boot.querySelector('.ld span');
+// 加载页的进度条与百分比：**只读真实完成量**（whaleArt.load 每探完一组回调一次）。
+// 用户 2026-11-25："加载界面进行充分" —— 所以要看得见"到哪儿了"，不是干转圈。
+const bootBar = document.getElementById('bootBar');
+const bootPct = document.getElementById('bootPct');
+let artPct = 0;
 function bootProgress(f) {
-  if (bootLd) bootLd.textContent = '正在下潜 ' + Math.round(Math.max(0, Math.min(1, f || 0)) * 100) + '%';
+  artPct = Math.max(0, Math.min(1, f || 0));
+  const pct = Math.round(artPct * 100);
+  if (bootBar) bootBar.style.width = pct + '%';
+  if (!bootPct) return;
+  // 100% 之后还要解码 / 烘第一帧，这里换一句话，别让玩家盯着 100% 以为卡住
+  bootPct.textContent = pct >= 100
+    ? '贴图已就绪 · 正在准备画面'
+    : '正在加载鲸的贴图 · ' + pct + '%';
 }
-// 加载结果要能被 start() 等待 —— 上一版只在这里挂了个 .then 处理失败，
-// 开局根本不等它，于是"点开始后的头几秒是一头纯色的鱼"。
-let artReady = Promise.resolve(true);
-const setArtNote = (text) => {
-  if (!report) return;
-  if (text) {
-    report.classList.add('on');
-    report.textContent = text;
-  } else if (report.textContent.indexOf('鲸的贴图') === 0) {
-    // 只撤自己写的那条，别把 bench / selftest 的报告抹掉
-    report.classList.remove('on');
-    report.textContent = '';
-  }
-};
+
+// 贴图加载：**必须成功才放人进门**（用户 2026-11-25："必须加载好贴图才能进入"）。
+// 一轮失败（弱网/超时）后台再来一轮，两轮都失败就停在失败态等玩家点「重试」——
+// 不再"等 1.5 秒就直接进"，也不再让人看一头矢量鲸。
+let artFailed = false;
+let artRound = 0; // 每次重试自增，用来丢弃过期的回调
+function loadArt(rounds = 1) {
+  artFailed = false;
+  const mine = ++artRound;
+  const round = (left) => whaleArt.load('img/sea/', (f) => {
+    if (mine === artRound) bootProgress(f);
+  }).then((ok) => {
+    if (ok || left <= 0 || mine !== artRound) return ok;
+    return new Promise((r) => setTimeout(r, 1200)).then(() => round(left - 1));
+  });
+  return round(rounds).then((ok) => {
+    if (mine === artRound) artFailed = !ok;
+    return ok;
+  });
+}
+
 if (spriteMode === 'mock') {
   whaleArt.adopt(makeMockSprite());
 } else if (spriteMode === 'img') {
-  // 【2026-11-25】用户："贴图没生效，报错提示未找到 whale"。
-  // 线上 whale.png 是 200，失败的是"弱网下没在超时内下完"，而旧代码**只试一次**：
-  // 一次超时 → 整局都是矢量占位，还写死一句"没有找到 whale"（听起来像文件没了）。
-  // 现在改成后台最多 3 轮、每轮之间停 1.2s；期间照常开局用矢量占位，
-  // 成功那一轮渲染层下一帧就会自动换上新贴图（它每帧读 sprite.ready）。
-  const round = (left) => whaleArt.load('img/sea/', bootProgress).then((ok) => {
-    if (ok) {
-      setArtNote('');
-      return true;
-    }
-    if (left > 0) {
-      setArtNote('鲸的贴图还在加载…（先用矢量占位）');
-      return new Promise((r) => setTimeout(r, 1200)).then(() => round(left - 1));
-    }
-    setArtNote('鲸的贴图没能加载出来，先用矢量占位');
-    return false;
-  });
-  artReady = round(2);
+  // 页面一打开就开始取：玩家读封面、看操作说明的这几秒就是加载窗口，
+  // 点「开始」时通常已经 100%。
+  loadArt(1);
 }
 
 const FROZEN = Q.get('frozen') === '1';
@@ -935,63 +977,157 @@ function loop(now) {
 
   fpsAcc += dt; fpsN++;
   if (fpsAcc >= 0.5) { fpsShown = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; }
+  // 无头自测用：?tap=1&frames=N 跑满 N 帧就停（rAF 无限循环 + 虚拟时钟会把渲染进程拖死，
+  // 详见文件末尾 runAuto 的注释）。正常游玩不带这个参数，行为不变。
+  if (TAP_STOP && frames >= TAP_STOP) return;
   requestAnimationFrame(loop);
 }
 
 // ---------------- 输入 ----------------
 let starting = false;
+let loadingAt = 0; // 加载态出现的时间：保证它至少露 0.5s，不"闪一下"像卡顿
+let waitId = 0;
+let slowHint = 0;  // 慢网提示的定时器
+const TAP_STOP = Q.get('tap') === '1' ? Math.max(0, parseInt(Q.get('frames') || '0', 10)) : 0;
+
+function showLoading() {
+  boot.classList.remove('failed');
+  boot.classList.add('loading');
+  loadingAt = Date.now();
+  bootProgress(artPct);
+  // 4 秒还没好，就把说明换成"网络慢、还在加载" ——
+  // 否则玩家盯着一个不动的条，会以为卡死了（用户："加载界面进行充分提示"）
+  const hint = document.getElementById('bootHint');
+  if (hint) hint.textContent = '首次进入约 1MB 贴图，之后从缓存秒开';
+  clearTimeout(slowHint);
+  slowHint = setTimeout(() => {
+    if (!boot.classList.contains('loading')) return;
+    if (hint) hint.textContent = '网络有点慢，正在继续加载…（不会先放你进去看矢量鲸）';
+  }, 4000);
+}
+
+function showFail() {
+  starting = false;
+  clearTimeout(slowHint);
+  boot.classList.remove('loading');
+  boot.classList.add('failed');
+}
+
+/**
+ * 点击「开始」。
+ *
+ * 用户 2026-11-25："跃这关必须加载好贴图才能进入，加载界面进行充分提示"。
+ * 所以这里**没有任何降级放行**：贴图没齐就停在加载页等，等不到就停在失败态等玩家重试。
+ * （上一版跟 1.5 秒赛跑，到点就放人进去看矢量鲸 —— 那正是用户不要的。）
+ */
 function start() {
   if (running || starting) return;
   starting = true;
   // 音频解锁必须贴着这次点击（iOS 只认手势当场），不能等 rAF 之后
   S.unlock();
-  boot.classList.add('loading');
-  bootProgress(0);
 
-  // 【用户 2026-11-24】"点击开始会卡顿几秒才出现加载"。
-  // 原因是点击后立刻做第一帧的重活（贴图烘焙 / 世界铺底），主线程被占满，
-  // spinner 根本没机会上屏。现在先让这一帧画出来（双层 rAF），再做重活 ——
-  // spinner 是 CSS transform 动画，走合成器线程，主线程卡住时它照样转。
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    // 鲸的贴图从页面一打开就在取，玩家读完封面再点，通常已经好了。
-    // 这里最多再等 1.5s（spinner 已经在转，不是白屏），等不到就直接进 ——
-    // 宁可先看矢量占位，也不把玩家按在门口。
-    const cap = new Promise((r) => setTimeout(() => r(false), 1500));
-    Promise.race([artReady.catch(() => false), cap]).then(() => {
-      starting = false;
-      running = true;
-      // 音频初始化：**必须限次**。旧写法 `if (!ok) setTimeout(() => sea.init(), 120)`
-      // 会一直排下去 —— 音频被系统拒绝时（无设备 / 还没解锁）永不停止；
-      // 在虚拟时钟下更糟：定时器瞬间连续触发，把渲染进程直接拖死（?tap=1 崩溃）。
-      // 现在最多试 6 次（≈0.7s，够等 AudioContext 醒），之后安静地玩无声版；
-      // 玩家下一次点屏幕时再补一次，那才是有用的手势窗口。
-      let audioTries = 0;
-      const ensureAudio = () => {
-        if (sea.ready) return;
-        if (sea.init()) return;
-        if (audioTries++ >= 6) return;
-        setTimeout(ensureAudio, 120);
-      };
-      ensureAudio();
-      sea.motif({ vol: 0.04 });
-      // 真实录音异步加载：不挡开局，到位了再接上海面环境层。
-      sea.loadSamples().then((got) => {
-        if (got) sea.startSurfaceBed();
-      });
-      requestAnimationFrame(loop);
-      // 收加载页：等两帧真的画完再收，避免"露出半张还没画完的海"
-      let wait = 2;
-      const hide = () => {
-        if (wait-- > 0) return requestAnimationFrame(hide);
-        boot.style.display = 'none';
-        boot.classList.remove('loading');
-      };
-      requestAnimationFrame(hide);
-    });
-  }));
+  // 只有 img 模式才有"等贴图"这回事：?sprite=vec 是强制矢量（截图/排障用）
+  if (spriteMode !== 'img' || whaleArt.ready) { enterGame(); return; }
+  if (artFailed) { showFail(); return; }          // 已经失败过：直接给重试，不装作在加载
+  showLoading();
+  waitArt(artRound);
+}
+
+/** 等当前这一轮加载结束；玩家点「重试」会换 artRound，旧循环自动作废 */
+function waitArt(mine) {
+  const my = ++waitId;
+  const tick = () => {
+    if (running || my !== waitId) return;
+    if (whaleArt.ready) { enterGame(); return; }
+    if (mine !== artRound) mine = artRound;      // 换了一轮，继续等
+    if (mine === artRound && artFailed) { showFail(); return; }
+    setTimeout(tick, 120);
+  };
+  tick();
+}
+
+/** 贴图齐了才走这里。加载页至少露 0.5s，避免"闪一下"更像卡顿 */
+function enterGame() {
+  if (running) return;
+  starting = false;
+  clearTimeout(slowHint);
+  const hold = loadingAt ? Math.max(0, 520 - (Date.now() - loadingAt)) : 0;
+  // 双层 rAF：先让加载页画上屏，再做第一帧的重活。
+  // 另配一个 400ms 兜底：rAF 在后台标签页 / 部分无头环境里不派发，
+  // 只等 rAF 会让"点了开始永远不进门"（这次自测就踩到了）。
+  const kick = () => {
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      if (!running) beginGame();
+    };
+    requestAnimationFrame(() => requestAnimationFrame(go));
+    setTimeout(go, 400);
+  };
+  if (hold > 0) setTimeout(kick, hold);
+  else kick();
+}
+
+function beginGame() {
+  if (running) return;
+  running = true;
+  // 音频初始化：**必须限次**。旧写法 `if (!ok) setTimeout(() => sea.init(), 120)`
+  // 会一直排下去 —— 音频被系统拒绝时（无设备 / 还没解锁）永不停止；
+  // 在虚拟时钟下更糟：定时器瞬间连续触发，把渲染进程直接拖死（?tap=1 崩溃）。
+  // 现在最多试 6 次（≈0.7s，够等 AudioContext 醒），之后安静地玩无声版；
+  // 玩家下一次点屏幕时再补一次，那才是有用的手势窗口。
+  let audioTries = 0;
+  const ensureAudio = () => {
+    if (sea.ready) return;
+    if (sea.init()) return;
+    if (audioTries++ >= 6) return;
+    setTimeout(ensureAudio, 120);
+  };
+  ensureAudio();
+  sea.motif({ vol: 0.04 });
+  // 真实录音异步加载：不挡开局，到位了再接上海面环境层。
+  sea.loadSamples().then((got) => {
+    if (got) sea.startSurfaceBed();
+  });
+  requestAnimationFrame(loop);
+  // 收加载页：等两帧真的画完，再淡出 —— 不露出"半张还没画完的海"。
+  // 同样配 500ms 兜底：rAF 不派发时（后台标签页）也必须把加载页收掉。
+  let wait = 2;
+  let hidden = false;
+  const hide = () => {
+    if (hidden) return;
+    if (wait-- > 0) return requestAnimationFrame(hide);
+    hidden = true;
+    boot.style.pointerEvents = 'none';
+    boot.style.transition = 'opacity .3s ease';
+    boot.style.opacity = '0';
+    setTimeout(() => {
+      boot.style.display = 'none';
+      boot.classList.remove('loading');
+    }, 320);
+  };
+  requestAnimationFrame(hide);
+  setTimeout(hide, 500);
 }
 
 boot.addEventListener('pointerdown', start);
+
+// 「重试」：只出现在失败态。stopPropagation 挡住父级的 start，避免一次点击跑两套流程
+const bootRetry = document.getElementById('bootRetry');
+if (bootRetry) {
+  bootRetry.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (running || starting) return;
+    starting = true;
+    S.unlock();          // 这一下也是手势，顺手把音频窗口补上
+    bootProgress(0);
+    showLoading();
+    loadArt(1);
+    waitArt(artRound);
+  });
+}
 // 调试/自测：?tap=1 自动点一次「开始」，用来验证"点击→加载动画→进门"这条真路径
 // （?auto=… 是直接开跑，绕过了 start，测不到卡顿与加载页）
 if (Q.get('tap') === '1') setTimeout(start, 60);

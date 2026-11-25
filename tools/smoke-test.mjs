@@ -2607,21 +2607,27 @@ try {
       '加载页与渲染层共用同一份贴图缓存（加载过的那张图，渲染层直接取）');
     ok(/const HERO_ART = \{/.test(main) && /HERO_ART\[picked\]/.test(main),
       '花仙子 / 勇者的立绘在任意一关进关前都会预取（不只在第四关）');
-    // 跃：点击「开始」必须先让加载动画上屏，再做第一帧的重活（用户："卡顿几秒才出现加载"）
-    ok(!/const gate = \(attempt\)/.test(seaSrc) && !/classList\.add\('failed'\)/.test(seaSrc)
-       && /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) =>/.test(seaSrc)
+    // 跃：点击「开始」先让加载动画上屏，再做第一帧的重活（用户："卡顿几秒才出现加载"）
+    ok(/function enterGame\(/.test(seaSrc)
+       && /requestAnimationFrame\(\(\) => requestAnimationFrame\(go\)\)/.test(seaSrc)
+       && /setTimeout\(go, 400\)/.test(seaSrc)
        && /boot\.style\.display = 'none'/.test(seaSrc),
-      '跃：点击开始先出加载动画再做重活（双层 rAF），进门不等贴图');
-    // 【2026-11-25】用户："鲸鱼贴图没生效，提示未找到 whale"。
-    // 线上文件是 200，失败原因是弱网没在 9s 超时内下完，而且只试一次。
-    // 现在：单张 20s 超时 + png 重试一次；整轮失败后台再来两轮，成功后自动撤掉提示。
+      '跃：进门先画一帧再收加载页（双层 rAF + 400ms 兜底，后台标签页也能进）');
+    // 【2026-11-25】用户："必须加载好贴图才能进入，加载界面进行充分提示"。
+    // 这一版把"等 1.5 秒就放行"彻底删掉：贴图没齐就停在加载页，失败停在失败态等重试。
     {
       const whaleSrc = fs.readFileSync(path.join(ROOT, 'js', 'sea-whale.js'), 'utf8');
       ok(/timeout: 20000/.test(whaleSrc) && /_img\(dir \+ base \+ '\.png', 2\)/.test(whaleSrc),
         '跃：鲸贴图单张 20s 超时 + png 重试（612KB 的图不能被 9s 判死）');
-      ok(/const round = \(left\)/.test(seaSrc) && /round\(2\)/.test(seaSrc)
-         && /鲸的贴图还在加载/.test(seaSrc),
-        '跃：整轮加载失败会后台重试两轮，提示文案不再说“没有找到 whale”');
+      ok(!/const cap = new Promise/.test(seaSrc) && !/Promise\.race\(\[artReady/.test(seaSrc),
+        '跃：不再跟 1.5 秒赛跑（贴图没齐不放行）');
+      ok(/if \(whaleArt\.ready\) \{ enterGame\(\); return; \}/.test(seaSrc)
+         && /function waitArt\(/.test(seaSrc)
+         && /function showFail\(/.test(seaSrc),
+        '跃：贴图就绪才进门；没就绪就等，失败停在失败态');
+      ok(/id="bootBar"/.test(seaSrc) && /id="bootPct"/.test(seaSrc)
+         && /正在加载鲸的贴图 ·/.test(seaSrc) && /id="bootRetry"/.test(seaSrc),
+        '跃：加载页有真实进度条 / 百分比 / 重试按钮（充分提示，不是空转圈）');
     }
     ok(/startLevel\(levelIndexOf\(/.test(main) && !/^\s*game\.beginLevel\(levelIndexOf/gm.test(main.replace(/startLevel\(levelIndexOf\(.*\);/g, '')),
       '选关 / 下一关两个入口都改走 startLevel（没有再直接 beginLevel）');
