@@ -1178,7 +1178,7 @@ export class SeaGame {
   /**
    * 双界。这是整关的心脏。
    *
-   * 上浮到 SURFACE_D 以上：气在涨，但你在月光下最亮 —— 暴露度跟着涨，
+   * 浮出水面（depth < 0）：气在涨，但你在月光下最亮 —— 暴露度跟着涨，
    * 海鸥和船都看得见你。下潜到 ABYSS_D 以下：没人看得见你，
    * 但水压在吃气，而且四周全黑，连同类在哪都只能靠听。
    *
@@ -1190,35 +1190,34 @@ export class SeaGame {
     // 把它锁死等于让所有人必死。油污的代价是"你在油里最显眼" ——
     // 能呼吸，但每一次呼吸都在被看着。见 _kit 里的 slick 分支。
     const above = this.depth < SURFACE_D;
-    // 用户定版：**只有头真的探出水面才算换气**。
-    // 上一版的门槛是 0.14，等于贴在水平面下一点点也能把气回满 ——
-    // 玩家学会赖在 0.12 不动，海面就不再是"要去的地方"，只是一个区域。
-    // 现在门槛压在 0.02（皮肤线），要换气得真的把头顶出去。
-    const air = this.depth < 0.025;
+    // 用户 2026-11-25："在海平面附近但还在海里时氧气不会减少，应该必须跳出海平面才能补充氧气"。
+    // 上一版 air 门槛是 0.025，等于贴在水平面下一点点就能回气 —— 玩家学会赖在 0.02 不动，
+    // 气不涨也不掉，海面成了免费的呼吸区。现在**只有 depth < 0（头真的出水）才算换气**；
+    // 其余深度一律按下面的曲线费气，贴着水面也一样。
+    const air = this.depth < 0;
 
-    if (above) {
-      this.exposure = Math.min(1, this.exposure + dt * 0.34);
-      if (air) {
-        const wasDeep = this._wasDeep;
-        // 回气很快：30 秒的气 0.55 秒回满。探一次头就该走，不该泡在水面
-        this.oxy = Math.min(1, this.oxy + dt * 1.85);
-        // 从深处第一次冒出水面 = 一次"跃"。给一次呼吸音和一道月光闪。
-        if (wasDeep) {
-          this.dives += 1;
-          // 每潜一趟，身上多一点 —— 0.008 很小，但十趟就不再是干净的鲸。
-          // 污染不能只来自"受伤"：那样不受伤的玩家整局都干干净净，
-          // 而这首歌说的是"这片海在它身上留证据"，不是"它挨了几下打"。
-          this.soil = clamp(this.soil + 0.008, 0, 1);
-          this.breathFlash = 1;
-          this.sea.breath();
-          this.sea.surface();
-          if (this.depth < 0) {
-            this.bump = 1;
-            this.exposure = Math.min(1, this.exposure + 0.30);
-          }
+    if (above) this.exposure = Math.min(1, this.exposure + dt * 0.34);
+
+    if (air) {
+      const wasDeep = this._wasDeep;
+      // 回气很快：30 秒的气 0.55 秒回满。探一次头就该走，不该泡在水面
+      this.oxy = Math.min(1, this.oxy + dt * 1.85);
+      // 从深处第一次冒出水面 = 一次"跃"。给一次呼吸音和一道月光闪。
+      if (wasDeep) {
+        this.dives += 1;
+        // 每潜一趟，身上多一点 —— 0.008 很小，但十趟就不再是干净的鲸。
+        // 污染不能只来自"受伤"：那样不受伤的玩家整局都干干净净，
+        // 而这首歌说的是"这片海在它身上留证据"，不是"它挨了几下打"。
+        this.soil = clamp(this.soil + 0.008, 0, 1);
+        this.breathFlash = 1;
+        this.sea.breath();
+        this.sea.surface();
+        if (this.depth < 0) {
+          this.bump = 1;
+          this.exposure = Math.min(1, this.exposure + 0.30);
         }
-        this._wasDeep = false;
       }
+      this._wasDeep = false;
     } else {
       // 锁存：只要这一趟真的深过，就记住。不能每帧重算 ——
       // 上浮经过 0.15 的时候它会被算成 false，"跃"于是永远不会被记一次。
@@ -1230,7 +1229,7 @@ export class SeaGame {
       if (this.depth > ABYSS_D) drain *= 1 + (this.depth - ABYSS_D) * 3.2;
       // 在同类身边耗得慢：它替你分担了一点。这是「为寻一次相拥」的机制写法。
       if (this._nearMate > 0) drain *= 0.66;
-      // 浅处不急：第一层是教学，不该被氧气追着跑。
+      // 浅处不急：第一层是教学，不该被氧气追着跑（但仍然在掉，不会冻住）。
       if (this.depth < 0.26) drain *= 0.55;
       this.oxy -= dt * drain;
       if (this.depth > ABYSS_D) this.exposure = Math.max(0, this.exposure - dt * 0.16);
@@ -4530,9 +4529,10 @@ export class SeaGame {
       oxySec: Math.ceil(clamp(this.oxy, 0, 1) * OXY_SEC),
       exposure: this.exposure,
       band: this.depth < SURFACE_D ? 'surface' : this.depth > ABYSS_D ? 'abyss' : 'mid',
-      // 头真的出水面了没有。换气只认这一条（见 _breath），
-      // HUD 靠它把"到了水面"和"喝到空气"分开 —— 这两件事差 0.14 个深度。
-      atAir: this.depth < 0.025,
+      // 头真的出水面了没有。换气只认这一条（见 _breath）：
+      // depth < 0 才是真的把头探出去，HUD 靠它把"到了水面附近"和"喝到空气"分开。
+      // （2026-11-25 起门槛从 0.025 收到 0：贴着水面也不能回气。）
+      atAir: this.depth < 0,
       singing: this.singing,
       voices: this.voices,
       voicesAll: 7,

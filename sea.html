@@ -342,7 +342,6 @@ window.addEventListener('error', (e) => {
     <div class="bar"><i id="bootBar"></i></div>
     <div class="pct" id="bootPct">正在加载鲸的贴图 · 0%</div>
     <div class="hint" id="bootHint">首次进入约 1MB 贴图，之后从缓存秒开</div>
-    <div class="hint" style="opacity:.5">加载完才能下潜，不会先给你一头纯色的鱼</div>
   </div>
 
   <!-- 失败态：所有重试都失败才出现，点「重试」再来一轮（不是死路） -->
@@ -729,10 +728,13 @@ function runAuto() {
         const m = game.mate;
         // 换气就换到八成满才走：只补一点点就下潜，会在浅处反复抽气，
         // 那是机器人的毛病，不是玩家的（人都会等到吸满）。
-        if (game.oxy < 0.82 && (game.depth < 0.12 || game.oxy < 0.24)) {
-          game.aimDepth = -0.04;
+        // 2026-11-25 起"回气"只认 depth < 0（必须真的跃出水面），
+        // 所以自动驾驶也要走真实动作：贴到水面后补一次 pullOut，而不是把目标压在 -0.04 干等。
+        if (game.oxy < 0.82 && (game.depth < 0.16 || game.oxy < 0.24)) {
+          game.aimDepth = 0;
           game.aimLat = 0;
-          game.held = false;
+          game.held = true;
+          if (game.depth < 0.10 && game.vD > -0.10) game.pullOut = true;
         } else if (m && !m.answered) {
           game.aimDepth += (m.depth - game.aimDepth) * 0.05;
           game.aimLat += (m.lat - game.aimLat) * 0.05;
@@ -941,7 +943,7 @@ function syncDom() {
 /**
  * 看过结局 = 第五关上篇通关。
  * 只写一个布尔标记（不碰主存档那个数字进度）：主界面的选关面板据此给
- * 「第 5 关 · 上」打「已通关」记号。写失败也无所谓 —— 那只是个小记号。
+ * 「第 5 关 · 跃」打「已通关」记号。写失败也无所谓 —— 那只是个小记号。
  */
 function markSeen() {
   try { localStorage.setItem('hold-the-bridge:sea', '1'); } catch (_) {}
@@ -1002,7 +1004,7 @@ function showLoading() {
   clearTimeout(slowHint);
   slowHint = setTimeout(() => {
     if (!boot.classList.contains('loading')) return;
-    if (hint) hint.textContent = '网络有点慢，正在继续加载…（不会先放你进去看矢量鲸）';
+    if (hint) hint.textContent = '网络有点慢，正在继续加载…';
   }, 4000);
 }
 
