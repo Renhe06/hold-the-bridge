@@ -383,16 +383,38 @@ function bootProgress(f) {
 // 加载结果要能被 start() 等待 —— 上一版只在这里挂了个 .then 处理失败，
 // 开局根本不等它，于是"点开始后的头几秒是一头纯色的鱼"。
 let artReady = Promise.resolve(true);
+const setArtNote = (text) => {
+  if (!report) return;
+  if (text) {
+    report.classList.add('on');
+    report.textContent = text;
+  } else if (report.textContent.indexOf('鲸的贴图') === 0) {
+    // 只撤自己写的那条，别把 bench / selftest 的报告抹掉
+    report.classList.remove('on');
+    report.textContent = '';
+  }
+};
 if (spriteMode === 'mock') {
   whaleArt.adopt(makeMockSprite());
 } else if (spriteMode === 'img') {
-  artReady = whaleArt.load('img/sea/', bootProgress).then((ok) => {
-    if (!ok && report) {
-      report.classList.add('on');
-      report.textContent = 'img/sea/ 下没有找到 whale，已退回矢量占位';
+  // 【2026-11-25】用户："贴图没生效，报错提示未找到 whale"。
+  // 线上 whale.png 是 200，失败的是"弱网下没在超时内下完"，而旧代码**只试一次**：
+  // 一次超时 → 整局都是矢量占位，还写死一句"没有找到 whale"（听起来像文件没了）。
+  // 现在改成后台最多 3 轮、每轮之间停 1.2s；期间照常开局用矢量占位，
+  // 成功那一轮渲染层下一帧就会自动换上新贴图（它每帧读 sprite.ready）。
+  const round = (left) => whaleArt.load('img/sea/', bootProgress).then((ok) => {
+    if (ok) {
+      setArtNote('');
+      return true;
     }
-    return ok;
+    if (left > 0) {
+      setArtNote('鲸的贴图还在加载…（先用矢量占位）');
+      return new Promise((r) => setTimeout(r, 1200)).then(() => round(left - 1));
+    }
+    setArtNote('鲸的贴图没能加载出来，先用矢量占位');
+    return false;
   });
+  artReady = round(2);
 }
 
 const FROZEN = Q.get('frozen') === '1';

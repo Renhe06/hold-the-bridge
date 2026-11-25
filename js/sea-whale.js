@@ -48,10 +48,14 @@ export class SeaWhale {
   /**
    * 单张图加载；失败返回 null，不抛 —— 缺件必须能降级，不能把角色整个弄丢。
    * 走 js/art.js 的共享缓存：加载页解码过的图，渲染层直接复用，不重复解码。
-   * tries=1：这里在做"png / webp 后缀探测"，404 不值得重试，整轮失败由 load() 重来。
+   *
+   * 超时给到 20s、tries=2：整图 whale.png 有 612KB，手机冷启动时 9s 并不宽裕
+   * （2026-11-25 用户："贴图没生效，提示未找到 whale" —— 文件在线上是 200，
+   *  失败的是"没在 9 秒内下完"，然后一次失败就再也没有第二次机会）。
+   * 这里多给一次尝试；真正 404 的后缀探测（.webp）onerror 立刻返回，不会白等。
    */
-  _img(url) {
-    return artLoad(url, { tries: 1, timeout: 9000 });
+  _img(url, tries = 1) {
+    return artLoad(url, { tries, timeout: 20000 });
   }
 
   /**
@@ -67,8 +71,9 @@ export class SeaWhale {
     let settled = 0;
     const pick = async (base) => {
       const [png, webp] = await Promise.all([
-        this._img(dir + base + '.png'),
-        this._img(dir + base + '.webp'),
+        // png 是真资源，值得重试；webp 只是后缀探测，404 立刻返回，别重试
+        this._img(dir + base + '.png', 2),
+        this._img(dir + base + '.webp', 1),
       ]);
       settled += 1;
       if (onProgress) onProgress(settled / bases.length);

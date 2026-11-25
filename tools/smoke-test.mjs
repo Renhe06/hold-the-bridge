@@ -2612,6 +2612,17 @@ try {
        && /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) =>/.test(seaSrc)
        && /boot\.style\.display = 'none'/.test(seaSrc),
       '跃：点击开始先出加载动画再做重活（双层 rAF），进门不等贴图');
+    // 【2026-11-25】用户："鲸鱼贴图没生效，提示未找到 whale"。
+    // 线上文件是 200，失败原因是弱网没在 9s 超时内下完，而且只试一次。
+    // 现在：单张 20s 超时 + png 重试一次；整轮失败后台再来两轮，成功后自动撤掉提示。
+    {
+      const whaleSrc = fs.readFileSync(path.join(ROOT, 'js', 'sea-whale.js'), 'utf8');
+      ok(/timeout: 20000/.test(whaleSrc) && /_img\(dir \+ base \+ '\.png', 2\)/.test(whaleSrc),
+        '跃：鲸贴图单张 20s 超时 + png 重试（612KB 的图不能被 9s 判死）');
+      ok(/const round = \(left\)/.test(seaSrc) && /round\(2\)/.test(seaSrc)
+         && /鲸的贴图还在加载/.test(seaSrc),
+        '跃：整轮加载失败会后台重试两轮，提示文案不再说“没有找到 whale”');
+    }
     ok(/startLevel\(levelIndexOf\(/.test(main) && !/^\s*game\.beginLevel\(levelIndexOf/gm.test(main.replace(/startLevel\(levelIndexOf\(.*\);/g, '')),
       '选关 / 下一关两个入口都改走 startLevel（没有再直接 beginLevel）');
 
