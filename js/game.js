@@ -12,9 +12,9 @@
 //   3. 僵尸体型整体放大一档
 // ============================================================
 
-import { CFG, UPGRADES, WEAPON_TIERS, WEAPON_TIERS_FANTASY, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, isFantasy, isEndless, isWordMode, pvzPlant, heroDef, heroZRange } from './config.js';
+import { CFG, UPGRADES, WEAPON_TIERS, WEAPON_TIERS_FANTASY, OFFENSIVE_KEYS, isHordeWave, isBossWave, waveKind, waveTuning, specialWave, setLevel, findLevel, isPvz, isFantasy, isEndless, isWordMode, pvzPlant, heroZRange } from './config.js';
 import { bankWords, ALL_WORDS } from './words-bank.js';
-import { markLearned, markWrong, wrongTimes, learnedWords, wrongWords, removeWrong } from './wordbook.js';
+import { markLearned, markWrong, learnedWords, wrongWords, removeWrong } from './wordbook.js';
 import { clamp, rand, pickWeighted } from './util.js';
 import { QUALITY } from './quality.js';
 

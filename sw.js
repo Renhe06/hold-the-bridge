@@ -13,7 +13,7 @@
 //       离线时外壳还在、能打开游戏；图片没缓存上顶多暂时缺图（渲染器有手绘兜底）。
 // ============================================================
 
-const CACHE = 'hold-the-bridge-v1.0.88';
+const CACHE = 'hold-the-bridge-v1.0.89';
 
 // 只预缓存"外壳"：打开游戏必需的那几样，体积小、改动频繁
 const SHELL = [
@@ -25,10 +25,16 @@ const SHELL = [
   // 英文清单：切到 English 时装到主屏幕的名字也走英文（i18n.js 的 applyMeta 换 href）
   './manifest.en.webmanifest',
   './js/main.js',
+  // 普通脚本（非模块）：模块图整个挂掉时它仍要能跑，负责显示"资源没加载完"的提示
+  './js/failsafe.js',
   // 【2026-11-24】art.js 是 main/render/sea-whale 的**静态依赖**：
   // 漏掉它的话，Shell 缓存命中 main.js 而 art.js 取不到时，整个模块图直接加载失败 ——
   // 页面只剩静态 DOM、画布一片黑（用户报的"进去到处都是空白"）。
   './js/art.js',
+  // 【本次】同一个坑又抓到一处：wordbook.js 被 game.js 静态 import，
+  // 却一直没进外壳表。离线打开（装到主屏幕 / 断网重开）时它取不到，
+  // 整张模块图失败 —— 症状和上面 art.js 那次一模一样。
+  './js/wordbook.js',
   './js/config.js',
   './js/util.js',
   './js/quality.js',

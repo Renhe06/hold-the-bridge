@@ -938,8 +938,19 @@ function start() {
     Promise.race([artReady.catch(() => false), cap]).then(() => {
       starting = false;
       running = true;
-      const okInit = sea.init();
-      if (!okInit) setTimeout(() => sea.init(), 120);
+      // 音频初始化：**必须限次**。旧写法 `if (!ok) setTimeout(() => sea.init(), 120)`
+      // 会一直排下去 —— 音频被系统拒绝时（无设备 / 还没解锁）永不停止；
+      // 在虚拟时钟下更糟：定时器瞬间连续触发，把渲染进程直接拖死（?tap=1 崩溃）。
+      // 现在最多试 6 次（≈0.7s，够等 AudioContext 醒），之后安静地玩无声版；
+      // 玩家下一次点屏幕时再补一次，那才是有用的手势窗口。
+      let audioTries = 0;
+      const ensureAudio = () => {
+        if (sea.ready) return;
+        if (sea.init()) return;
+        if (audioTries++ >= 6) return;
+        setTimeout(ensureAudio, 120);
+      };
+      ensureAudio();
       sea.motif({ vol: 0.04 });
       // 真实录音异步加载：不挡开局，到位了再接上海面环境层。
       sea.loadSamples().then((got) => {
@@ -967,6 +978,8 @@ cv.addEventListener('pointerdown', (e) => {
   if (!running) return;
   e.preventDefault();
   try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+  // 开场那 0.7 秒没等到音频（iOS 常常要第二次手势）就趁这一下再试
+  if (!sea.ready) { try { S.unlock(); sea.init(); } catch (_) {} }
   guideSeen = true;
   game.down(e.clientX, e.clientY);
 });

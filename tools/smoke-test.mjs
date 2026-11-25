@@ -2334,6 +2334,28 @@ try {
     }
     // 外壳 / 图片的分流规则本身也要在（图片不 respondWith，才不会拖住安装）
     ok(/function isShell\s*\(/.test(sw), 'sw.js 里有 isShell() 分流：只有外壳走预缓存');
+    // 【2026-11-24】外壳清单必须覆盖所有**静态 import**。
+    // 漏一个（art.js 漏过一次、wordbook.js 漏过一次）离线打开时整张模块图加载失败，
+    // 页面只剩静态 DOM + 黑画布 —— 用户嘴里的"进去到处都是空白"。
+    {
+      const shellStart = sw.indexOf('const SHELL = [');
+      const shellBlock = sw.slice(shellStart, sw.indexOf('];', shellStart));
+      const inShell = new Set([...shellBlock.matchAll(/\.\/(js\/[\w-]+\.js)/g)].map((m) => m[1]));
+      const jsDir = path.join(ROOT, 'js');
+      const missing = [];
+      for (const f of fs.readdirSync(jsDir).filter((x) => x.endsWith('.js'))) {
+        const src = fs.readFileSync(path.join(jsDir, f), 'utf8');
+        for (const m of src.matchAll(/from '\.\/([\w-]+\.js)'/g)) {
+          const dep = 'js/' + m[1];
+          if (!inShell.has(dep)) missing.push(`${f} -> ${dep}`);
+        }
+      }
+      ok(missing.length === 0, `外壳清单覆盖所有静态 import（缺：${missing.join(', ') || '无'}）`);
+    }
+    // 模块挂掉时的兜底提示必须是"普通脚本"，不能是 module —— 否则它自己也起不来
+    ok(/<script src="\.\/js\/failsafe\.js"><\/script>/.test(html)
+       && /\.\/js\/failsafe\.js/.test(sw),
+      '脚本没起来时能显示兜底提示（failsafe.js 已在页面与外壳里）');
     ok(!/CACHE[\s\S]{0,400}\.png/.test(sw.slice(0, sw.indexOf('isShell') + 1)), '预缓存清单里没有图片');
     ok(!html.includes('img/portrait-elder.png') && !sw.includes('./img/portrait-elder.png'),
       '手绘的村长头像已经退役（不再引用）');
@@ -2540,15 +2562,18 @@ try {
       '主角立绘在菜单期就预取（选关 / 挑角色的时间就是加载窗口）');
     ok(/function openHeroes\(\)/.test(main) && !/openHeroes[\s\S]{0,240}showLoader/.test(main),
       '角色面板打开不盖加载页（卡图到了自然画上去）');
-    ok(/function loadBootPack\(\)/.test(main) && /PORTRAIT_KEYS/.test(main) && /fontTask\(\)/.test(main),
+    ok(/function loadBootPack\(/.test(main) && /PORTRAIT_KEYS/.test(main) && /fontTask\(\)/.test(main),
       '开局资源包包含全部头肩立绘与字体（点「角色」不再二次加载）');
     // 【本次】角色面板只等自己那两张卡图，不跟字体 / 对话头像的整包绑在一起
     ok(/function heroPanelCardsReady\(/.test(main) && /if \(heroPanelPromise\) return heroPanelPromise;/.test(main)
        && !/startHeroPanelWarmup/.test(main) && !/heroPanelArtReady/.test(main)
        && /Promise\.race\(\[/.test(main),
       '角色面板只等两张卡图解码（旧版等整个首屏包，字体一慢就卡住面板）');
-    ok(/loadBootPack\(\)\.then\(finish\)/.test(main) || /loadBootPack\(\)\.then\(/.test(main),
-      '加载页确实等资源包做完才收（不是等两帧就收）');
+    // 【2026-11-24】进度条改成读真实完成量：loadBootPack 每完成一项回调一次，
+    // 加载页露出时（>3s）显示的就是当时的真实位置，不再是永远 8% 的死条
+    ok(/loadBootPack\(setBootBar\)\s*\.then\(/.test(main) && /function setBootBar\(/.test(main)
+       && /bootProgress/.test(main),
+      '加载页确实等资源包做完才收，进度条读真实完成量（不再是死条）');
     // 【2026-11-24】黑屏防线：主循环必须先排下一帧；resize 清空画布后要立刻补一帧
     {
       const i0 = main.indexOf('function frame(now)');
@@ -3245,7 +3270,7 @@ try {
   ok(/#overOverlay\.pvz/.test(css) && /\.brain\s*\{\s*display:\s*none/.test(css), '失守面板的 PvZ 皮肤在（默认不显示脑子，pvz 时才亮）');
   const main = fs.readFileSync(path.join(ROOT, 'js', 'main.js'), 'utf8');
   ok(/CFG\.level\.skin === 'pvz'/.test(main) && main.includes('你的脑子被僵尸吃掉了'), 'showGameOver() 按 pvz 皮肤切标题');
-  ok(/function loadBootPack\(\)/.test(main) && /for \(const p of PORTRAIT_KEYS\)/.test(main)
+  ok(/function loadBootPack\(/.test(main) && /for \(const p of PORTRAIT_KEYS\)/.test(main)
      && !/function warmPortraits\(/.test(main),
     '进场对话立绘由资源包统一预热（名单从 TALKS 自动收，不再重复下载解码）');
   ok(/if \(portraitKey !== p\)/.test(main), '说话人没变就不重复写头像 src（避免重新解码）');

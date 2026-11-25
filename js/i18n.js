@@ -482,6 +482,9 @@ const EN = {
 
   // 加载页小字（用户 m13363）
   '首次加载需要较长时间，请耐心等待~': 'First load can take a while — thanks for waiting~',
+  // 【2026-11-24】js/failsafe.js（普通脚本，模块图挂掉时也要能跑）里的提示。
+  // 它自带中英双语（不能依赖本文件），这条留着是为了让字典是"全量文案"的单一出处。
+  '资源没加载完，点一下重试': 'Assets failed to load — tap to retry',
 
   // v1.0.56 更新说明（用户 m13363 给的条目）
   '修复微信打开偶发技能错位bug': 'Fixed the occasional skill-button misalignment when opening in WeChat',

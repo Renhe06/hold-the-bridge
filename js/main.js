@@ -485,6 +485,7 @@ const BOOT_SLOW_MS = 3000;
 const BOOT_HARD_MS = 12000; // 资源包万一卡住，也不能把玩家按在加载页上
 let bootClosed = false;
 let bootPackPromise = null;
+let bootProgress = 0;      // 首屏资源包真实完成量（0..1），加载页露出时用它定进度条
 
 /**
  * 一张图：取文件 + 解码都做完才算完。
@@ -512,9 +513,20 @@ function fontTask() {
   return Promise.race([p, new Promise((res) => setTimeout(res, 3000))]);
 }
 
+/** 首屏加载页的进度条：只读真实完成量。
+ *  2026-11-24 之前 `#bootBar` 的宽度没有任何代码推进 —— 一旦慢网露出加载页，
+ *  玩家看到的就是一条永远停在 8% 的死条（比没有进度条更像卡死）。 */
+function setBootBar(f) {
+  bootProgress = Math.min(1, Math.max(0, f || 0));
+  const bar = document.getElementById('bootBar');
+  if (!bar) return;
+  bar.style.width = (8 + 90 * bootProgress).toFixed(1) + '%';
+}
+
 /** 开局资源包：后台下完对话头像与字体；角色卡图走 heroPanelCardsReady 单独就绪。
- *  两者共用同一个 Promise，不会把同一张图下载 / 解码两遍。 */
-function loadBootPack() {
+ *  两者共用同一个 Promise，不会把同一张图下载 / 解码两遍。
+ *  @param onProgress 可选，每完成一项回调一次（0..1），只对第一次调用有意义 */
+function loadBootPack(onProgress) {
   if (bootPackPromise) return bootPackPromise;
   if (typeof Image === 'undefined') { // 冒烟测试的桩环境
     bootPackPromise = Promise.resolve();
@@ -534,7 +546,15 @@ function loadBootPack() {
     if (!seen.has(u)) { seen.add(u); tasks.push(preloadImage(u)); }
   }
   tasks.push(fontTask());
-  bootPackPromise = Promise.all(tasks);
+  let done = 0;
+  const bump = () => {
+    done += 1;
+    if (onProgress) onProgress(done / tasks.length);
+  };
+  bootPackPromise = Promise.all(tasks.map((t) => Promise.resolve(t).then(
+    (v) => { bump(); return v; },
+    (e) => { bump(); return e; }, // 单张失败不拖累整包，进度照样往前走
+  )));
   return bootPackPromise;
 }
 
@@ -548,7 +568,8 @@ function closeBoot() {
   const el = document.getElementById('bootOverlay');
   if (!el) return;
   el.classList.add('done');
-  // 节点不删：进关卡 / 角色面板的慢速兜底还要复用（用户 m07770）
+  // 节点保留（用户 m13363 的那层 DOM 只有这一处），不再被其他流程复用 ——
+  // 2026-11-24 起进关卡 / 角色面板都不盖加载页了（用户："加载页不要滥用"）。
 }
 
 /** 启动：3s 内下完就完全不显示加载页；真慢才露出来，点一下可提前收掉。 */
@@ -563,18 +584,24 @@ function runBootLoader() {
   }
   const slowTimer = setTimeout(() => {
     // 只有还停在首页才盖；玩家已经开打就别突然挡一层
-    if (game.state === STATE.START) el.style.display = 'flex';
+    if (game.state === STATE.START) {
+      el.style.display = 'flex';
+      setBootBar(bootProgress);
+    }
   }, BOOT_SLOW_MS);
   el.addEventListener('pointerdown', closeBoot);
   const hardTimer = setTimeout(closeBoot, BOOT_HARD_MS);
   // 先让首帧画出来再抢带宽；同时避开 heroPanelCardsReady 里那些变量的 TDZ
   //（定义在文件后面，同步调用会在模块还没执行完时踩 ReferenceError）
   requestAnimationFrame(() => {
-    loadBootPack().then(() => {
-      clearTimeout(slowTimer);
-      clearTimeout(hardTimer);
-      closeBoot();
-    });
+    setBootBar(0);
+    loadBootPack(setBootBar)
+      .then(() => {
+        clearTimeout(slowTimer);
+        clearTimeout(hardTimer);
+        setBootBar(1);
+        closeBoot();
+      });
   });
 }
 
@@ -594,10 +621,11 @@ function warmHeroArt(id) {
 
 // ---------------------------------------------------------
 // 【用户 m07770】"进页面或关卡前先进入加载页面后台加载需要的资源"
-//   启动那块（runBootLoader）只等外壳，按需求补一张"进关卡前"的加载页：
-//   素材在后台下完再开局，玩家就不会看到"人先到、图后到"。
-//   第四关两张全身立绘现在已经 1.7MB，以后素材只会更多，这张表就是挂载点。
-//   复用 #bootOverlay（品牌名 + 进度条，且标题在启动时已翻译过），不新增文案。
+//   这张表的定位在 2026-11-24 变过一次，别再按旧注释理解：
+//   - 不再"进关卡前盖一层加载页等它下完"（用户："加载页不要滥用"、"老是重试"）；
+//   - 现在它是**菜单期预取清单**：选关 / 挑角色的那几秒把图悄悄取回共享缓存，
+//     进关卡时同帧开门；图万一没到也只是先画手绘兜底，下一帧自动换上。
+//   第四关那两张全身立绘共 ~1.7MB，所以仍然只在真的要打那关时才取。
 // ---------------------------------------------------------
 const LEVEL_ART = {
   fantasy: [
@@ -642,6 +670,10 @@ function startLevel(idx) {
   for (const u of new Set(urls)) artLoad(u);
   game.beginLevel(idx);
 }
+
+// 告诉 js/failsafe.js（普通脚本，先于本模块执行）「模块已经跑起来了」——
+// 否则 5 秒后它会以为脚本死了，盖上一层"资源没加载完"（慢机首开就会误弹）。
+try { window.__HBT_READY = true; } catch (_) { /* 桩环境 */ }
 
 // 立刻开始等（外壳已经由 Service Worker 缓存优先返回了，这里主要是几张立绘）
 runBootLoader();
@@ -1714,6 +1746,20 @@ function esc(str) {
 let last = 0;
 let audioKickAt = 0; // 上一次"音频自愈"的时间戳（RAF 的 now，和 performance.now 同源）
 
+/** 一帧里某一块抛错，只丢这一块，不牵连别的块（HUD 照更新、画面照画）。
+ *  只记前 5 条，避免每帧刷爆控制台；真出问题时这几条就是唯一的线索。 */
+let frameErrs = 0;
+function safeFrame(label, fn) {
+  try {
+    fn();
+  } catch (e) {
+    if (frameErrs < 5) {
+      frameErrs += 1;
+      console.error('[frame] ' + label, e);
+    }
+  }
+}
+
 function frame(now) {
   // 【2026-11-24】先把下一帧排上，再做这一帧的活。
   // 旧写法把 requestAnimationFrame 放在函数末尾：任何一次异常（贴图、DOM、音频）
@@ -1740,20 +1786,14 @@ function frame(now) {
 
   if (paused) {
     // 暂停：世界完全静止（dt=0），但画布照画 —— 暂停面板底下还能看见战场
-    try { renderer.draw(game, 0); } catch (_) {}
-    syncState();
-    syncHud();
-    syncAudioState();
-    syncGain(0);
+    safeFrame('draw', () => renderer.draw(game, 0));
+    safeFrame('hud', () => { syncState(); syncHud(); syncAudioState(); syncGain(0); });
     return;
   }
 
-  game.update(dt);
-  // 同理：一帧画不出来只丢这一帧，不能让循环停掉
-  try { renderer.draw(game, dt); } catch (_) {}
-  syncState();
-  syncHud();
-  syncGain(dt);
+  safeFrame('update', () => game.update(dt));
+  safeFrame('draw', () => renderer.draw(game, dt));
+  safeFrame('hud', () => { syncState(); syncHud(); syncGain(dt); });
 
   // 音频自愈：iOS 会在后台、来电、锁屏之后把 AudioContext 挂起，
   // 而光靠"下一次触摸"不一定能碰上（比如玩家一直按着屏幕不动）。
