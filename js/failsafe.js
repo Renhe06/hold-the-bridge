@@ -32,11 +32,21 @@
       + (zh ? '资源没加载完，点一下重试' : 'Assets failed to load — tap to retry') + '</div>';
     box.addEventListener('pointerdown', function () { location.reload(); });
     document.body.appendChild(box);
+
+    // 慢网会误报：模块 5 秒后才到，这层已经盖上来了 —— 一旦主模块跑起来
+    // （__HBT_READY 置位）就自己撤掉，绝不能把能玩的游戏永久挡在后面。
+    var watch = setInterval(function () {
+      if (!window.__HBT_READY) return;
+      clearInterval(watch);
+      if (box.parentNode) box.parentNode.removeChild(box);
+      shown = false;
+    }, 400);
   }
 
   // 模块脚本取不到时，error 事件的目标就是那个 <script>
   window.addEventListener('error', function (e) {
     if (e && e.target && e.target.tagName === 'SCRIPT') fail();
   }, true);
-  setTimeout(fail, 5000);
+  // 8 秒：慢网首开（模块图几百 KB）也不至于误报，真死了也不会让人干等
+  setTimeout(fail, 8000);
 })();
